@@ -8,6 +8,7 @@ import 'ui/screens/library_screen.dart';
 import 'ui/screens/book_details_screen.dart';
 import 'ui/screens/playback_screen.dart';
 import 'ui/screens/settings_screen.dart';
+import 'ui/screens/free_books_screen.dart';
 
 void main() {
   runApp(const ProviderScope(child: AudiobookApp()));
@@ -55,6 +56,10 @@ final _router = GoRouter(
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
+    ),
+    GoRoute(
+      path: '/free-books',
+      builder: (context, state) => const FreeBooksScreen(),
     ),
   ],
 );

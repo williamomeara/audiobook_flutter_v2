@@ -1,10 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:core_domain/core_domain.dart';
+
+import '../infra/epub_parser.dart';
+import 'app_paths.dart';
 
 /// Library state containing all books.
 class LibraryState {
@@ -82,9 +86,93 @@ class LibraryController extends AsyncNotifier<LibraryState> {
 
   Future<void> addBook(Book book) async {
     final current = state.value ?? const LibraryState();
-    final updated = [...current.books, book];
+    final updated = [book, ...current.books];
     state = AsyncValue.data(current.copyWith(books: updated));
     await _saveLibrary(updated);
+  }
+
+  /// Finds an imported book by Project Gutenberg id.
+  String? findByGutenbergId(int gutenbergId) {
+    final current = state.value;
+    if (current == null) return null;
+    for (final b in current.books) {
+      if (b.gutenbergId == gutenbergId) return b.id;
+    }
+    return null;
+  }
+
+  /// Import an EPUB file into the app's book storage, parse it, and add to library.
+  ///
+  /// Returns the created (or existing) bookId.
+  Future<String> importBookFromPath({
+    required String sourcePath,
+    required String fileName,
+    int? gutenbergId,
+  }) async {
+    final current = state.value ?? const LibraryState();
+    state = AsyncValue.data(current.copyWith(isLoading: true, error: null));
+
+    try {
+      if (gutenbergId != null) {
+        final existing = findByGutenbergId(gutenbergId);
+        if (existing != null) {
+          state = AsyncValue.data(current.copyWith(isLoading: false));
+          return existing;
+        }
+      }
+
+      final lower = fileName.toLowerCase();
+      final isEpub = lower.endsWith('.epub');
+      if (!isEpub) {
+        throw Exception('Unsupported file format. Please select an EPUB file.');
+      }
+
+      final bookId = IdGenerator.generateBookId();
+      final paths = await ref.read(appPathsProvider.future);
+
+      final bookDir = paths.bookDir(bookId);
+      await bookDir.create(recursive: true);
+
+      final safeName = _sanitizeFileName(fileName);
+      final destPath = '${bookDir.path}/$safeName';
+      await File(sourcePath).copy(destPath);
+
+      final parser = await ref.read(epubParserProvider.future);
+      final parsed = await parser.parseFromFile(epubPath: destPath, bookId: bookId);
+
+      final book = Book(
+        id: bookId,
+        title: parsed.title,
+        author: parsed.author,
+        filePath: destPath,
+        addedAt: DateTime.now().millisecondsSinceEpoch,
+        coverImagePath: parsed.coverPath,
+        chapters: parsed.chapters,
+        gutenbergId: gutenbergId,
+        progress: BookProgress.zero,
+      );
+
+      final updated = [book, ...current.books];
+      state = AsyncValue.data(current.copyWith(books: updated, isLoading: false));
+      await _saveLibrary(updated);
+
+      return bookId;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Library import failed: $e');
+      state = AsyncValue.data(
+        current.copyWith(isLoading: false, error: 'Import failed: $e'),
+      );
+      rethrow;
+    }
+  }
+
+  String _sanitizeFileName(String name) {
+    final trimmed = name.trim().isEmpty ? 'book.epub' : name.trim();
+    final withoutBadChars = trimmed.replaceAll(RegExp(r'[^A-Za-z0-9._\- ]+'), '_');
+    var out = withoutBadChars;
+    if (!out.toLowerCase().endsWith('.epub')) out = '$out.epub';
+    if (out.length > 160) out = '${out.substring(0, 160)}.epub';
+    return out;
   }
 
   Future<void> removeBook(String bookId) async {
