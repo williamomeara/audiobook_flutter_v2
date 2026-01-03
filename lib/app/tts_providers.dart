@@ -220,9 +220,10 @@ class TtsDownloadManager extends AsyncNotifier<TtsDownloadState> {
       final modelSpec = AssetSpec(
         key: 'supertonic',
         displayName: 'Supertonic Model',
-        downloadUrl: 'https://huggingface.co/Supertone/supertonic/resolve/main/models/autoencoder.onnx',
+        // Download release asset (tar.gz) hosted in audiobook_flutter_assets releases. The manager will extract it.
+        downloadUrl: 'https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_core.tar.gz',
         installPath: 'supertonic',
-        sizeBytes: 94371840,
+        sizeBytes: null,
         isCore: true,
         engineType: EngineType.supertonic,
       );
