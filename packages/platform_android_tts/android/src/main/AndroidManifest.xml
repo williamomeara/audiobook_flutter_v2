@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="com.example.platform_android_tts">
+  
+  <!-- Multi-process TTS services (Option B architecture) -->
+  <application>
+    <!-- Kokoro TTS Service (separate process) -->
+    <service
+      android:name=".services.KokoroTtsService"
+      android:process=":kokoro"
+      android:exported="false" />
+    
+    <!-- Piper TTS Service (separate process) -->
+    <service
+      android:name=".services.PiperTtsService"
+      android:process=":piper"
+      android:exported="false" />
+    
+    <!-- Supertonic TTS Service (separate process) -->
+    <service
+      android:name=".services.SupertonicTtsService"
+      android:process=":supertonic"
+      android:exported="false" />
+  </application>
+</manifest>

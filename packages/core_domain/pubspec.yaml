@@ -1,0 +1,13 @@
+name: core_domain
+description: "Core domain models and utilities for audiobook app"
+version: 0.0.1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  crypto: ^3.0.7
+
+dev_dependencies:
+  test: ^1.25.0
+  flutter_lints: ^6.0.0

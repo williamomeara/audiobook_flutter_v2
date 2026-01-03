@@ -1,0 +1,223 @@
+{
+  "version": 2,
+  "lastUpdated": "2026-01-03",
+  "cores": [
+    {
+      "id": "kokoro_model_v1",
+      "engineType": "kokoro",
+      "displayName": "Kokoro TTS Model (Q8)",
+      "url": "https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/kokoro-v1.0.onnx",
+      "sizeBytes": 94371840,
+      "sha256": "placeholder_kokoro_model_sha256",
+      "quality": "q8",
+      "required": true,
+      "note": "Download from GitHub releases or use quantized ONNX version when available"
+    },
+    {
+      "id": "kokoro_voices_v1",
+      "engineType": "kokoro",
+      "displayName": "Kokoro Voice Styles",
+      "url": "https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/voices-v1.0.bin",
+      "sizeBytes": 52428800,
+      "sha256": "placeholder_kokoro_voices_sha256",
+      "required": true
+    },
+    {
+      "id": "espeak_ng_data_v1",
+      "engineType": "kokoro",
+      "displayName": "eSpeak-NG Phoneme Data",
+      "url": "https://github.com/rhasspy/piper-phonemize/releases/download/v1.0.0/espeak-ng-data.tar.gz",
+      "sizeBytes": 52428800,
+      "sha256": "placeholder_espeak_sha256",
+      "required": true
+    },
+    {
+      "id": "piper_alan_gb_v1",
+      "engineType": "piper",
+      "displayName": "Piper - Alan (British)",
+      "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
+      "sizeBytes": 31457280,
+      "sha256": "placeholder_piper_alan_model_sha256",
+      "required": true,
+      "files": [
+        {
+          "filename": "en_GB-alan-medium.onnx",
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
+          "sizeBytes": 31457280
+        },
+        {
+          "filename": "en_GB-alan-medium.onnx.json",
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json",
+          "sizeBytes": 2048
+        }
+      ]
+    },
+    {
+      "id": "piper_lessac_us_v1",
+      "engineType": "piper",
+      "displayName": "Piper - Lessac (American)",
+      "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+      "sizeBytes": 31457280,
+      "sha256": "placeholder_piper_lessac_model_sha256",
+      "required": true,
+      "files": [
+        {
+          "filename": "en_US-lessac-medium.onnx",
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+          "sizeBytes": 31457280
+        },
+        {
+          "filename": "en_US-lessac-medium.onnx.json",
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
+          "sizeBytes": 2048
+        }
+      ]
+    },
+    {
+      "id": "supertonic_autoencoder_v1",
+      "engineType": "supertonic",
+      "displayName": "Supertonic Autoencoder",
+      "url": "https://huggingface.co/Supertone/supertonic/resolve/main/models/autoencoder.onnx",
+      "sizeBytes": 94371840,
+      "sha256": "placeholder_supertonic_ae_sha256",
+      "required": true,
+      "note": "Requires Git LFS or direct HuggingFace download"
+    },
+    {
+      "id": "supertonic_text_encoder_v1",
+      "engineType": "supertonic",
+      "displayName": "Supertonic Text Encoder",
+      "url": "https://huggingface.co/Supertone/supertonic/resolve/main/models/text_encoder.onnx",
+      "sizeBytes": 104857600,
+      "sha256": "placeholder_supertonic_te_sha256",
+      "required": true
+    },
+    {
+      "id": "supertonic_duration_v1",
+      "engineType": "supertonic",
+      "displayName": "Supertonic Duration Predictor",
+      "url": "https://huggingface.co/Supertone/supertonic/resolve/main/models/duration_predictor.onnx",
+      "sizeBytes": 73400320,
+      "sha256": "placeholder_supertonic_dp_sha256",
+      "required": true
+    }
+  ],
+  "voices": [
+    {
+      "id": "kokoro_af",
+      "engineId": "kokoro",
+      "displayName": "Kokoro - AF (Default)",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 0,
+      "coreRequirements": ["kokoro_model_v1", "kokoro_voices_v1", "espeak_ng_data_v1"],
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 1500
+    },
+    {
+      "id": "kokoro_af_bella",
+      "engineId": "kokoro",
+      "displayName": "Kokoro - AF Bella",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 1,
+      "coreRequirements": ["kokoro_model_v1", "kokoro_voices_v1", "espeak_ng_data_v1"],
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 1500
+    },
+    {
+      "id": "kokoro_af_nicole",
+      "engineId": "kokoro",
+      "displayName": "Kokoro - AF Nicole",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 2,
+      "coreRequirements": ["kokoro_model_v1", "kokoro_voices_v1", "espeak_ng_data_v1"],
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 1500
+    },
+    {
+      "id": "kokoro_am_adam",
+      "engineId": "kokoro",
+      "displayName": "Kokoro - AM Adam",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 5,
+      "coreRequirements": ["kokoro_model_v1", "kokoro_voices_v1", "espeak_ng_data_v1"],
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 1500
+    },
+    {
+      "id": "kokoro_bf_emma",
+      "engineId": "kokoro",
+      "displayName": "Kokoro - BF Emma",
+      "language": "en-GB",
+      "gender": "female",
+      "speakerId": 7,
+      "coreRequirements": ["kokoro_model_v1", "kokoro_voices_v1", "espeak_ng_data_v1"],
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 1500
+    },
+    {
+      "id": "kokoro_bm_george",
+      "engineId": "kokoro",
+      "displayName": "Kokoro - BM George",
+      "language": "en-GB",
+      "gender": "male",
+      "speakerId": 9,
+      "coreRequirements": ["kokoro_model_v1", "kokoro_voices_v1", "espeak_ng_data_v1"],
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 1500
+    },
+    {
+      "id": "piper_en_GB_alan_medium",
+      "engineId": "piper",
+      "displayName": "Piper - Alan (British)",
+      "language": "en-GB",
+      "gender": "male",
+      "modelKey": "en_GB-alan-medium",
+      "coreRequirements": ["piper_alan_gb_v1"],
+      "modelUrl": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
+      "modelSize": 31457280,
+      "configUrl": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json",
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 800
+    },
+    {
+      "id": "piper_en_US_lessac_medium",
+      "engineId": "piper",
+      "displayName": "Piper - Lessac (American)",
+      "language": "en-US",
+      "gender": "female",
+      "modelKey": "en_US-lessac-medium",
+      "coreRequirements": ["piper_lessac_us_v1"],
+      "modelUrl": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+      "modelSize": 31457280,
+      "configUrl": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 800
+    },
+    {
+      "id": "supertonic_m1",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 1",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 0,
+      "coreRequirements": ["supertonic_autoencoder_v1", "supertonic_text_encoder_v1", "supertonic_duration_v1"],
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 1200
+    },
+    {
+      "id": "supertonic_f1",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 1",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 5,
+      "coreRequirements": ["supertonic_autoencoder_v1", "supertonic_text_encoder_v1", "supertonic_duration_v1"],
+      "previewUrl": null,
+      "estimatedSynthTimeMs": 1200
+    }
+  ]
+}

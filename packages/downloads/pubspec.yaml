@@ -1,0 +1,19 @@
+name: downloads
+description: "Download manager for voice assets and cores"
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  http: ^1.2.2
+  archive: ^3.6.1
+  path_provider: ^2.1.5
+  crypto: ^3.0.7
+  core_domain:
+    path: ../core_domain
+
+dev_dependencies:
+  test: ^1.25.0
+  flutter_lints: ^6.0.0

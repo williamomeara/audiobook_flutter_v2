@@ -1,0 +1,19 @@
+name: tts_engines
+description: "TTS engine adapters for Piper, Supertonic, and Kokoro"
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  core_domain:
+    path: ../core_domain
+  platform_android_tts:
+    path: ../platform_android_tts
+  path_provider: ^2.1.5
+  crypto: ^3.0.7
+
+dev_dependencies:
+  test: ^1.25.0
+  flutter_lints: ^6.0.0

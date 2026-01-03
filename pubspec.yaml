@@ -1,0 +1,74 @@
+name: audiobook_flutter_v2
+description: "Audiobook reader with AI TTS synthesis"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  
+  # State management
+  flutter_riverpod: ^3.0.3
+  
+  # Navigation
+  go_router: ^17.0.1
+  
+  # Storage
+  shared_preferences: ^2.5.4
+  path_provider: ^2.1.5
+  
+  # Audio playback
+  just_audio: ^0.10.5
+  audio_service: ^0.18.18
+  
+  # File handling
+  file_picker: ^10.3.7
+  archive: ^3.6.1
+  
+  # EPUB/PDF parsing
+  epubx: ^4.0.0
+  image: ^3.3.0
+  pdfrx: ^1.0.95
+  
+  # Networking
+  http: ^1.2.2
+  
+  # Crypto (for cache key hashing)
+  crypto: ^3.0.7
+  
+  # UI components
+  scrollable_positioned_list: ^0.3.8
+  
+  # Device TTS fallback
+  flutter_tts: ^4.2.3
+  
+  # Permissions
+  permission_handler: ^12.0.1
+  
+  # Local packages
+  core_domain:
+    path: packages/core_domain
+  downloads:
+    path: packages/downloads
+  playback:
+    path: packages/playback
+  tts_engines:
+    path: packages/tts_engines
+  platform_android_tts:
+    path: packages/platform_android_tts
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
