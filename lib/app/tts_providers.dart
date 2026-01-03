@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core_domain/core_domain.dart';
@@ -100,6 +101,7 @@ class TtsDownloadManager extends AsyncNotifier<TtsDownloadState> {
   }
 
   void _onKokoroState(DownloadState ds) {
+    developer.log('Kokoro state update: status=${ds.status}, progress=${ds.progress}, error=${ds.error}', name: 'TtsDownloadManager');
     state = AsyncData(state.value!.copyWith(
       kokoroState: ds.status,
       kokoroProgress: ds.progress,
@@ -109,6 +111,7 @@ class TtsDownloadManager extends AsyncNotifier<TtsDownloadState> {
   }
 
   void _onPiperState(DownloadState ds) {
+    developer.log('Piper state update: status=${ds.status}, progress=${ds.progress}, error=${ds.error}', name: 'TtsDownloadManager');
     state = AsyncData(state.value!.copyWith(
       piperState: ds.status,
       piperProgress: ds.progress,
@@ -118,6 +121,7 @@ class TtsDownloadManager extends AsyncNotifier<TtsDownloadState> {
   }
 
   void _onSupertonicState(DownloadState ds) {
+    developer.log('Supertonic state update: status=${ds.status}, progress=${ds.progress}, error=${ds.error}', name: 'TtsDownloadManager');
     state = AsyncData(state.value!.copyWith(
       supertonicState: ds.status,
       supertonicProgress: ds.progress,
@@ -142,13 +146,16 @@ class TtsDownloadManager extends AsyncNotifier<TtsDownloadState> {
         engineType: EngineType.kokoro,
       );
 
+      developer.log('Starting Kokoro download: ${modelSpec.downloadUrl}', name: 'TtsDownloadManager');
       await _assetManager!.download(modelSpec);
+      developer.log('Kokoro download completed', name: 'TtsDownloadManager');
 
       state = AsyncData(state.value!.copyWith(
         kokoroState: DownloadStatus.ready,
         kokoroProgress: 1.0,
       ));
-    } catch (e) {
+    } catch (e, s) {
+      developer.log('Kokoro download failed', name: 'TtsDownloadManager', error: e, stackTrace: s);
       state = AsyncData(state.value!.copyWith(
         kokoroState: DownloadStatus.failed,
         error: 'Kokoro download failed: $e',
@@ -173,7 +180,9 @@ class TtsDownloadManager extends AsyncNotifier<TtsDownloadState> {
         engineType: EngineType.piper,
       );
 
+      developer.log('Starting Piper download (Alan): ${alanModelSpec.downloadUrl}', name: 'TtsDownloadManager');
       await _assetManager!.download(alanModelSpec);
+      developer.log('Piper Alan download completed', name: 'TtsDownloadManager');
 
       final lessacModelSpec = AssetSpec(
         key: 'piper/en_US-lessac-medium',
@@ -185,13 +194,16 @@ class TtsDownloadManager extends AsyncNotifier<TtsDownloadState> {
         engineType: EngineType.piper,
       );
 
+      developer.log('Starting Piper download (Lessac): ${lessacModelSpec.downloadUrl}', name: 'TtsDownloadManager');
       await _assetManager!.download(lessacModelSpec);
+      developer.log('Piper Lessac download completed', name: 'TtsDownloadManager');
 
       state = AsyncData(state.value!.copyWith(
         piperState: DownloadStatus.ready,
         piperProgress: 1.0,
       ));
-    } catch (e) {
+    } catch (e, s) {
+      developer.log('Piper download failed', name: 'TtsDownloadManager', error: e, stackTrace: s);
       state = AsyncData(state.value!.copyWith(
         piperState: DownloadStatus.failed,
         error: 'Piper download failed: $e',
@@ -215,13 +227,16 @@ class TtsDownloadManager extends AsyncNotifier<TtsDownloadState> {
         engineType: EngineType.supertonic,
       );
 
+      developer.log('Starting Supertonic download: ${modelSpec.downloadUrl}', name: 'TtsDownloadManager');
       await _assetManager!.download(modelSpec);
+      developer.log('Supertonic download completed', name: 'TtsDownloadManager');
 
       state = AsyncData(state.value!.copyWith(
         supertonicState: DownloadStatus.ready,
         supertonicProgress: 1.0,
       ));
-    } catch (e) {
+    } catch (e, s) {
+      developer.log('Supertonic download failed', name: 'TtsDownloadManager', error: e, stackTrace: s);
       state = AsyncData(state.value!.copyWith(
         supertonicState: DownloadStatus.failed,
         error: 'Supertonic download failed: $e',
