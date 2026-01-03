@@ -6,8 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/library_controller.dart';
-import '../../app/app_paths.dart';
-import '../../infra/epub_parser.dart';
 import '../theme/app_colors.dart';
 import 'package:core_domain/core_domain.dart';
 
@@ -31,7 +29,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Future<void> _handleImport() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['epub', 'pdf'],
+      allowedExtensions: const ['epub'],
       withData: false,
     );
 
@@ -51,35 +49,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     setState(() => _isImporting = true);
 
     try {
-      // Parse the EPUB
-      final parser = await ref.read(epubParserProvider.future);
-      final bookId = IdGenerator.generateBookId();
-      final parsed = await parser.parseFromFile(epubPath: path, bookId: bookId);
-
-      // Copy EPUB to app directory
-      final paths = await ref.read(appPathsProvider.future);
-      final bookDir = paths.bookDir(bookId);
-      await bookDir.create(recursive: true);
-      final destPath = '${bookDir.path}/${file.name}';
-      await File(path).copy(destPath);
-
-      // Create book
-      final book = Book(
-        id: bookId,
-        title: parsed.title,
-        author: parsed.author,
-        filePath: destPath,
-        addedAt: DateTime.now().millisecondsSinceEpoch,
-        coverImagePath: parsed.coverPath,
-        chapters: parsed.chapters,
-      );
-
-      // Add to library
-      await ref.read(libraryProvider.notifier).addBook(book);
+      final bookId = await ref.read(libraryProvider.notifier).importBookFromPath(
+            sourcePath: path,
+            fileName: file.name,
+          );
+      final imported = ref.read(libraryProvider.notifier).getBook(bookId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Added "${book.title}"')),
+          SnackBar(content: Text('Added "${imported?.title ?? file.name}"')),
         );
       }
     } catch (e) {
@@ -136,24 +114,39 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                           color: colors.text,
                         ),
                       ),
-                      TextButton(
-                        onPressed: _isImporting ? null : _handleImport,
-                        child: _isImporting
-                            ? SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: colors.primary,
-                                ),
-                              )
-                            : Text(
-                                'Import',
-                                style: TextStyle(
-                                  color: colors.primary,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: () => context.push('/free-books'),
+                            child: Text(
+                              'Free',
+                              style: TextStyle(
+                                color: colors.primary,
+                                fontWeight: FontWeight.w600,
                               ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: _isImporting ? null : _handleImport,
+                            child: _isImporting
+                                ? SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: colors.primary,
+                                    ),
+                                  )
+                                : Text(
+                                    'Import',
+                                    style: TextStyle(
+                                      color: colors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
