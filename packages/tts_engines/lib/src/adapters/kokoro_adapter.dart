@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
+import 'package:logging/logging.dart';
 import 'package:platform_android_tts/generated/tts_api.g.dart';
 
 import '../interfaces/ai_voice_engine.dart';
@@ -15,6 +17,8 @@ import '../interfaces/tts_state_machines.dart';
 /// Routes synthesis requests to the native Kokoro ONNX service
 /// via Pigeon-generated bindings.
 class KokoroAdapter implements AiVoiceEngine {
+  final Logger _logger = Logger('KokoroAdapter');
+
   KokoroAdapter({
     required TtsNativeApi nativeApi,
     required Directory coreDir,
@@ -202,6 +206,7 @@ class KokoroAdapter implements AiVoiceEngine {
       }
 
       if (!result.success) {
+        _logger.severe('Native Kokoro synthesis failed: ${result.errorMessage} Code: ${result.errorCode}');
         await _deleteTempFile(tmpPath);
         return _handleNativeError(result, request);
       }

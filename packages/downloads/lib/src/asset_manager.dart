@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:archive/archive.dart';
+import 'package:logging/logging.dart';
 import 'dart:developer' as developer;
 
 import 'asset_spec.dart';
@@ -28,6 +29,8 @@ abstract interface class VoiceAssetManager {
 
 /// Implementation of VoiceAssetManager.
 class FileAssetManager implements VoiceAssetManager {
+  final Logger _logger = Logger('FileAssetManager');
+
   FileAssetManager({required this.baseDir});
 
   /// Base directory for downloads.
@@ -76,9 +79,7 @@ class FileAssetManager implements VoiceAssetManager {
       await baseDir.create(recursive: true);
       final tempFile = File('${baseDir.path}/$key.tmp');
 
-      developer.log('Starting download for key=$key url=${spec.downloadUrl} tmp=${tempFile.path}', name: 'FileAssetManager');
-
-      // Download
+      _logger.info('Starting download for key=$key url=${spec.downloadUrl} tmp=${tempFile.path}');
       await _downloadFile(
         url: spec.downloadUrl,
         destFile: tempFile,
@@ -154,15 +155,15 @@ class FileAssetManager implements VoiceAssetManager {
   }) async {
     final client = http.Client();
     try {
-      developer.log('HTTP GET: $url', name: 'FileAssetManager');
+      _logger.fine('HTTP GET: $url');
       final streamedResponse = await client.send(http.Request('GET', Uri.parse(url)));
       
       // Handle redirects manually
       http.StreamedResponse response = streamedResponse;
-      developer.log('Received HTTP ${response.statusCode} for $url', name: 'FileAssetManager');
+      _logger.fine('Received HTTP ${response.statusCode} for $url');
       if (response.statusCode == 302 || response.statusCode == 301) {
         final redirectUrl = response.headers['location'];
-        developer.log('Redirect to $redirectUrl', name: 'FileAssetManager');
+        _logger.fine('Redirect to $redirectUrl');
         if (redirectUrl != null) {
           client.close();
           return _downloadFile(
@@ -175,7 +176,7 @@ class FileAssetManager implements VoiceAssetManager {
       }
 
       if (response.statusCode != 200) {
-        developer.log('Download failed with status ${response.statusCode} for $url', name: 'FileAssetManager');
+        _logger.warning('Download failed with status ${response.statusCode} for $url');
         throw Exception('Download failed: HTTP ${response.statusCode}');
       }
 
@@ -203,14 +204,14 @@ class FileAssetManager implements VoiceAssetManager {
         await sink.close();
       }
 
-      developer.log('Finished download for key=$key, bytes=$downloaded, expected=$contentLength -> ${destFile.path}', name: 'FileAssetManager');
+      _logger.info('Finished download for key=$key, bytes=$downloaded, expected=$contentLength -> ${destFile.path}');
     } finally {
       client.close();
     }
   }
 
   Future<void> _extractArchive(File archive, Directory destDir, {String? stripPrefix}) async {
-    developer.log('Extracting ${archive.path} -> ${destDir.path} (stripPrefix=$stripPrefix)', name: 'FileAssetManager');
+    _logger.info('Extracting ${archive.path} -> ${destDir.path} (stripPrefix=$stripPrefix)');
     final bytes = await archive.readAsBytes();
 
     Archive decoded;
@@ -243,7 +244,7 @@ class FileAssetManager implements VoiceAssetManager {
         await Directory('${destDir.path}/$filename').create(recursive: true);
       }
     }
-    developer.log('Extracted archive ${archive.path}: entries=$total files=$filesExtracted', name: 'FileAssetManager');
+    _logger.info('Extracted archive ${archive.path}: entries=$total files=$filesExtracted');
   }
 
   /// Dispose all stream controllers.

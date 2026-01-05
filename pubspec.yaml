@@ -42,6 +42,9 @@ dependencies:
   # Crypto (for cache key hashing)
   crypto: ^3.0.7
   
+  # Logging
+  logging: ^1.2.0
+  
   # UI components
   scrollable_positioned_list: ^0.3.8
   
