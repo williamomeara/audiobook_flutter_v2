@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
+import 'package:logging/logging.dart';
 import 'package:platform_android_tts/generated/tts_api.g.dart';
 
 import '../interfaces/ai_voice_engine.dart';
@@ -15,6 +17,8 @@ import '../interfaces/tts_state_machines.dart';
 /// Routes synthesis requests to the native Piper ONNX service.
 /// Piper requires phonemizer toolchain for text-to-phoneme conversion.
 class PiperAdapter implements AiVoiceEngine {
+  final Logger _logger = Logger('PiperAdapter');
+
   PiperAdapter({
     required TtsNativeApi nativeApi,
     required Directory coreDir,
@@ -92,6 +96,7 @@ class PiperAdapter implements AiVoiceEngine {
     // Check if voice model exists
     final voiceDir = Directory('${_coreDir.path}/piper/$modelKey');
     if (!await voiceDir.exists()) {
+      _logger.warning('Piper voice model missing for $voiceId: $modelKey');
       return VoiceReadiness(
         voiceId: voiceId,
         state: VoiceReadyState.coreRequired,
@@ -187,6 +192,7 @@ class PiperAdapter implements AiVoiceEngine {
       }
 
       if (!result.success) {
+        _logger.severe('Native Piper synthesis failed: ${result.errorMessage} Code: ${result.errorCode}');
         await _deleteTempFile(tmpPath);
         return _handleNativeError(result, request);
       }
@@ -204,8 +210,11 @@ class PiperAdapter implements AiVoiceEngine {
         durationMs: result.durationMs ?? 0,
         sampleRate: result.sampleRate ?? 22050, // Piper typically uses 22050
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.severe('Piper synthesis exception', e, stackTrace);
+      
       if (request.canRetry && _isRecoverableError(e)) {
+        _logger.info('Retrying synthesis (attempt ${request.retryAttempt + 1})');
         request.incrementRetry();
         return synthesizeSegment(request);
       }
