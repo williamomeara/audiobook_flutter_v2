@@ -7,7 +7,7 @@ import 'package:core_domain/core_domain.dart';
 class SettingsState {
   const SettingsState({
     this.darkMode = false,
-    this.selectedVoice = VoiceIds.device,
+    this.selectedVoice = VoiceIds.kokoroAfDefault,
     this.autoAdvanceChapters = true,
     this.defaultPlaybackRate = 1.0,
   });
@@ -59,7 +59,7 @@ class SettingsController extends Notifier<SettingsState> {
     
     state = SettingsState(
       darkMode: _prefs?.getBool(_keyDarkMode) ?? false,
-      selectedVoice: _prefs?.getString(_keySelectedVoice) ?? VoiceIds.device,
+      selectedVoice: _prefs?.getString(_keySelectedVoice) ?? VoiceIds.kokoroAfDefault,
       autoAdvanceChapters: _prefs?.getBool(_keyAutoAdvance) ?? true,
       defaultPlaybackRate: _prefs?.getDouble(_keyPlaybackRate) ?? 1.0,
     );

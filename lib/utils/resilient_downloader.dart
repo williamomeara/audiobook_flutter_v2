@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
@@ -13,6 +14,8 @@ import 'package:http/http.dart' as http;
 /// retry logic, archive extraction in an isolate, checksum validation and
 /// atomic move to target directory.
 class ResilientDownloader {
+  static final Logger _logger = Logger('ResilientDownloader');
+
   static Future<void> downloadAndInstall(
     String url,
     Directory targetDir, {
@@ -22,7 +25,7 @@ class ResilientDownloader {
     void Function(double progress)? onProgress,
     int maxRetries = 3,
   }) async {
-    developer.log('ResilientDownloader: downloadAndInstall: $url -> ${targetDir.path}', name: 'ResilientDownloader');
+    _logger.info('downloadAndInstall: $url -> ${targetDir.path}');
 
     final tempRoot = Directory('${targetDir.parent.path}/.tmp_downloads');
     await tempRoot.create(recursive: true);
@@ -91,7 +94,7 @@ class ResilientDownloader {
   }) async {
     final uri = Uri.parse(url);
     final fallbackTotal = expectedBytes ?? 0;
-    if (kDebugMode) developer.log('ResilientDownloader: starting download $url -> ${targetFile.path}', name: 'ResilientDownloader');
+    if (kDebugMode) _logger.fine('starting download $url -> ${targetFile.path}');
 
     for (var attempt = 0; attempt <= maxRetries; attempt++) {
       var existingBytes = 0;
@@ -105,13 +108,13 @@ class ResilientDownloader {
       try {
         response = await request.send();
       } catch (e) {
-        if (kDebugMode) developer.log('ResilientDownloader: request.send failed for $url on attempt $attempt: $e', name: 'ResilientDownloader');
+        if (kDebugMode) _logger.warning('request.send failed for $url on attempt $attempt: $e');
         if (attempt == maxRetries) rethrow;
         await Future<void>.delayed(Duration(seconds: 1 + attempt));
         continue;
       }
 
-      if (kDebugMode) developer.log('ResilientDownloader: HTTP ${response.statusCode} for $url (existing=$existingBytes, contentLength=${response.contentLength})', name: 'ResilientDownloader');
+      if (kDebugMode) _logger.fine('HTTP ${response.statusCode} for $url (existing=$existingBytes, contentLength=${response.contentLength})');
 
       if (response.statusCode == 416) {
         if (await targetFile.exists()) await targetFile.delete();

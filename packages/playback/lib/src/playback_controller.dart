@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:core_domain/core_domain.dart';
+import 'package:logging/logging.dart';
 import 'package:tts_engines/tts_engines.dart';
 
 import 'audio_output.dart';
@@ -57,6 +59,8 @@ abstract interface class PlaybackController {
 
 /// Implementation of PlaybackController with synthesis and buffering.
 class AudiobookPlaybackController implements PlaybackController {
+  final Logger _logger = Logger('AudiobookPlaybackController');
+
   AudiobookPlaybackController({
     required this.engine,
     required this.cache,
@@ -326,7 +330,10 @@ class AudiobookPlaybackController implements PlaybackController {
       return;
     }
 
-    // TODO: per-book voice selection not yet implemented, always pass null
+    // Pass null to the resolver to use the global selected voice when no
+    // book-specific voice ID is available. Previously the bookId string was
+    // (incorrectly) passed which caused the router to fail to find a matching
+    // engine.
     final voiceId = voiceIdResolver(null);
 
     // Update scheduler context
@@ -348,6 +355,20 @@ class AudiobookPlaybackController implements PlaybackController {
     }
 
     try {
+      // Check if the voice is available before attempting synthesis
+      final voiceReadiness = await engine.checkVoiceReady(voiceId);
+      if (!voiceReadiness.isReady) {
+        _logger.warning('Voice not ready: ${voiceReadiness.state}');
+        
+        _updateState(_state.copyWith(
+          isPlaying: false,
+          isBuffering: false,
+          error: voiceReadiness.nextActionUserShouldTake ?? 
+                 'Voice not ready. Please download the required model in Settings.',
+        ));
+        return;
+      }
+
       // Synthesize current segment
       final result = await engine.synthesizeToWavFile(
         voiceId: voiceId,
@@ -368,7 +389,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
       // Start background prefetch
       _startPrefetchIfNeeded();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.severe('Synthesis failed for track ${track.id}', e, stackTrace);
+      
       if (!_isCurrentOp(opId)) return;
 
       _updateState(_state.copyWith(

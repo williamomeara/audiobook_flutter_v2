@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:core_domain/core_domain.dart';
+import 'package:logging/logging.dart';
 import 'package:tts_engines/tts_engines.dart';
 
 import 'playback_config.dart';
@@ -11,6 +13,8 @@ import 'playback_config.dart';
 /// ahead of the current playback position to maintain a smooth
 /// listening experience.
 class BufferScheduler {
+  final Logger _logger = Logger('BufferScheduler');
+
   BufferScheduler();
 
   /// Whether prefetch is currently running.
@@ -170,8 +174,9 @@ class BufferScheduler {
             playbackRate: playbackRate,
           );
           _prefetchedThroughIndex = i;
-        } catch (e) {
-          // Log error but continue trying
+        } catch (e, stackTrace) {
+          _logger.warning('Prefetch synthesis failed for track $i', e, stackTrace);
+          // Continue trying next tracks
         }
 
         i++;
