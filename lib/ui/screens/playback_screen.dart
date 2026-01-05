@@ -31,10 +31,21 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
 
   Future<void> _initializePlayback() async {
     if (_initialized) return;
-    _initialized = true;
 
-    final library = ref.read(libraryProvider).value;
+    // Wait for library to be available
+    final libraryAsync = ref.read(libraryProvider);
+    LibraryState? library;
+    
+    if (libraryAsync.hasValue) {
+      library = libraryAsync.value;
+    } else if (libraryAsync.isLoading) {
+      // Wait for library to load
+      library = await ref.read(libraryProvider.future);
+    }
+    
     if (library == null) return;
+    
+    _initialized = true;
 
     final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
     if (book == null) return;
@@ -121,7 +132,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   void _saveProgressAndPop() {
     final playbackState = ref.read(playbackStateProvider);
     final currentChapterIndex = _currentChapterIndex;
-    final segmentIndex = playbackState.currentIndex.clamp(0, 999999);
+    
+    // Only save valid segment index (when queue is loaded)
+    final queueLength = playbackState.queue.length;
+    final segmentIndex = queueLength > 0 
+        ? playbackState.currentIndex.clamp(0, queueLength - 1)
+        : 0;
 
     ref.read(libraryProvider.notifier).updateProgress(
       widget.bookId,
@@ -158,20 +174,41 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
           final currentTrack = playbackState.currentTrack;
           final currentText = currentTrack?.text ?? '';
           final queueLength = playbackState.queue.length;
-          final currentIndex = playbackState.currentIndex.clamp(0, queueLength > 0 ? queueLength - 1 : 0);
+          
+          // Show loading state if queue hasn't been loaded yet
+          final isLoading = queueLength == 0;
+          
+          final currentIndex = isLoading 
+              ? 0 
+              : playbackState.currentIndex.clamp(0, queueLength - 1);
 
           return SafeArea(
             child: Column(
               children: [
                 _buildHeader(colors, book, chapter),
                 if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
-                _buildTextDisplay(colors, currentText, queueLength),
-                _buildProgress(colors, currentIndex, queueLength, chapterIdx, book.chapters.length),
-                const SizedBox(height: 16),
-                _buildRateSelector(colors, playbackState.playbackRate),
-                const SizedBox(height: 16),
-                _buildControls(colors, playbackState),
-                const SizedBox(height: 32),
+                if (isLoading)
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: colors.primary),
+                          const SizedBox(height: 16),
+                          Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  )
+                else ...[
+                  _buildTextDisplay(colors, currentText, queueLength),
+                  _buildProgress(colors, currentIndex, queueLength, chapterIdx, book.chapters.length),
+                  const SizedBox(height: 16),
+                  _buildRateSelector(colors, playbackState.playbackRate),
+                  const SizedBox(height: 16),
+                  _buildControls(colors, playbackState),
+                  const SizedBox(height: 32),
+                ],
               ],
             ),
           );

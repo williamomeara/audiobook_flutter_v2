@@ -58,7 +58,8 @@ class SupertonicAdapter implements AiVoiceEngine {
 
   @override
   Future<void> ensureCoreReady(CoreSelector selector) async {
-    final coreDir = Directory('${_coreDir.path}/supertonic');
+    // New path structure: {coreDir}/supertonic/supertonic_core_v1/
+    final coreDir = Directory('${_coreDir.path}/supertonic/supertonic_core_v1');
 
     if (await coreDir.exists()) {
       await _initEngine(coreDir.path);

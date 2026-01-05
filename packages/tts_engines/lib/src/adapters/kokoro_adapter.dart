@@ -311,11 +311,13 @@ class KokoroAdapter implements AiVoiceEngine {
   // Private helpers
 
   Directory _getCoreDir() {
-    return Directory('${_coreDir.path}/kokoro_int8_v1');
+    // New path structure: {coreDir}/kokoro/kokoro_core_v1/
+    return Directory('${_coreDir.path}/kokoro/kokoro_core_v1');
   }
 
   String _coreIdFor(CoreSelector selector) {
-    return selector.preferInt8 ? 'kokoro_int8_v1' : 'kokoro_fp32_v1';
+    // Simplified to single core
+    return 'kokoro_core_v1';
   }
 
   Future<void> _initEngine(String corePath) async {

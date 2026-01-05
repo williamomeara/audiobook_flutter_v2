@@ -60,12 +60,20 @@ flutter test --coverage  # With coverage
 - Run `flutter analyze` to check for issues
 - Format code with `flutter format .`
 
+### Feature Branch Documentation
+When creating a new feature branch for significant changes:
+1. Create a feature branch: `git checkout -b feature-name`
+2. Create documentation folder: `mkdir -p docs/features/feature-name`
+3. Document the feature analysis/design in the feature folder
+4. Update this pattern for consistency across features
+
 ## Project-Specific Patterns
 
 ### Download Management
 - Use `AtomicAssetManager` for downloads requiring integrity
 - Fallback to `ResilientDownloader` for robustness (retries, checksums, resume)
 - Example in `tts_providers.dart`: sequential downloads with progress tracking
+- Voice selection should only show downloaded voices (filter unavailable voices from picker)
 
 ### Provider Patterns
 - Async operations use `AsyncNotifier<T>`

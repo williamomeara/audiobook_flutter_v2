@@ -36,17 +36,17 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
 
   @override
   FutureOr<PlaybackState> build() async {
-    // Create the controller when first accessed
-    final engine = await ref.watch(routingEngineProvider.future);
-    final cache = await ref.watch(audioCacheProvider.future);
+    // Use ref.read instead of ref.watch for dependencies that shouldn't 
+    // cause rebuilds during playback (like the routing engine which depends
+    // on download state)
+    final engine = await ref.read(routingEngineProvider.future);
+    final cache = await ref.read(audioCacheProvider.future);
 
     _controller = AudiobookPlaybackController(
       engine: engine,
       cache: cache,
-      voiceIdResolver: (bookVoiceId) {
-        final settings = ref.read(settingsProvider);
-        return bookVoiceId ?? settings.selectedVoice;
-      },
+      // Voice selection is global-only for now (per-book voice not implemented)
+      voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
       onStateChange: (newState) {
         // Update Riverpod state when controller state changes
         state = AsyncData(newState);
@@ -84,6 +84,24 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     final chapter = book.chapters[chapterIndex];
     final segments = segmentText(chapter.content);
 
+    // Handle empty chapter - create a single "empty" track to show in UI
+    if (segments.isEmpty) {
+      final emptyTrack = AudioTrack(
+        id: IdGenerator.audioTrackId(book.id, chapterIndex, 0),
+        text: '(This chapter has no readable content)',
+        chapterIndex: chapterIndex,
+        segmentIndex: 0,
+        estimatedDuration: Duration.zero,
+      );
+      await ctrl.loadChapter(
+        tracks: [emptyTrack],
+        bookId: book.id,
+        startIndex: 0,
+        autoPlay: false,  // Don't auto-play empty content
+      );
+      return;
+    }
+
     // Convert segments to AudioTracks
     final tracks = segments.asMap().entries.map((entry) {
       final segment = entry.value;
@@ -99,7 +117,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     await ctrl.loadChapter(
       tracks: tracks,
       bookId: book.id,
-      startIndex: startSegmentIndex.clamp(0, tracks.isEmpty ? 0 : tracks.length - 1),
+      startIndex: startSegmentIndex.clamp(0, tracks.length - 1),
       autoPlay: autoPlay,
     );
   }

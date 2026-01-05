@@ -93,8 +93,9 @@ class PiperAdapter implements AiVoiceEngine {
       );
     }
 
-    // Check if voice model exists
-    final voiceDir = Directory('${_coreDir.path}/piper/$modelKey');
+    // Check if voice model exists - new path structure: piper/{coreId}/
+    final coreId = _getCoreIdForModelKey(modelKey);
+    final voiceDir = Directory('${_coreDir.path}/piper/$coreId');
     if (!await voiceDir.exists()) {
       _logger.warning('Piper voice model missing for $voiceId: $modelKey');
       return VoiceReadiness(
@@ -122,6 +123,8 @@ class PiperAdapter implements AiVoiceEngine {
 
   @override
   Future<SynthResult> synthesizeToFile(SynthRequest request) async {
+    print('[PiperAdapter] synthesizeToFile called for voice: ${request.voiceId}');
+    
     final segment = SegmentSynthRequest(
       segmentId: 'legacy_${request.voiceId}',
       normalizedText: request.text,
@@ -150,9 +153,13 @@ class PiperAdapter implements AiVoiceEngine {
   Future<ExtendedSynthResult> synthesizeSegment(
       SegmentSynthRequest request) async {
     _activeRequests[request.opId] = request;
+    print('[PiperAdapter] synthesizeSegment: ${request.voiceId}');
 
     try {
+      print('[PiperAdapter] Checking voice readiness...');
       final readiness = await checkVoiceReady(request.voiceId);
+      print('[PiperAdapter] Voice readiness: ${readiness.state} - isReady: ${readiness.isReady}');
+      
       if (!readiness.isReady) {
         return ExtendedSynthResult.failedWith(
           code: EngineError.modelMissing,
@@ -168,13 +175,19 @@ class PiperAdapter implements AiVoiceEngine {
 
       // Piper-specific: need to load the voice model if not loaded
       final modelKey = VoiceIds.piperModelKey(request.voiceId);
+      print('[PiperAdapter] modelKey: $modelKey, loaded voices: ${_loadedVoices.keys.toList()}');
+      
       if (modelKey != null && !_loadedVoices.containsKey(request.voiceId)) {
-        final modelPath = '${_coreDir.path}/piper/$modelKey';
+        final coreId = _getCoreIdForModelKey(modelKey);
+        final modelPath = '${_coreDir.path}/piper/$coreId';
+        print('[PiperAdapter] Loading voice from: $modelPath');
         await _loadVoice(request.voiceId, modelPath);
+        print('[PiperAdapter] Voice loaded successfully');
       }
 
       final tmpPath = '${request.outputFile.path}.tmp';
 
+      print('[PiperAdapter] Calling native synthesize...');
       final nativeRequest = SynthesizeRequest(
         engineType: NativeEngineType.piper,
         voiceId: request.voiceId,
@@ -185,6 +198,7 @@ class PiperAdapter implements AiVoiceEngine {
       );
 
       final result = await _nativeApi.synthesize(nativeRequest);
+      print('[PiperAdapter] Native synthesize returned: success=${result.success}, error=${result.errorMessage}');
 
       if (request.isCancelled) {
         await _deleteTempFile(tmpPath);
@@ -291,6 +305,20 @@ class PiperAdapter implements AiVoiceEngine {
   }
 
   // Private helpers
+
+  /// Map modelKey to coreId for new path structure
+  String _getCoreIdForModelKey(String modelKey) {
+    // Map model keys to core IDs based on manifest
+    switch (modelKey) {
+      case 'en_GB-alan-medium':
+        return 'piper_alan_gb_v1';
+      case 'en_US-lessac-medium':
+        return 'piper_lessac_us_v1';
+      default:
+        // Fall back to model key for unknown models
+        return modelKey;
+    }
+  }
 
   Future<void> _initEngine(String corePath) async {
     final request = InitEngineRequest(
