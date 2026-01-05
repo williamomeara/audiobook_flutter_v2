@@ -4,38 +4,79 @@ import 'package:core_domain/core_domain.dart';
 
 import 'asset_spec.dart';
 
+/// File specification for multi-file downloads.
+class FileSpec {
+  const FileSpec({
+    required this.filename,
+    required this.url,
+    required this.sizeBytes,
+    this.sha256,
+  });
+
+  final String filename;
+  final String url;
+  final int sizeBytes;
+  final String? sha256;
+
+  factory FileSpec.fromJson(Map<String, dynamic> json) {
+    return FileSpec(
+      filename: json['filename'] as String,
+      url: json['url'] as String,
+      sizeBytes: json['sizeBytes'] as int,
+      sha256: json['sha256'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'filename': filename,
+    'url': url,
+    'sizeBytes': sizeBytes,
+    if (sha256 != null) 'sha256': sha256,
+  };
+}
+
 /// Core requirement specification from manifest.
 class CoreRequirement {
   const CoreRequirement({
     required this.id,
     required this.engineType,
     required this.displayName,
-    required this.url,
+    this.url,
     required this.sizeBytes,
     this.sha256,
     this.quality,
     this.required = true,
+    this.files = const [],
   });
 
   final String id;
   final String engineType;
   final String displayName;
-  final String url;
+  final String? url;
   final int sizeBytes;
   final String? sha256;
   final String? quality;
   final bool required;
+  final List<FileSpec> files;
+
+  /// Total download size (sum of files or sizeBytes)
+  int get totalSize => files.isEmpty ? sizeBytes : files.fold(0, (sum, f) => sum + f.sizeBytes);
+
+  /// Whether this is a multi-file download
+  bool get isMultiFile => files.isNotEmpty;
 
   factory CoreRequirement.fromJson(Map<String, dynamic> json) {
+    final filesJson = json['files'] as List<dynamic>?;
     return CoreRequirement(
       id: json['id'] as String,
       engineType: json['engineType'] as String,
       displayName: json['displayName'] as String,
-      url: json['url'] as String,
+      url: json['url'] as String?,
       sizeBytes: json['sizeBytes'] as int,
       sha256: json['sha256'] as String?,
       quality: json['quality'] as String?,
       required: json['required'] as bool? ?? true,
+      files: filesJson?.map((f) => FileSpec.fromJson(f as Map<String, dynamic>)).toList() ?? [],
     );
   }
 
@@ -43,7 +84,7 @@ class CoreRequirement {
     return AssetSpec(
       key: id,
       displayName: displayName,
-      downloadUrl: url,
+      downloadUrl: url ?? '',
       installPath: id,
       sizeBytes: sizeBytes,
       checksum: sha256,

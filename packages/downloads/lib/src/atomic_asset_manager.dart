@@ -8,6 +8,27 @@ import 'package:http/http.dart' as http;
 import 'asset_spec.dart';
 import 'download_state.dart';
 
+// Use print since this is a non-Flutter package
+void _debugLog(String message) {
+  // ignore: avoid_print
+  print('[AtomicAssetManager] $message');
+}
+
+/// Specification for a file in a multi-file download.
+class MultiFileSpec {
+  const MultiFileSpec({
+    required this.filename,
+    required this.url,
+    required this.sizeBytes,
+    this.sha256,
+  });
+
+  final String filename;
+  final String url;
+  final int sizeBytes;
+  final String? sha256;
+}
+
 /// Enhanced asset manager with atomic downloads and SHA256 verification.
 ///
 /// Implements the .tmp pattern for corruption-safe downloads:
@@ -68,6 +89,7 @@ class AtomicAssetManager {
     );
 
     try {
+      _debugLog('[AtomicAssetManager] Starting download: ${spec.displayName} -> $key');
       _updateState(key, DownloadState(
         status: DownloadStatus.queued,
         totalBytes: spec.sizeBytes,
@@ -159,10 +181,221 @@ class AtomicAssetManager {
   /// Delete an installed asset.
   Future<void> delete(String key) async {
     final installDir = Directory('${baseDir.path}/$key');
+    final tmpDir = Directory('${baseDir.path}/$key.tmp');
+    
+    _debugLog('Attempting to delete: ${installDir.path}');
+    
+    // Delete the installed directory
     if (await installDir.exists()) {
       await installDir.delete(recursive: true);
+      _debugLog('Deleted directory: ${installDir.path}');
+    } else {
+      _debugLog('Install directory does not exist: ${installDir.path}');
     }
+    
+    // Delete the tmp directory if it exists
+    if (await tmpDir.exists()) {
+      await tmpDir.delete(recursive: true);
+      _debugLog('Deleted tmp directory: ${tmpDir.path}');
+    }
+    
+    // Delete any temp download files (.tar.gz.tmp, .tgz.tmp, .zip.tmp, .download.tmp)
+    final possibleTmpFiles = [
+      File('${baseDir.path}/$key.tar.gz.tmp'),
+      File('${baseDir.path}/$key.tgz.tmp'),
+      File('${baseDir.path}/$key.zip.tmp'),
+      File('${baseDir.path}/$key.download.tmp'),
+    ];
+    for (final tmpFile in possibleTmpFiles) {
+      if (await tmpFile.exists()) {
+        await tmpFile.delete();
+        _debugLog('Deleted tmp file: ${tmpFile.path}');
+      }
+    }
+    
+    // Verify the main directory is gone
+    if (await installDir.exists()) {
+      _debugLog('WARNING: Directory still exists after delete!');
+    } else {
+      _debugLog('Verified: Directory successfully deleted');
+    }
+    
     _updateState(key, DownloadState.notDownloaded);
+  }
+
+  /// Download multiple files atomically (all succeed or all fail).
+  /// 
+  /// This is used for cores that require multiple files (e.g., Piper ONNX + JSON).
+  Future<void> downloadMultiFile({
+    required String key,
+    required List<MultiFileSpec> files,
+    void Function(double progress)? onProgress,
+  }) async {
+    if (_activeDownloads.contains(key)) return;
+    _activeDownloads.add(key);
+
+    final targetDir = Directory('${baseDir.path}/$key');
+    final tmpDir = Directory('${baseDir.path}/$key.tmp');
+
+    try {
+      _updateState(key, DownloadState(status: DownloadStatus.queued));
+
+      // Clean up any previous attempt
+      if (await tmpDir.exists()) {
+        await tmpDir.delete(recursive: true);
+      }
+      await tmpDir.create(recursive: true);
+
+      // Calculate total size from manifest
+      final totalSize = files.fold<int>(0, (sum, f) => sum + f.sizeBytes);
+      var completedFilesBytes = 0; // Bytes for files fully completed
+
+      // Download each file
+      for (final file in files) {
+        // Check for cancellation
+        final currentState = _states[key];
+        if (currentState?.status == DownloadStatus.failed) {
+          throw Exception('Download cancelled');
+        }
+
+        final destFile = File('${tmpDir.path}/${file.filename}');
+        await destFile.parent.create(recursive: true);
+
+        await _downloadSingleFile(
+          url: file.url,
+          destFile: destFile,
+          key: key,
+          expectedSha256: file.sha256,
+          onProgress: (downloaded, total) {
+            final combinedBytes = completedFilesBytes + downloaded;
+            // Clamp progress to max 0.85 (reserve 15% for extraction/verification)
+            final overallProgress = (combinedBytes / totalSize).clamp(0.0, 1.0) * 0.85;
+            _updateState(key, DownloadState(
+              status: DownloadStatus.downloading,
+              progress: overallProgress,
+              downloadedBytes: combinedBytes,
+              totalBytes: totalSize,
+            ));
+            onProgress?.call(overallProgress);
+          },
+        );
+        // Add the manifest size (not actual downloaded) to keep consistent with totalSize
+        completedFilesBytes += file.sizeBytes;
+      }
+
+      // Extracting/verifying phase
+      _updateState(key, DownloadState(
+        status: DownloadStatus.extracting,
+        progress: 0.90,
+        totalBytes: totalSize,
+      ));
+
+      // Atomic install: move tmp to final
+      if (await targetDir.exists()) {
+        await targetDir.delete(recursive: true);
+      }
+      await tmpDir.rename(targetDir.path);
+
+      // Write manifest
+      await _writeMultiFileManifest(targetDir, key, files);
+
+      _updateState(key, DownloadState.ready);
+    } catch (e) {
+      // Cleanup on failure
+      try {
+        if (await tmpDir.exists()) {
+          await tmpDir.delete(recursive: true);
+        }
+      } catch (_) {}
+
+      _updateState(key, DownloadState(
+        status: DownloadStatus.failed,
+        error: e.toString(),
+      ));
+      rethrow;
+    } finally {
+      _activeDownloads.remove(key);
+    }
+  }
+
+  /// Download a single file with progress reporting (no extraction).
+  Future<void> _downloadSingleFile({
+    required String url,
+    required File destFile,
+    required String key,
+    String? expectedSha256,
+    void Function(int downloaded, int total)? onProgress,
+  }) async {
+    var currentUrl = url;
+    late http.StreamedResponse response;
+
+    // Follow redirects
+    for (var i = 0; i < 6; i++) {
+      final request = http.Request('GET', Uri.parse(currentUrl));
+      request.headers['User-Agent'] = 'audiobook_flutter_v2/1.0 (+https://example.local)';
+      request.headers['Accept'] = '*/*';
+
+      response = await _httpClient.send(request);
+
+      if (_isRedirectStatus(response.statusCode)) {
+        final loc = response.headers['location'];
+        if (loc == null || loc.isEmpty) {
+          throw Exception('Download failed: HTTP ${response.statusCode} (missing Location)');
+        }
+        currentUrl = Uri.parse(currentUrl).resolve(loc).toString();
+        continue;
+      }
+      break;
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception('Download failed: HTTP ${response.statusCode} for $currentUrl');
+    }
+
+    final contentLength = response.contentLength ?? 0;
+    var downloaded = 0;
+    final sink = destFile.openWrite();
+
+    try {
+      await for (final chunk in response.stream) {
+        // Check for cancellation
+        final currentState = _states[key];
+        if (currentState?.status == DownloadStatus.failed) {
+          throw Exception('Download cancelled');
+        }
+
+        sink.add(chunk);
+        downloaded += chunk.length;
+        onProgress?.call(downloaded, contentLength);
+      }
+    } finally {
+      await sink.close();
+    }
+
+    // Verify checksum if provided
+    if (expectedSha256 != null && expectedSha256.isNotEmpty && !expectedSha256.startsWith('placeholder')) {
+      final fileHash = await _sha256File(destFile);
+      if (fileHash != expectedSha256) {
+        await destFile.delete();
+        throw Exception('Checksum mismatch for ${destFile.path}');
+      }
+    }
+  }
+
+  /// Write manifest for multi-file downloads.
+  Future<void> _writeMultiFileManifest(Directory dir, String key, List<MultiFileSpec> files) async {
+    final manifest = {
+      'key': key,
+      'version': '1',
+      'type': 'multi_file',
+      'files': files.map((f) => f.filename).toList(),
+      'installedAt': DateTime.now().toIso8601String(),
+    };
+
+    final manifestFile = File('${dir.path}/.manifest');
+    await manifestFile.writeAsString(manifest.entries
+        .map((e) => '${e.key}=${e.value}')
+        .join('\n'));
   }
 
   /// Cancel an active download.
@@ -212,7 +445,7 @@ class AtomicAssetManager {
           // Try to include any body for diagnostics
           final bytes = await response.stream.toBytes();
           final bodySnippet = bytes.isNotEmpty ? String.fromCharCodes(bytes.take(512)) : '';
-          throw Exception('Download failed: HTTP ${response.statusCode} (missing Location). Body: ${bodySnippet}');
+          throw Exception('Download failed: HTTP ${response.statusCode} (missing Location). Body: $bodySnippet');
         }
         currentUrl = Uri.parse(currentUrl).resolve(loc).toString();
         continue;
@@ -225,7 +458,7 @@ class AtomicAssetManager {
       final bytes = await response.stream.toBytes();
       final snippet = bytes.isNotEmpty ? String.fromCharCodes(bytes.take(512)) : '';
       final contentType = response.headers['content-type'] ?? 'unknown';
-      throw Exception('Download failed: HTTP ${response.statusCode} for $currentUrl (content-type: $contentType) body-snippet: ${snippet}');
+      throw Exception('Download failed: HTTP ${response.statusCode} for $currentUrl (content-type: $contentType) body-snippet: $snippet');
     }
 
     // Server ignored Range; restart cleanly.

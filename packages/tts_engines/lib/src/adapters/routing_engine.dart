@@ -102,6 +102,10 @@ class RoutingEngine implements AiVoiceEngine {
   @override
   Future<SynthResult> synthesizeToFile(SynthRequest request) async {
     final voiceId = request.voiceId;
+    
+    // Debug: log what voice is being requested
+    print('[RoutingEngine] synthesizeToFile called for voice: $voiceId');
+    print('[RoutingEngine] Engines available - Kokoro: ${kokoroEngine != null}, Piper: ${piperEngine != null}, Supertonic: ${supertonicEngine != null}');
 
     // Check cache first
     final cacheKey = CacheKeyGenerator.generate(
@@ -115,11 +119,13 @@ class RoutingEngine implements AiVoiceEngine {
       await cache.markUsed(cacheKey);
       // Return cached file with estimated duration
       final durationMs = estimateDurationMs(request.text);
+      print('[RoutingEngine] Returning cached audio for $voiceId');
       return SynthResult(file: file, durationMs: durationMs);
     }
 
     // Route to appropriate engine
     final engine = _engineForVoice(voiceId);
+    print('[RoutingEngine] Engine for $voiceId: $engine');
     if (engine == null) {
       throw VoiceNotAvailableException(
         voiceId,

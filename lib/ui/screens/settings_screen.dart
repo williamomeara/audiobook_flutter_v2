@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/granular_download_manager.dart';
 import '../../app/settings_controller.dart';
 import '../theme/app_colors.dart';
-import '../widgets/voice_download_manager.dart';
 import 'package:core_domain/core_domain.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -96,8 +96,13 @@ class SettingsScreen extends ConsumerWidget {
                     // Voice Downloads section
                     _SectionCard(
                       title: 'Voice Downloads',
-                      children: const [
-                        VoiceDownloadManager(),
+                      children: [
+                        _SettingsRow(
+                          label: 'Manage Voice Downloads',
+                          subLabel: 'Download and manage voice models',
+                          trailing: Icon(Icons.chevron_right, color: colors.textTertiary),
+                          onTap: () => context.push('/settings/downloads'),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -168,6 +173,20 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 20),
+
+                    // Developer section
+                    _SectionCard(
+                      title: 'Developer',
+                      children: [
+                        _SettingsRow(
+                          label: 'Developer Options',
+                          subLabel: 'TTS testing and diagnostics',
+                          trailing: Icon(Icons.chevron_right, color: colors.textTertiary),
+                          onTap: () => context.push('/settings/developer'),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -217,83 +236,135 @@ class SettingsScreen extends ConsumerWidget {
             color: colors.background,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'Select Voice',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: colors.text,
+          child: Consumer(
+            builder: (context, ref, _) {
+              final downloadState = ref.watch(granularDownloadManagerProvider);
+              
+              // Get ready voice IDs
+              final readyVoiceIds = downloadState.maybeWhen(
+                data: (state) => state.readyVoices.map((v) => v.voiceId).toSet(),
+                orElse: () => <String>{},
+              );
+              
+              // Filter voices by engine to only include downloaded ones
+              final readyKokoroVoices = VoiceIds.kokoroVoices
+                  .where((id) => readyVoiceIds.contains(id))
+                  .toList();
+              final readyPiperVoices = VoiceIds.piperVoices
+                  .where((id) => readyVoiceIds.contains(id))
+                  .toList();
+              final readySupertonicVoices = VoiceIds.supertonicVoices
+                  .where((id) => readyVoiceIds.contains(id))
+                  .toList();
+              
+              final hasNoDownloadedVoices = readyKokoroVoices.isEmpty &&
+                  readyPiperVoices.isEmpty &&
+                  readySupertonicVoices.isEmpty;
+              
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'Select Voice',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: colors.text,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              Expanded(
-                child: ListView(
-                  controller: scrollController,
-                  children: [
-                    _VoiceOption(
-                      name: 'Device TTS',
-                      description: 'Uses your device\'s built-in voice',
-                      voiceId: VoiceIds.device,
-                    ),
-                    const Divider(),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Text(
-                        'Kokoro Voices',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textSecondary,
+                  Expanded(
+                    child: ListView(
+                      controller: scrollController,
+                      children: [
+                        // Device TTS - disabled until implemented
+                        // _VoiceOption(
+                        //   name: 'Device TTS',
+                        //   description: 'Uses your device\'s built-in voice',
+                        //   voiceId: VoiceIds.device,
+                        // ),
+                        if (readyKokoroVoices.isNotEmpty) ...[
+                          const Divider(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Text(
+                              'Kokoro Voices',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ),
+                          for (final voiceId in readyKokoroVoices)
+                            _VoiceOption(
+                              name: _voiceDisplayName(voiceId),
+                              voiceId: voiceId,
+                            ),
+                        ],
+                        if (readyPiperVoices.isNotEmpty) ...[
+                          const Divider(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Text(
+                              'Piper Voices',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ),
+                          for (final voiceId in readyPiperVoices)
+                            _VoiceOption(
+                              name: _voiceDisplayName(voiceId),
+                              voiceId: voiceId,
+                            ),
+                        ],
+                        if (readySupertonicVoices.isNotEmpty) ...[
+                          const Divider(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Text(
+                              'Supertonic Voices',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ),
+                          for (final voiceId in readySupertonicVoices)
+                            _VoiceOption(
+                              name: _voiceDisplayName(voiceId),
+                              voiceId: voiceId,
+                            ),
+                        ],
+                        // Link to download more voices
+                        const Divider(),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: TextButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              context.push('/settings/downloads');
+                            },
+                            icon: Icon(Icons.download, color: colors.primary),
+                            label: Text(
+                              hasNoDownloadedVoices
+                                  ? 'Download Voices to Get Started'
+                                  : 'Download More Voices',
+                              style: TextStyle(color: colors.primary),
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                    for (final voiceId in VoiceIds.kokoroVoices)
-                      _VoiceOption(
-                        name: _voiceDisplayName(voiceId),
-                        voiceId: voiceId,
-                      ),
-                    const Divider(),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Text(
-                        'Piper Voices',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    for (final voiceId in VoiceIds.piperVoices)
-                      _VoiceOption(
-                        name: _voiceDisplayName(voiceId),
-                        voiceId: voiceId,
-                      ),
-                    const Divider(),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Text(
-                        'Supertonic Voices',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    for (final voiceId in VoiceIds.supertonicVoices)
-                      _VoiceOption(
-                        name: _voiceDisplayName(voiceId),
-                        voiceId: voiceId,
-                      ),
-                  ],
-                ),
-              ),
-            ],
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),

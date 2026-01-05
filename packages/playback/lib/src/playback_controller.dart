@@ -326,7 +326,8 @@ class AudiobookPlaybackController implements PlaybackController {
       return;
     }
 
-    final voiceId = voiceIdResolver(_state.bookId);
+    // TODO: per-book voice selection not yet implemented, always pass null
+    final voiceId = voiceIdResolver(null);
 
     // Update scheduler context
     _scheduler.updateContext(
@@ -337,12 +338,11 @@ class AudiobookPlaybackController implements PlaybackController {
       currentIndex: _state.currentIndex,
     );
 
-    // If device TTS, we'd handle differently - for now assume AI voice
+    // If device TTS, show helpful message (not yet implemented)
     if (voiceId == VoiceIds.device) {
-      // Device TTS not implemented in this package
       _updateState(_state.copyWith(
         isBuffering: false,
-        error: 'Device TTS not supported in this build',
+        error: 'Please select an AI voice in Settings → Voice. Device TTS coming soon.',
       ));
       return;
     }
@@ -380,7 +380,8 @@ class AudiobookPlaybackController implements PlaybackController {
   }
 
   void _startPrefetchIfNeeded() {
-    final voiceId = voiceIdResolver(_state.bookId);
+    // TODO: per-book voice selection not yet implemented, always pass null
+    final voiceId = voiceIdResolver(null);
     if (voiceId == VoiceIds.device) return;
 
     final currentIdx = _state.currentIndex;

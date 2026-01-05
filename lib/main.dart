@@ -9,6 +9,8 @@ import 'ui/screens/book_details_screen.dart';
 import 'ui/screens/playback_screen.dart';
 import 'ui/screens/settings_screen.dart';
 import 'ui/screens/free_books_screen.dart';
+import 'ui/screens/download_manager_screen.dart';
+import 'ui/screens/developer_screen.dart';
 
 void main() {
   runApp(const ProviderScope(child: AudiobookApp()));
@@ -60,6 +62,14 @@ final _router = GoRouter(
     GoRoute(
       path: '/free-books',
       builder: (context, state) => const FreeBooksScreen(),
+    ),
+    GoRoute(
+      path: '/settings/downloads',
+      builder: (context, state) => const DownloadManagerScreen(),
+    ),
+    GoRoute(
+      path: '/settings/developer',
+      builder: (context, state) => const DeveloperScreen(),
     ),
   ],
 );

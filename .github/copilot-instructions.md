@@ -73,6 +73,7 @@ When creating a new feature branch for significant changes:
 - Use `AtomicAssetManager` for downloads requiring integrity
 - Fallback to `ResilientDownloader` for robustness (retries, checksums, resume)
 - Example in `tts_providers.dart`: sequential downloads with progress tracking
+- Voice selection should only show downloaded voices (filter unavailable voices from picker)
 
 ### Provider Patterns
 - Async operations use `AsyncNotifier<T>`
