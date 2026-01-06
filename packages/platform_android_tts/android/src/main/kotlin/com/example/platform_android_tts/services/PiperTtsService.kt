@@ -3,6 +3,7 @@ package com.example.platform_android_tts.services
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import com.example.platform_android_tts.sherpa.PiperSherpaInference
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.RandomAccessFile
@@ -14,6 +15,8 @@ import java.nio.ByteOrder
  * 
  * Provides synthesis using Piper VITS-based TTS models.
  * Each voice has its own ONNX model file.
+ * 
+ * Uses PiperSherpaInference for actual TTS synthesis (via sherpa-onnx).
  */
 class PiperTtsService : Service() {
     
@@ -22,6 +25,9 @@ class PiperTtsService : Service() {
     // Model state - Piper has per-voice models
     private var isInitialized = false
     private val loadedModels = mutableMapOf<String, PiperVoiceModel>()
+    
+    // Inference engines per voice (Piper has separate model per voice)
+    private val inferenceEngines = mutableMapOf<String, PiperSherpaInference>()
     
     // Active synthesis jobs for cancellation
     private val activeJobs = mutableMapOf<String, Job>()
@@ -51,15 +57,20 @@ class PiperTtsService : Service() {
             return Result.success(Unit)
         }
         
-        // Verify model files exist
-        val onnxFile = File(modelPath, "model.onnx")
-        val configFile = File(modelPath, "model.onnx.json")
-        
-        if (!onnxFile.exists()) {
-            throw IllegalStateException("Model file not found: ${onnxFile.path}")
+        // Verify model path exists
+        val modelDir = File(modelPath)
+        if (!modelDir.exists() || !modelDir.isDirectory) {
+            throw IllegalStateException("Model directory not found: $modelPath")
         }
         
-        // TODO: Load the ONNX model using piper-phonemize + ONNX Runtime
+        // PiperSherpaInference handles flexible model file discovery internally
+        // (supports both model.onnx and {modelKey}.onnx formats)
+        
+        // Initialize the sherpa-onnx inference engine for this voice
+        val inference = PiperSherpaInference(modelPath)
+        inference.initialize().getOrThrow()
+        
+        inferenceEngines[voiceId] = inference
         loadedModels[voiceId] = PiperVoiceModel(
             voiceId = voiceId,
             modelPath = modelPath,
@@ -80,7 +91,9 @@ class PiperTtsService : Service() {
         speed: Float = 1.0f
     ): SynthesisResult {
         val model = loadedModels[voiceId]
-        if (model == null) {
+        val inference = inferenceEngines[voiceId]
+        
+        if (model == null || inference == null) {
             return SynthesisResult(
                 success = false,
                 errorCode = ErrorCode.MODEL_MISSING,
@@ -101,13 +114,15 @@ class PiperTtsService : Service() {
                 val tmpFile = File("$outputPath.tmp")
                 tmpFile.parentFile?.mkdirs()
                 
-                // TODO: Run phonemizer + ONNX inference
-                // For now, generate a silent WAV file for testing
-                val sampleRate = 22050 // Piper default
-                val durationSeconds = estimateDuration(text)
-                val samples = (sampleRate * durationSeconds).toInt()
+                // Run sherpa-onnx inference
+                val samples = inference.synthesize(text, speed).getOrThrow()
+                val sampleRate = inference.getSampleRate()
                 
-                val pcmData = ShortArray(samples) { 0 }
+                // Convert float samples to 16-bit PCM
+                val pcmData = samples.map { sample ->
+                    (sample * 32767).toInt().coerceIn(-32768, 32767).toShort()
+                }.toShortArray()
+                
                 writeWavFile(tmpFile, pcmData, sampleRate)
                 
                 ensureActive()
@@ -133,10 +148,18 @@ class PiperTtsService : Service() {
             } else {
                 model.lastUsed = System.currentTimeMillis()
                 
+                // Calculate actual duration from sample count
+                val samples = inference.synthesize(text, speed).getOrNull()
+                val durationMs = if (samples != null) {
+                    (samples.size * 1000 / inference.getSampleRate())
+                } else {
+                    estimateDurationMs(text)
+                }
+                
                 SynthesisResult(
                     success = true,
-                    durationMs = estimateDurationMs(text),
-                    sampleRate = 22050
+                    durationMs = durationMs,
+                    sampleRate = inference.getSampleRate()
                 )
             }
         } catch (e: Exception) {
@@ -162,6 +185,8 @@ class PiperTtsService : Service() {
      * Unload a specific voice.
      */
     fun unloadVoice(voiceId: String) {
+        inferenceEngines[voiceId]?.dispose()
+        inferenceEngines.remove(voiceId)
         loadedModels.remove(voiceId)
     }
     
@@ -169,6 +194,8 @@ class PiperTtsService : Service() {
      * Unload all models and reset state.
      */
     fun unloadAllModels() {
+        inferenceEngines.values.forEach { it.dispose() }
+        inferenceEngines.clear()
         loadedModels.clear()
         isInitialized = false
         
@@ -182,7 +209,7 @@ class PiperTtsService : Service() {
     fun unloadLeastUsedVoice(): String? {
         val lru = loadedModels.minByOrNull { it.value.lastUsed }
         return lru?.let {
-            loadedModels.remove(it.key)
+            unloadVoice(it.key)
             it.key
         }
     }

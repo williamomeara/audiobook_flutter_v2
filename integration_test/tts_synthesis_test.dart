@@ -130,19 +130,25 @@ void main() {
           print('✓ Piper Alan already downloaded, skipping download');
         }
 
-        // Verify core directory exists with expected files
+        // Verify core directory exists with expected files (sherpa-onnx format)
         final paths = await container.read(appPathsProvider.future);
         final coreDir = Directory('${paths.voiceAssetsDir.path}/piper/piper_alan_gb_v1');
         expect(await coreDir.exists(), isTrue, reason: 'Core directory should exist');
 
+        // sherpa-onnx Piper models have: {modelKey}.onnx, tokens.txt, espeak-ng-data/
+        // The model file may be named model.onnx (old format) or en_GB-alan-medium.onnx (sherpa-onnx format)
         final modelFile = File('${coreDir.path}/model.onnx');
-        final configFile = File('${coreDir.path}/model.onnx.json');
-        expect(await modelFile.exists(), isTrue, reason: 'model.onnx should exist');
-        expect(await configFile.exists(), isTrue, reason: 'model.onnx.json should exist');
+        final sherpaModelFile = File('${coreDir.path}/en_GB-alan-medium.onnx');
+        final tokensFile = File('${coreDir.path}/tokens.txt');
+        
+        final hasModel = await modelFile.exists() || await sherpaModelFile.exists();
+        expect(hasModel, isTrue, reason: 'ONNX model file should exist (model.onnx or en_GB-alan-medium.onnx)');
+        expect(await tokensFile.exists(), isTrue, reason: 'tokens.txt should exist');
 
-        print('✓ Model files verified');
-        print('  - model.onnx: ${await modelFile.length()} bytes');
-        print('  - model.onnx.json: ${await configFile.length()} bytes');
+        final activeModel = await modelFile.exists() ? modelFile : sherpaModelFile;
+        print('✓ Model files verified (sherpa-onnx format)');
+        print('  - ${activeModel.path.split('/').last}: ${await activeModel.length()} bytes');
+        print('  - tokens.txt: ${await tokensFile.length()} bytes');
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('should synthesize text with Piper Alan', () async {
@@ -156,21 +162,10 @@ void main() {
           return;
         }
 
-        // Check if model files have correct names (model.onnx, not en_GB-alan-medium.onnx)
+        // Verify model directory exists
         final paths = await container.read(appPathsProvider.future);
         final coreDir = Directory('${paths.voiceAssetsDir.path}/piper/piper_alan_gb_v1');
-        final modelFile = File('${coreDir.path}/model.onnx');
-        final oldNameFile = File('${coreDir.path}/en_GB-alan-medium.onnx');
-
-        if (!await modelFile.exists() && await oldNameFile.exists()) {
-          print('⚠ Model files have old naming convention (en_GB-alan-medium.onnx)');
-          print('  Please delete and re-download Piper Alan to fix:');
-          print('  1. Go to Settings → Voice Downloads');
-          print('  2. Delete the Piper Alan voice');
-          print('  3. Re-download it');
-          print('  The new download will use the correct filename (model.onnx)');
-          fail('Model files need to be re-downloaded with correct naming');
-        }
+        expect(await coreDir.exists(), isTrue, reason: 'Core directory should exist');
 
         // Get the TTS routing engine
         final routingEngine = await container.read(ttsRoutingEngineProvider.future);
@@ -264,23 +259,96 @@ void main() {
         }
       });
 
-      test('should synthesize text with Kokoro if available', () async {
+      test('should download and verify Kokoro core files', () async {
+        final downloadManager = container.read(granularDownloadManagerProvider.notifier);
+        var downloadState = await container.read(granularDownloadManagerProvider.future);
+        final kokoroCore = downloadState.cores['kokoro_core_v1'];
+
+        if (!kokoroCore!.isReady) {
+          print('Downloading Kokoro core model...');
+          await downloadManager.downloadCore('kokoro_core_v1');
+
+          // Wait for download to complete (poll state)
+          var attempts = 0;
+          const maxAttempts = 180; // 3 minutes max
+          while (attempts < maxAttempts) {
+            await Future.delayed(const Duration(seconds: 1));
+            downloadState = await container.read(granularDownloadManagerProvider.future);
+            final core = downloadState.cores['kokoro_core_v1']!;
+
+            if (core.isReady) {
+              print('✓ Download complete!');
+              break;
+            } else if (core.isFailed) {
+              fail('Download failed: ${core.error}');
+            }
+
+            if (core.progress > 0) {
+              print('  Downloading: ${(core.progress * 100).toStringAsFixed(1)}%');
+            }
+            attempts++;
+          }
+
+          if (attempts >= maxAttempts) {
+            fail('Download timed out after ${maxAttempts}s');
+          }
+        } else {
+          print('✓ Kokoro already downloaded, skipping download');
+        }
+
+        // Verify core directory exists with expected files (sherpa-onnx format)
+        final paths = await container.read(appPathsProvider.future);
+        final coreDir = Directory('${paths.voiceAssetsDir.path}/kokoro/kokoro_core_v1');
+        expect(await coreDir.exists(), isTrue, reason: 'Core directory should exist');
+
+        // sherpa-onnx Kokoro models have: model.int8.onnx, tokens.txt, voices.bin, espeak-ng-data/
+        final modelFile = File('${coreDir.path}/model.onnx');
+        final int8ModelFile = File('${coreDir.path}/model.int8.onnx');
+        final tokensFile = File('${coreDir.path}/tokens.txt');
+        final voicesFile = File('${coreDir.path}/voices.bin');
+        final espeakDir = Directory('${coreDir.path}/espeak-ng-data');
+
+        final hasModel = await modelFile.exists() || await int8ModelFile.exists();
+        expect(hasModel, isTrue, reason: 'ONNX model file should exist (model.onnx or model.int8.onnx)');
+        expect(await tokensFile.exists(), isTrue, reason: 'tokens.txt should exist');
+        expect(await voicesFile.exists(), isTrue, reason: 'voices.bin should exist');
+        expect(await espeakDir.exists(), isTrue, reason: 'espeak-ng-data directory should exist');
+
+        final activeModel = await modelFile.exists() ? modelFile : int8ModelFile;
+        print('✓ Model files verified (sherpa-onnx format)');
+        print('  - ${activeModel.path.split('/').last}: ${await activeModel.length()} bytes');
+        print('  - tokens.txt: ${await tokensFile.length()} bytes');
+        print('  - voices.bin: ${await voicesFile.length()} bytes');
+      }, timeout: const Timeout(Duration(minutes: 5)));
+
+      test('should synthesize text with Kokoro', () async {
         final downloadState = await container.read(granularDownloadManagerProvider.future);
         final kokoroCore = downloadState.cores['kokoro_core_v1'];
 
         if (!kokoroCore!.isReady) {
           print('⚠ Skipping Kokoro synthesis test - core not downloaded');
+          print('  Run the download test first or download via the app');
           return;
         }
 
+        // Verify model directory exists
+        final paths = await container.read(appPathsProvider.future);
+        final coreDir = Directory('${paths.voiceAssetsDir.path}/kokoro/kokoro_core_v1');
+        expect(await coreDir.exists(), isTrue, reason: 'Core directory should exist');
+
+        // Get the TTS routing engine
         final routingEngine = await container.read(ttsRoutingEngineProvider.future);
+
+        // Verify Kokoro adapter is available
         final kokoroAdapter = await container.read(kokoroAdapterProvider.future);
         expect(kokoroAdapter, isNotNull, reason: 'Kokoro adapter should be available');
 
+        // Synthesize test text
         const testText = 'Hello, this is a test of the Kokoro text to speech engine.';
         const voiceId = 'kokoro_af';
 
-        print('Synthesizing with Kokoro: "$testText"');
+        print('Synthesizing: "$testText"');
+        print('Voice: $voiceId');
 
         final startTime = DateTime.now();
 
@@ -292,11 +360,97 @@ void main() {
 
         final elapsed = DateTime.now().difference(startTime);
 
-        expect(result.file.existsSync(), isTrue);
+        expect(result.file.existsSync(), isTrue, reason: 'Output file should exist');
+        expect(result.durationMs, greaterThan(0), reason: 'Duration should be positive');
+
+        final fileSize = await result.file.length();
+        final rtf = elapsed.inMilliseconds / result.durationMs;
         print('✓ Kokoro synthesis complete!');
         print('  - Duration: ${result.durationMs}ms');
+        print('  - File size: ${(fileSize / 1024).toStringAsFixed(1)} KB');
         print('  - Processing time: ${elapsed.inMilliseconds}ms');
+        print('  - Real-time factor: ${rtf.toStringAsFixed(2)}x');
+        
+        // Kokoro should be reasonably fast (< 2x real-time)
+        expect(rtf, lessThan(2.0), reason: 'Kokoro RTF should be less than 2x');
       }, timeout: const Timeout(Duration(minutes: 2)));
+
+      test('should synthesize with multiple Kokoro voices', () async {
+        final downloadState = await container.read(granularDownloadManagerProvider.future);
+        final kokoroCore = downloadState.cores['kokoro_core_v1'];
+
+        if (!kokoroCore!.isReady) {
+          print('⚠ Skipping multi-voice test - Kokoro core not downloaded');
+          return;
+        }
+
+        final routingEngine = await container.read(ttsRoutingEngineProvider.future);
+
+        // Test different Kokoro voices (they all use the same core)
+        final voices = [
+          ('kokoro_af', 'American Female'),
+          ('kokoro_am_adam', 'American Male (Adam)'),
+          ('kokoro_bf_emma', 'British Female (Emma)'),
+        ];
+
+        print('Testing ${voices.length} Kokoro voices...');
+
+        for (final (voiceId, voiceName) in voices) {
+          final result = await routingEngine.synthesizeToWavFile(
+            voiceId: voiceId,
+            text: 'Hello, this is $voiceName speaking.',
+            playbackRate: 1.0,
+          );
+
+          expect(result.file.existsSync(), isTrue);
+          print('  ✓ $voiceName ($voiceId): ${result.durationMs}ms');
+        }
+
+        print('✓ All Kokoro voices synthesized successfully');
+      }, timeout: const Timeout(Duration(minutes: 3)));
+
+      test('should benchmark Kokoro performance', () async {
+        final downloadState = await container.read(granularDownloadManagerProvider.future);
+        final kokoroCore = downloadState.cores['kokoro_core_v1'];
+
+        if (!kokoroCore!.isReady) {
+          print('⚠ Skipping benchmark test - Kokoro core not downloaded');
+          return;
+        }
+
+        final routingEngine = await container.read(ttsRoutingEngineProvider.future);
+        const voiceId = 'kokoro_af';
+
+        // Benchmark text of varying lengths
+        final benchmarks = [
+          ('short', 'Hello world.'),
+          ('medium', 'This is a medium length sentence that should take a bit longer to synthesize.'),
+          ('long', 'In a distant land, there lived a young adventurer who dreamed of exploring the uncharted territories beyond the great mountains. Each day, they would gaze at the peaks and wonder what mysteries awaited.'),
+        ];
+
+        print('Kokoro Performance Benchmark');
+        print('=' * 50);
+
+        for (final (label, text) in benchmarks) {
+          final startTime = DateTime.now();
+          
+          final result = await routingEngine.synthesizeToWavFile(
+            voiceId: voiceId,
+            text: text,
+            playbackRate: 1.0,
+          );
+
+          final elapsed = DateTime.now().difference(startTime);
+          final rtf = elapsed.inMilliseconds / result.durationMs;
+          final charsPerSecond = (text.length * 1000) / elapsed.inMilliseconds;
+
+          print('$label (${text.length} chars):');
+          print('  - Audio: ${result.durationMs}ms');
+          print('  - Synth: ${elapsed.inMilliseconds}ms');
+          print('  - RTF: ${rtf.toStringAsFixed(2)}x');
+          print('  - Speed: ${charsPerSecond.toStringAsFixed(0)} chars/sec');
+        }
+      }, timeout: const Timeout(Duration(minutes: 5)));
     });
 
     group('Supertonic Voice Synthesis', () {

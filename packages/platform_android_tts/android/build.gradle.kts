@@ -73,6 +73,13 @@ android {
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    
+    // sherpa-onnx for Kokoro + Piper TTS (VITS-based models)
+    // Using compileOnly so the classes are available at compile time
+    // but the AAR is not packaged (the app provides it)
+    // This avoids "local .aar file dependencies are not supported when building an AAR" error
+    compileOnly(files("libs/sherpa-onnx.aar"))
+    
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.mockito:mockito-core:5.0.0")
 }

@@ -3,6 +3,7 @@ package com.example.platform_android_tts.services
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import com.example.platform_android_tts.sherpa.KokoroSherpaInference
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.RandomAccessFile
@@ -13,25 +14,28 @@ import java.nio.ByteOrder
  * Kokoro TTS Service running in its own process (:kokoro).
  * 
  * Provides synthesis using Kokoro sherpa-onnx TTS models.
- * Supports INT8 and FP32 model variants.
+ * Kokoro is a multi-speaker model - all voices share a single model
+ * with different speaker IDs.
+ * 
+ * Uses KokoroSherpaInference for actual TTS synthesis (via sherpa-onnx).
  */
 class KokoroTtsService : Service() {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
-    // Model state
+    // Model state - Kokoro uses single shared model
     private var modelPath: String? = null
+    private var voicesPath: String? = null
     private var isInitialized = false
-    private var loadedVoices = mutableMapOf<String, Long>() // voiceId -> loadedTimestamp
+    private var loadedVoices = mutableMapOf<String, KokoroVoice>() // voiceId -> voice info
+    
+    // Single inference engine (shared model)
+    private var inference: KokoroSherpaInference? = null
     
     // Active synthesis jobs for cancellation
     private val activeJobs = mutableMapOf<String, Job>()
     
-    override fun onBind(intent: Intent?): IBinder? {
-        // For now, using MethodChannel instead of Binder
-        // Will implement AIDL binding for production
-        return null
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
     
     override fun onDestroy() {
         scope.cancel()
@@ -41,37 +45,84 @@ class KokoroTtsService : Service() {
     
     /**
      * Initialize the Kokoro engine with the core model path.
+     * 
+     * @param corePath Path to directory containing model.onnx, tokens.txt, espeak-ng-data/
+     * @param voicesFile Path to voices.bin file with voice embeddings
      */
-    suspend fun initEngine(corePath: String): Result<Unit> = runCatching {
+    suspend fun initEngine(corePath: String, voicesFile: String? = null): Result<Unit> = runCatching {
         if (isInitialized && modelPath == corePath) {
             return Result.success(Unit)
         }
         
-        // Verify model files exist
-        val modelFile = File(corePath, "model.onnx")
-        if (!modelFile.exists()) {
-            throw IllegalStateException("Model file not found: ${modelFile.path}")
+        // Verify model files exist - support both model.onnx and model.int8.onnx
+        val modelFile = findModelFile(corePath)
+        if (modelFile == null || !modelFile.exists()) {
+            throw IllegalStateException("Model file not found in: $corePath")
         }
         
-        // TODO: Load ONNX Runtime and initialize model
-        // This is where sherpa-onnx or ONNX Runtime would be initialized
+        // Look for voices file in expected locations
+        val actualVoicesPath = voicesFile ?: findVoicesFile(corePath)
+        if (actualVoicesPath == null || !File(actualVoicesPath).exists()) {
+            throw IllegalStateException("Voices file not found in $corePath")
+        }
+        
+        // Initialize sherpa-onnx inference engine
+        val engine = KokoroSherpaInference(corePath, actualVoicesPath)
+        engine.initialize().getOrThrow()
+        
+        inference = engine
         modelPath = corePath
+        voicesPath = actualVoicesPath
         isInitialized = true
     }
     
     /**
-     * Load a specific voice (Kokoro voices share the model, just track speaker ID).
+     * Find the ONNX model file in the core path.
+     */
+    private fun findModelFile(corePath: String): File? {
+        val standardModel = File(corePath, "model.onnx")
+        if (standardModel.exists()) return standardModel
+        
+        val int8Model = File(corePath, "model.int8.onnx")
+        if (int8Model.exists()) return int8Model
+        
+        // Look for any .onnx file
+        return File(corePath).listFiles { file ->
+            file.isFile && file.name.endsWith(".onnx")
+        }?.maxByOrNull { it.length() }
+    }
+    
+    /**
+     * Find the voices.bin file in expected locations.
+     */
+    private fun findVoicesFile(corePath: String): String? {
+        val candidates = listOf(
+            "$corePath/voices.bin",
+            "$corePath/../voices.bin",
+            "$corePath/voices/voices.bin"
+        )
+        return candidates.firstOrNull { File(it).exists() }
+    }
+    
+    /**
+     * Load a specific voice (register speaker ID mapping).
      */
     suspend fun loadVoice(voiceId: String, speakerId: Int): Result<Unit> = runCatching {
         if (!isInitialized) {
             throw IllegalStateException("Engine not initialized")
         }
         
-        loadedVoices[voiceId] = System.currentTimeMillis()
+        loadedVoices[voiceId] = KokoroVoice(
+            voiceId = voiceId,
+            speakerId = speakerId,
+            lastUsed = System.currentTimeMillis()
+        )
     }
     
     /**
      * Synthesize text to a WAV file.
+     * 
+     * Note: Kokoro uses 24000 Hz sample rate.
      */
     suspend fun synthesize(
         voiceId: String,
@@ -81,7 +132,9 @@ class KokoroTtsService : Service() {
         speakerId: Int = 0,
         speed: Float = 1.0f
     ): SynthesisResult {
-        if (!isInitialized) {
+        val engine = inference
+        
+        if (!isInitialized || engine == null) {
             return SynthesisResult(
                 success = false,
                 errorCode = ErrorCode.MODEL_MISSING,
@@ -97,32 +150,30 @@ class KokoroTtsService : Service() {
             )
         }
         
+        // Get speaker ID from loaded voice or use provided ID
+        val voice = loadedVoices[voiceId]
+        val actualSpeakerId = voice?.speakerId ?: speakerId
+        
         val job = scope.launch {
             try {
-                // Create temp file for atomic write
                 val tmpFile = File("$outputPath.tmp")
                 tmpFile.parentFile?.mkdirs()
                 
-                // TODO: Actually run ONNX inference here
-                // For now, generate a silent WAV file for testing
-                val sampleRate = 24000
-                val durationSeconds = estimateDuration(text)
-                val samples = (sampleRate * durationSeconds).toInt()
+                // Run sherpa-onnx inference
+                val samples = engine.synthesize(text, actualSpeakerId, speed).getOrThrow()
+                val sampleRate = engine.getSampleRate()
                 
-                // Generate PCM samples (silence for now)
-                val pcmData = ShortArray(samples) { 0 }
+                // Convert float samples to 16-bit PCM
+                val pcmData = samples.map { sample ->
+                    (sample * 32767).toInt().coerceIn(-32768, 32767).toShort()
+                }.toShortArray()
                 
-                // Write WAV file
                 writeWavFile(tmpFile, pcmData, sampleRate)
                 
-                // Check cancellation before atomic rename
                 ensureActive()
-                
-                // Atomic rename
                 tmpFile.renameTo(File(outputPath))
                 
             } catch (e: CancellationException) {
-                // Clean up temp file on cancellation
                 File("$outputPath.tmp").delete()
                 throw e
             }
@@ -140,13 +191,21 @@ class KokoroTtsService : Service() {
                     errorMessage = "Synthesis cancelled"
                 )
             } else {
-                val file = File(outputPath)
-                val durationMs = estimateDurationMs(text)
+                voice?.lastUsed = System.currentTimeMillis()
+                
+                // Calculate actual duration from output file
+                val sampleRate = engine.getSampleRate()
+                val samples = engine.synthesize(text, actualSpeakerId, speed).getOrNull()
+                val durationMs = if (samples != null) {
+                    (samples.size * 1000 / sampleRate)
+                } else {
+                    estimateDurationMs(text)
+                }
                 
                 SynthesisResult(
                     success = true,
                     durationMs = durationMs,
-                    sampleRate = 24000
+                    sampleRate = sampleRate
                 )
             }
         } catch (e: Exception) {
@@ -169,7 +228,7 @@ class KokoroTtsService : Service() {
     }
     
     /**
-     * Unload a specific voice.
+     * Unload a specific voice (just removes from tracking).
      */
     fun unloadVoice(voiceId: String) {
         loadedVoices.remove(voiceId)
@@ -179,13 +238,26 @@ class KokoroTtsService : Service() {
      * Unload all models and reset state.
      */
     fun unloadAllModels() {
+        inference?.dispose()
+        inference = null
         loadedVoices.clear()
         isInitialized = false
         modelPath = null
+        voicesPath = null
         
-        // Cancel all active jobs
         activeJobs.values.forEach { it.cancel() }
         activeJobs.clear()
+    }
+    
+    /**
+     * Unload least recently used voice.
+     */
+    fun unloadLeastUsedVoice(): String? {
+        val lru = loadedVoices.minByOrNull { it.value.lastUsed }
+        return lru?.let {
+            loadedVoices.remove(it.key)
+            it.key
+        }
     }
     
     /**
@@ -199,14 +271,14 @@ class KokoroTtsService : Service() {
         return ServiceMemoryInfo(
             availableMB = availableMB,
             totalMB = totalMB,
-            loadedModelCount = loadedVoices.size
+            loadedModelCount = if (isInitialized) 1 else 0
         )
     }
     
     /**
      * Check if engine is ready.
      */
-    fun isReady(): Boolean = isInitialized
+    fun isReady(): Boolean = isInitialized && inference?.isReady() == true
     
     /**
      * Check if a voice is loaded.
@@ -317,3 +389,12 @@ enum class ErrorCode {
     FILE_WRITE_ERROR,
     UNKNOWN
 }
+
+/**
+ * Kokoro voice state.
+ */
+data class KokoroVoice(
+    val voiceId: String,
+    val speakerId: Int,
+    var lastUsed: Long
+)
