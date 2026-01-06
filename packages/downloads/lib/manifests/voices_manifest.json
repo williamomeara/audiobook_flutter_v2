@@ -34,9 +34,9 @@
       "engineType": "supertonic",
       "displayName": "Supertonic TTS Core",
       "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_core.tar.gz",
-      "sizeBytes": 272629760,
-      "sha256": "placeholder_supertonic_bundle_sha256",
-      "required": true
+      "sizeBytes": 245464350,
+      "required": true,
+      "extractType": "tar.gz"
     }
   ],
   "voices": [
@@ -167,12 +167,84 @@
       "coreRequirements": ["supertonic_core_v1"]
     },
     {
+      "id": "supertonic_m2",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 2",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 1,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_m3",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 3",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 2,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_m4",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 4",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 3,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_m5",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 5",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 4,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
       "id": "supertonic_f1",
       "engineId": "supertonic",
       "displayName": "Supertonic - Female 1",
       "language": "en",
       "gender": "female",
       "speakerId": 5,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_f2",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 2",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 6,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_f3",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 3",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 7,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_f4",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 4",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 8,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_f5",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 5",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 9,
       "coreRequirements": ["supertonic_core_v1"]
     }
   ]

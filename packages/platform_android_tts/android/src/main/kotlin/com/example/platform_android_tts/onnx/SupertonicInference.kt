@@ -16,42 +16,37 @@ import java.text.Normalizer
  * Key difference from VITS-based TTS: No phonemization needed!
  * Supertonic works directly with raw Unicode text (NFKD normalized).
  * 
- * TODO: Implement actual ONNX Runtime inference once we resolve the
- * native library conflict between sherpa-onnx and onnxruntime-android.
- * Options:
- * 1. Use JNI directly to call the bundled libonnxruntime.so
- * 2. Use a separate ONNX Runtime build without native libs
- * 3. Port Supertonic to use sherpa-onnx's native C API
- * 
- * For now, this is a stub implementation that generates silence.
+ * This implementation uses JNI to call the ONNX Runtime bundled with sherpa-onnx,
+ * avoiding native library conflicts.
  */
 class SupertonicInference(private val corePath: String) {
     private var isInitialized = false
-    private val sampleRate = 24000
-    
-    // Basic vocabulary for character-level encoding
-    private val vocabulary: Map<Char, Int> by lazy { buildVocabulary() }
     
     /**
      * Initialize all ONNX models.
      * 
      * Expected files in corePath:
-     * - text_encoder.onnx
-     * - duration_predictor.onnx
-     * - autoencoder.onnx
+     * - onnx/text_encoder.onnx
+     * - onnx/duration_predictor.onnx
+     * - onnx/vector_estimator.onnx (or autoencoder.onnx)
+     * - onnx/vocoder.onnx
      */
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            // TODO: Load ONNX models using raw ONNX Runtime or JNI
-            // For now, just verify the files exist
-            val requiredFiles = listOf("text_encoder.onnx", "duration_predictor.onnx", "autoencoder.onnx")
-            for (file in requiredFiles) {
-                val path = "$corePath/$file"
-                if (!java.io.File(path).exists()) {
-                    throw IllegalStateException("Required model file not found: $path")
-                }
+            // Check if native library is available
+            if (!SupertonicNative.isNativeAvailable()) {
+                throw IllegalStateException("Supertonic native library not available")
             }
+            
+            // Initialize native engine
+            val success = SupertonicNative.initialize(corePath)
+            if (!success) {
+                throw IllegalStateException("Failed to initialize Supertonic native engine")
+            }
+            
             isInitialized = true
+            android.util.Log.i("SupertonicInference", "Supertonic initialized from $corePath")
+            Unit
         }
     }
     
@@ -73,67 +68,43 @@ class SupertonicInference(private val corePath: String) {
                 throw IllegalStateException("Engine not initialized")
             }
             
-            // TODO: Implement actual ONNX inference
-            // 1. Normalize text (NFKD Unicode normalization)
+            // Normalize text (NFKD Unicode normalization)
             val normalizedText = Normalizer.normalize(text, Normalizer.Form.NFKD)
             
-            // 2. Tokenize to character IDs
-            val tokens = tokenize(normalizedText)
+            // Call native synthesis
+            val samples = SupertonicNative.synthesize(normalizedText, speakerId, speed)
+                ?: throw IllegalStateException("Native synthesis returned null")
             
-            // 3. Run text encoder
-            // 4. Run duration predictor
-            // 5. Apply speed scaling
-            // 6. Run autoencoder/vocoder
-            
-            // For now, generate silence (approx 1 second per 10 characters)
-            val durationSamples = (text.length * sampleRate / 10)
-            FloatArray(durationSamples) { 0f }
+            android.util.Log.d("SupertonicInference", "Synthesized ${samples.size} samples")
+            samples
         }
-    }
-    
-    /**
-     * Tokenize text to character IDs.
-     */
-    private fun tokenize(text: String): LongArray {
-        return text.map { char ->
-            (vocabulary[char] ?: vocabulary[' '] ?: 0).toLong()
-        }.toLongArray()
-    }
-    
-    /**
-     * Build vocabulary mapping characters to IDs.
-     */
-    private fun buildVocabulary(): Map<Char, Int> {
-        val vocab = mutableMapOf<Char, Int>()
-        var id = 0
-        
-        vocab['\u0000'] = id++
-        vocab[' '] = id++
-        
-        for (c in 'a'..'z') vocab[c] = id++
-        for (c in 'A'..'Z') vocab[c] = id++
-        for (c in '0'..'9') vocab[c] = id++
-        
-        val punctuation = ".,!?;:'\"-()[]{}/<>@#\$%^&*+=~`|\\\n\t"
-        for (c in punctuation) vocab[c] = id++
-        
-        return vocab
     }
     
     /**
      * Get the sample rate.
      */
-    fun getSampleRate(): Int = sampleRate
+    fun getSampleRate(): Int {
+        return if (isInitialized) {
+            SupertonicNative.getSampleRate()
+        } else {
+            24000 // Default
+        }
+    }
     
     /**
      * Check if all models are loaded.
      */
-    fun isReady(): Boolean = isInitialized
+    fun isReady(): Boolean {
+        return isInitialized && SupertonicNative.isReady()
+    }
     
     /**
      * Release all resources.
      */
     fun dispose() {
-        isInitialized = false
+        if (isInitialized) {
+            SupertonicNative.dispose()
+            isInitialized = false
+        }
     }
 }

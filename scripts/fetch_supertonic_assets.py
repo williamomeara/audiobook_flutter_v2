@@ -125,37 +125,21 @@ def download_per_file(hf_base, revision, dest, styles=None, token=None, force=Fa
         target = os.path.join(onnx_dir, fname)
         download_url(url, target, token=token, force=force)
 
-    # Try to fetch a styles manifest (optional)
-    manifest_url = hf_base.format(revision=revision) + 'voice_styles/manifest.json'
-    styles_list = None
-    try:
-        tmpmanifest = os.path.join(dest, 'voice_styles_manifest.json')
-        download_url(manifest_url, tmpmanifest, token=token, force=force)
-        with open(tmpmanifest, 'r') as f:
-            styles_list = json.load(f)
-    except Exception:
-        styles_list = None
-
-    # Determine which styles to download
+    # Download voice style JSONs (M1-M5, F1-F5)
+    default_styles = ['M1', 'M2', 'M3', 'M4', 'M5', 'F1', 'F2', 'F3', 'F4', 'F5']
     if styles is not None:
         requested = [s.strip() for s in styles.split(',') if s.strip()]
-    elif styles_list:
-        requested = styles_list
     else:
-        requested = []  # nothing to download if we don't know
+        requested = default_styles
 
     for style in requested:
-        # The style might be a directory with multiple files; attempt to download common file names
-        style_base = hf_base.format(revision=revision) + f'voice_styles/{style}/'
-        # We'll try to download a style.json and any onnx files inside the style dir
-        for sfile in ['style.json', 'style.yaml']:
-            url = style_base + sfile
-            target = os.path.join(styles_dir, style + '_' + sfile)
-            try:
-                download_url(url, target, token=token, force=force)
-            except Exception:
-                # Not critical
-                pass
+        # Voice styles are JSON files directly in voice_styles/
+        url = hf_base.format(revision=revision) + f'voice_styles/{style}.json'
+        target = os.path.join(styles_dir, f'{style}.json')
+        try:
+            download_url(url, target, token=token, force=force)
+        except Exception as e:
+            print(f"Warning: Could not download voice style {style}: {e}")
 
     print("Per-file downloads finished.")
 
