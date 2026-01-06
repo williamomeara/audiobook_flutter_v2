@@ -42,3 +42,10 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // sherpa-onnx for Kokoro + Piper TTS (VITS-based models)
+    // Pre-built AAR from official sherpa-onnx releases (HuggingFace)
+    // Source: https://huggingface.co/csukuangfj/sherpa-onnx-libs/tree/main/android/aar
+    implementation(files("libs/sherpa-onnx.aar"))
+}

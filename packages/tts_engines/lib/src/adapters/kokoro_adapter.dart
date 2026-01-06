@@ -83,6 +83,19 @@ class KokoroAdapter implements AiVoiceEngine {
   Future<CoreReadiness> getCoreReadiness(String voiceId) async {
     try {
       final status = await _nativeApi.getCoreStatus(NativeEngineType.kokoro);
+      
+      // If native reports notStarted, check if core files exist and auto-init
+      if (status.state == NativeCoreState.notStarted) {
+        final coreDir = _getCoreDir();
+        if (await coreDir.exists()) {
+          // Core is downloaded but not initialized - init now
+          developer.log('[KokoroAdapter] Auto-initializing engine from ${coreDir.path}');
+          await _initEngine(coreDir.path);
+          _coreReadiness = CoreReadiness.readyFor('kokoro');
+          return _coreReadiness;
+        }
+      }
+      
       _coreReadiness = _mapNativeCoreStatus(status);
       return _coreReadiness;
     } catch (e) {

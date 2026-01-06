@@ -6,59 +6,37 @@
       "id": "kokoro_core_v1",
       "engineType": "kokoro",
       "displayName": "Kokoro TTS Core",
-      "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/kokoro_core.tar.gz",
-      "sizeBytes": 199229440,
-      "sha256": "placeholder_kokoro_bundle_sha256",
-      "required": true
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
+      "sizeBytes": 147031220,
+      "required": true,
+      "extractType": "tar.bz2"
     },
     {
       "id": "piper_alan_gb_v1",
       "engineType": "piper",
       "displayName": "Piper - Alan (British)",
-      "sizeBytes": 31459328,
-      "sha256": "placeholder_piper_alan_sha256",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-alan-medium.tar.bz2",
+      "sizeBytes": 63500000,
       "required": true,
-      "files": [
-        {
-          "filename": "model.onnx",
-          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
-          "sizeBytes": 31457280
-        },
-        {
-          "filename": "model.onnx.json",
-          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json",
-          "sizeBytes": 2048
-        }
-      ]
+      "extractType": "tar.bz2"
     },
     {
       "id": "piper_lessac_us_v1",
       "engineType": "piper",
       "displayName": "Piper - Lessac (American)",
-      "sizeBytes": 31459328,
-      "sha256": "placeholder_piper_lessac_sha256",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium.tar.bz2",
+      "sizeBytes": 63500000,
       "required": true,
-      "files": [
-        {
-          "filename": "model.onnx",
-          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
-          "sizeBytes": 31457280
-        },
-        {
-          "filename": "model.onnx.json",
-          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
-          "sizeBytes": 2048
-        }
-      ]
+      "extractType": "tar.bz2"
     },
     {
       "id": "supertonic_core_v1",
       "engineType": "supertonic",
       "displayName": "Supertonic TTS Core",
       "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_core.tar.gz",
-      "sizeBytes": 272629760,
-      "sha256": "placeholder_supertonic_bundle_sha256",
-      "required": true
+      "sizeBytes": 245464350,
+      "required": true,
+      "extractType": "tar.gz"
     }
   ],
   "voices": [
@@ -189,12 +167,84 @@
       "coreRequirements": ["supertonic_core_v1"]
     },
     {
+      "id": "supertonic_m2",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 2",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 1,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_m3",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 3",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 2,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_m4",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 4",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 3,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_m5",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Male 5",
+      "language": "en",
+      "gender": "male",
+      "speakerId": 4,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
       "id": "supertonic_f1",
       "engineId": "supertonic",
       "displayName": "Supertonic - Female 1",
       "language": "en",
       "gender": "female",
       "speakerId": 5,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_f2",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 2",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 6,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_f3",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 3",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 7,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_f4",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 4",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 8,
+      "coreRequirements": ["supertonic_core_v1"]
+    },
+    {
+      "id": "supertonic_f5",
+      "engineId": "supertonic",
+      "displayName": "Supertonic - Female 5",
+      "language": "en",
+      "gender": "female",
+      "speakerId": 9,
       "coreRequirements": ["supertonic_core_v1"]
     }
   ]

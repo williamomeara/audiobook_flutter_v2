@@ -158,7 +158,8 @@ class AtomicAssetManager {
       }
 
       _updateState(key, DownloadState.ready);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _debugLog('Download failed: $e\n$stackTrace');
       // Cleanup on failure
       try {
         if (await tmpDir.exists()) {
@@ -173,6 +174,7 @@ class AtomicAssetManager {
         status: DownloadStatus.failed,
         error: e.toString(),
       ));
+      rethrow;  // Propagate error to caller
     } finally {
       _activeDownloads.remove(key);
     }
@@ -514,31 +516,68 @@ class AtomicAssetManager {
     }
   }
 
-  /// Extract archive (tar.gz or zip).
+  /// Extract archive (tar.gz, tar.bz2, or zip).
+  /// 
+  /// For tar.bz2 archives (sherpa-onnx models), strips the leading directory
+  /// component so contents are extracted directly to destDir.
   Future<void> _extractArchive(File archive, Directory destDir) async {
     final bytes = await archive.readAsBytes();
 
     Archive decoded;
     final lower = archive.path.toLowerCase();
     final lowerNoTmp = lower.endsWith('.tmp') ? lower.substring(0, lower.length - 4) : lower;
+    final isBz2 = lowerNoTmp.endsWith('.tar.bz2') || lowerNoTmp.endsWith('.tbz2');
+    
     if (lowerNoTmp.endsWith('.tar.gz') || lowerNoTmp.endsWith('.tgz')) {
       decoded = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
+    } else if (isBz2) {
+      decoded = TarDecoder().decodeBytes(BZip2Decoder().decodeBytes(bytes));
     } else if (lowerNoTmp.endsWith('.zip')) {
       decoded = ZipDecoder().decodeBytes(bytes);
     } else {
       throw Exception('Unsupported archive type: ${archive.path}');
     }
 
+    // For tar.bz2 (sherpa-onnx format), strip the leading directory component
+    // e.g., "vits-piper-en_GB-alan-medium/tokens.txt" -> "tokens.txt"
+    String? stripPrefix;
+    if (isBz2) {
+      stripPrefix = _detectCommonPrefix(decoded);
+    }
+
     for (final file in decoded) {
-      final filename = file.name;
+      String filename = file.name;
+      
+      // Strip prefix if detected
+      if (stripPrefix != null && filename.startsWith(stripPrefix)) {
+        filename = filename.substring(stripPrefix.length);
+        if (filename.isEmpty) continue; // Skip the root directory entry
+      }
+      
       if (file.isFile) {
         final outFile = File('${destDir.path}/$filename');
         await outFile.parent.create(recursive: true);
         await outFile.writeAsBytes(file.content as List<int>);
-      } else {
+      } else if (filename.isNotEmpty) {
         await Directory('${destDir.path}/$filename').create(recursive: true);
       }
     }
+  }
+  
+  /// Detect common prefix directory in archive (for stripping).
+  String? _detectCommonPrefix(Archive archive) {
+    final names = archive.files.map((f) => f.name).toList();
+    if (names.isEmpty) return null;
+    
+    // Check if all files start with a common directory prefix
+    final firstSlash = names.first.indexOf('/');
+    if (firstSlash < 0) return null;
+    
+    final prefix = names.first.substring(0, firstSlash + 1);
+    if (names.every((n) => n.startsWith(prefix))) {
+      return prefix;
+    }
+    return null;
   }
 
   /// Calculate SHA256 of a file.
@@ -590,13 +629,19 @@ class AtomicAssetManager {
 
   bool _isArchiveUrl(String url) {
     final path = Uri.parse(url).path.toLowerCase();
-    return path.endsWith('.tar.gz') || path.endsWith('.tgz') || path.endsWith('.zip');
+    return path.endsWith('.tar.gz') || 
+           path.endsWith('.tgz') || 
+           path.endsWith('.tar.bz2') || 
+           path.endsWith('.tbz2') || 
+           path.endsWith('.zip');
   }
 
   String _archiveTmpSuffix(String url) {
     final path = Uri.parse(url).path.toLowerCase();
     if (path.endsWith('.tar.gz')) return '.tar.gz.tmp';
     if (path.endsWith('.tgz')) return '.tgz.tmp';
+    if (path.endsWith('.tar.bz2')) return '.tar.bz2.tmp';
+    if (path.endsWith('.tbz2')) return '.tbz2.tmp';
     if (path.endsWith('.zip')) return '.zip.tmp';
     return '.archive.tmp';
   }

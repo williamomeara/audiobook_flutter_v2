@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
@@ -58,8 +57,10 @@ class SupertonicAdapter implements AiVoiceEngine {
 
   @override
   Future<void> ensureCoreReady(CoreSelector selector) async {
-    // New path structure: {coreDir}/supertonic/supertonic_core_v1/
-    final coreDir = Directory('${_coreDir.path}/supertonic/supertonic_core_v1');
+    // Path structure after extraction: {coreDir}/supertonic/supertonic_core_v1/supertonic/
+    // Download key: supertonic/supertonic_core_v1
+    // Archive extracts as: supertonic_core_v1/supertonic/onnx/...
+    final coreDir = Directory('${_coreDir.path}/supertonic/supertonic_core_v1/supertonic');
 
     if (await coreDir.exists()) {
       await _initEngine(coreDir.path);
@@ -102,13 +103,13 @@ class SupertonicAdapter implements AiVoiceEngine {
       );
     }
 
-    // Check core
-    final coreDir = Directory('${_coreDir.path}/supertonic');
+    // Check core exists - matches extraction path structure
+    final coreDir = Directory('${_coreDir.path}/supertonic/supertonic_core_v1/supertonic');
     if (!await coreDir.exists()) {
       return VoiceReadiness(
         voiceId: voiceId,
         state: VoiceReadyState.coreRequired,
-        nextActionUserShouldTake: 'Download Supertonic core (200MB)',
+        nextActionUserShouldTake: 'Download Supertonic core (~350MB)',
       );
     }
 
@@ -173,6 +174,13 @@ class SupertonicAdapter implements AiVoiceEngine {
 
       if (request.isCancelled) {
         return ExtendedSynthResult.cancelled;
+      }
+
+      // Ensure native engine is initialized
+      final corePath = '${_coreDir.path}/supertonic/supertonic_core_v1/supertonic';
+      final coreDir = Directory(corePath);
+      if (await coreDir.exists() && !_coreReadiness.isReady) {
+        await _initEngine(corePath);
       }
 
       final tmpPath = '${request.outputFile.path}.tmp';

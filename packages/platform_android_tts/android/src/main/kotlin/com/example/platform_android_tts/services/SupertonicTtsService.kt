@@ -3,6 +3,7 @@ package com.example.platform_android_tts.services
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import com.example.platform_android_tts.onnx.SupertonicNative
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.RandomAccessFile
@@ -12,7 +13,7 @@ import java.nio.ByteOrder
 /**
  * Supertonic TTS Service running in its own process (:supertonic).
  * 
- * Provides synthesis using Supertonic ONNX TTS models.
+ * Provides synthesis using Supertonic ONNX TTS models via JNI.
  * Uses speaker embeddings for voice cloning/variation.
  */
 class SupertonicTtsService : Service() {
@@ -32,25 +33,52 @@ class SupertonicTtsService : Service() {
     override fun onDestroy() {
         scope.cancel()
         unloadAllModels()
+        // Dispose native resources
+        if (isInitialized) {
+            SupertonicNative.dispose()
+        }
         super.onDestroy()
     }
     
     /**
      * Initialize the Supertonic engine with the core model path.
+     * 
+     * Expected structure:
+     * corePath/
+     *   onnx/
+     *     text_encoder.onnx
+     *     duration_predictor.onnx
+     *     vector_estimator.onnx
+     *     vocoder.onnx
+     *     unicode_indexer.json
+     *   voice_styles/
+     *     M1.json, M2.json, ..., F1.json, F2.json, ...
      */
     suspend fun initEngine(corePath: String): Result<Unit> = runCatching {
         if (isInitialized && modelPath == corePath) {
             return Result.success(Unit)
         }
         
-        val modelFile = File(corePath, "model.onnx")
-        if (!modelFile.exists()) {
-            throw IllegalStateException("Model file not found: ${modelFile.path}")
+        // Check for native library availability
+        if (!SupertonicNative.isNativeAvailable()) {
+            throw IllegalStateException("Supertonic native library not available")
         }
         
-        // TODO: Load ONNX Runtime and initialize model
+        // Verify model files exist
+        val textEncoder = File(corePath, "onnx/text_encoder.onnx")
+        if (!textEncoder.exists()) {
+            throw IllegalStateException("Model file not found: ${textEncoder.path}")
+        }
+        
+        // Initialize native engine
+        val success = SupertonicNative.initialize(corePath)
+        if (!success) {
+            throw IllegalStateException("Failed to initialize Supertonic native engine at: $corePath")
+        }
+        
         modelPath = corePath
         isInitialized = true
+        android.util.Log.i("SupertonicTtsService", "Engine initialized at: $corePath")
     }
     
     /**
@@ -75,7 +103,7 @@ class SupertonicTtsService : Service() {
     }
     
     /**
-     * Synthesize text to a WAV file.
+     * Synthesize text to a WAV file using Supertonic native engine.
      */
     suspend fun synthesize(
         voiceId: String,
@@ -85,7 +113,7 @@ class SupertonicTtsService : Service() {
         speakerId: Int = 0,
         speed: Float = 1.0f
     ): SynthesisResult {
-        if (!isInitialized) {
+        if (!isInitialized || !SupertonicNative.isReady()) {
             return SynthesisResult(
                 success = false,
                 errorCode = ErrorCode.MODEL_MISSING,
@@ -110,17 +138,27 @@ class SupertonicTtsService : Service() {
             )
         }
         
+        var audioSamples: FloatArray? = null
+        var synthError: Exception? = null
+        
         val job = scope.launch {
             try {
+                // Run native ONNX inference
+                audioSamples = SupertonicNative.synthesize(text, speaker.speakerId, speed)
+                
+                if (audioSamples == null) {
+                    synthError = IllegalStateException("Native synthesis returned null")
+                    return@launch
+                }
+                
+                ensureActive()
+                
+                // Convert float samples to 16-bit PCM and write WAV
+                val sampleRate = SupertonicNative.getSampleRate()
+                val pcmData = floatToPcm16(audioSamples!!)
+                
                 val tmpFile = File("$outputPath.tmp")
                 tmpFile.parentFile?.mkdirs()
-                
-                // TODO: Run ONNX inference with speaker embedding
-                val sampleRate = 24000
-                val durationSeconds = estimateDuration(text)
-                val samples = (sampleRate * durationSeconds).toInt()
-                
-                val pcmData = ShortArray(samples) { 0 }
                 writeWavFile(tmpFile, pcmData, sampleRate)
                 
                 ensureActive()
@@ -129,6 +167,9 @@ class SupertonicTtsService : Service() {
             } catch (e: CancellationException) {
                 File("$outputPath.tmp").delete()
                 throw e
+            } catch (e: Exception) {
+                synthError = e
+                android.util.Log.e("SupertonicTtsService", "Synthesis error", e)
             }
         }
         
@@ -143,13 +184,27 @@ class SupertonicTtsService : Service() {
                     errorCode = ErrorCode.CANCELLED,
                     errorMessage = "Synthesis cancelled"
                 )
-            } else {
+            } else if (synthError != null) {
+                SynthesisResult(
+                    success = false,
+                    errorCode = mapExceptionToErrorCode(synthError!!),
+                    errorMessage = synthError!!.message
+                )
+            } else if (audioSamples != null) {
                 speaker.lastUsed = System.currentTimeMillis()
+                val sampleRate = SupertonicNative.getSampleRate()
+                val durationMs = (audioSamples!!.size * 1000 / sampleRate)
                 
                 SynthesisResult(
                     success = true,
-                    durationMs = estimateDurationMs(text),
-                    sampleRate = 24000
+                    durationMs = durationMs,
+                    sampleRate = sampleRate
+                )
+            } else {
+                SynthesisResult(
+                    success = false,
+                    errorCode = ErrorCode.INFERENCE_FAILED,
+                    errorMessage = "No audio output generated"
                 )
             }
         } catch (e: Exception) {
@@ -183,6 +238,11 @@ class SupertonicTtsService : Service() {
      */
     fun unloadAllModels() {
         loadedSpeakers.clear()
+        
+        if (isInitialized) {
+            SupertonicNative.dispose()
+        }
+        
         isInitialized = false
         modelPath = null
         
@@ -216,10 +276,20 @@ class SupertonicTtsService : Service() {
         )
     }
     
-    fun isReady(): Boolean = isInitialized
+    fun isReady(): Boolean = isInitialized && SupertonicNative.isReady()
     fun isVoiceLoaded(voiceId: String): Boolean = loadedSpeakers.containsKey(voiceId)
     
     // Private helpers
+    
+    /**
+     * Convert float audio samples [-1.0, 1.0] to 16-bit PCM.
+     */
+    private fun floatToPcm16(samples: FloatArray): ShortArray {
+        return ShortArray(samples.size) { i ->
+            val sample = samples[i].coerceIn(-1.0f, 1.0f)
+            (sample * 32767).toInt().toShort()
+        }
+    }
     
     private fun estimateDuration(text: String): Float {
         val words = text.length / 5.0f
