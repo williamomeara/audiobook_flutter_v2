@@ -1,0 +1,397 @@
+{
+  "metadata": {
+    "input_word_count": 946,
+    "input_character_count": 5694,
+    "total_segments": 48,
+    "average_segment_length_chars": 117,
+    "average_segment_length_words": 20,
+    "shortest_segment_chars": 39,
+    "longest_segment_chars": 249
+  },
+  "segments": [
+    {
+      "index": 0,
+      "text": "The city awakened slowly that morning, wrapped in a thick blanket of fog that rolled in from the harbor.",
+      "character_count": 104,
+      "word_count": 19,
+      "estimated_duration_seconds": 8,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 1,
+      "text": "Streets that were usually bustling with activity by dawn remained eerily quiet, their emptiness punctuated only by the occasional rumble of a delivery truck or the distant wail of a siren.",
+      "character_count": 188,
+      "word_count": 31,
+      "estimated_duration_seconds": 15,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 2,
+      "text": "Sarah Martinez stood at her apartment window, coffee cup warming her hands, watching the world below emerge gradually from the gray mist.",
+      "character_count": 137,
+      "word_count": 22,
+      "estimated_duration_seconds": 10,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 3,
+      "text": "She had been a detective for nearly fifteen years, long enough to develop an instinct for trouble, and something about today felt wrong.",
+      "character_count": 136,
+      "word_count": 23,
+      "estimated_duration_seconds": 10,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 4,
+      "text": "Perhaps it was the unusual silence, or maybe the nagging feeling that had kept her awake most of the night.",
+      "character_count": 107,
+      "word_count": 20,
+      "estimated_duration_seconds": 8,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 5,
+      "text": "The Stevens case had been gnawing at her for weeks now, a puzzle with pieces that refused to fit together no matter how many times she rearranged them.",
+      "character_count": 151,
+      "word_count": 28,
+      "estimated_duration_seconds": 12,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 6,
+      "text": "The victim, Marcus Stevens, had been a respected businessman with no apparent enemies.",
+      "character_count": 86,
+      "word_count": 13,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 7,
+      "text": "His death had been ruled an accident initially-a tragic fall from his office building's roof.",
+      "character_count": 93,
+      "word_count": 15,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 8,
+      "text": "But Sarah had never believed in coincidences, and the timing was too convenient.",
+      "character_count": 80,
+      "word_count": 13,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 9,
+      "text": "Stevens had been about to testify in a major corruption case, one that could have brought down some powerful people in the city's political establishment.",
+      "character_count": 154,
+      "word_count": 25,
+      "estimated_duration_seconds": 12,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 10,
+      "text": "Her phone buzzed, breaking her reverie.",
+      "character_count": 39,
+      "word_count": 6,
+      "estimated_duration_seconds": 3,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 11,
+      "text": "It was her partner, Detective James Chen. \"We need to meet,\" his text read. \"New evidence in the Stevens case.",
+      "character_count": 110,
+      "word_count": 20,
+      "estimated_duration_seconds": 8,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 12,
+      "text": "Coffee shop on Fifth, thirty minutes.\" Sarah felt her pulse quicken.",
+      "character_count": 68,
+      "word_count": 11,
+      "estimated_duration_seconds": 5,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 13,
+      "text": "James wasn't one for dramatics; if he said the evidence was significant, it meant they were finally getting somewhere.",
+      "character_count": 118,
+      "word_count": 19,
+      "estimated_duration_seconds": 9,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 14,
+      "text": "She dressed quickly, choosing practical clothes that would serve her well through a long day.",
+      "character_count": 93,
+      "word_count": 15,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 15,
+      "text": "Black pants, a simple blouse, her worn leather jacket that had seen her through countless investigations.",
+      "character_count": 105,
+      "word_count": 16,
+      "estimated_duration_seconds": 8,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 16,
+      "text": "She checked her service weapon out of habit, secured her badge, and grabbed her keys.",
+      "character_count": 85,
+      "word_count": 15,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 17,
+      "text": "The morning air was cold when she stepped outside, the fog still clinging to the streets like a living thing.",
+      "character_count": 109,
+      "word_count": 20,
+      "estimated_duration_seconds": 8,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 18,
+      "text": "The coffee shop was a small establishment that catered to early risers and night shift workers transitioning to day.",
+      "character_count": 116,
+      "word_count": 19,
+      "estimated_duration_seconds": 9,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 19,
+      "text": "James was already there, sitting in a corner booth with two cups of coffee and a manila folder that looked suspiciously thick.",
+      "character_count": 126,
+      "word_count": 22,
+      "estimated_duration_seconds": 10,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 20,
+      "text": "His usually calm demeanor seemed slightly ruffled, and Sarah could see the excitement in his eyes even from across the room. \"You're going to want to sit down for this,\" James said as she slid into the booth across from him.",
+      "character_count": 224,
+      "word_count": 41,
+      "estimated_duration_seconds": 17,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 21,
+      "text": "He pushed one of the coffee cups toward her, then opened the folder with deliberate care. \"Remember how we couldn't find any security footage from Stevens' building that night?",
+      "character_count": 176,
+      "word_count": 29,
+      "estimated_duration_seconds": 14,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 22,
+      "text": "Someone had conveniently erased it all?\" Sarah nodded, taking a sip of her coffee.",
+      "character_count": 82,
+      "word_count": 14,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 23,
+      "text": "It was strong and bitter, exactly what she needed. \"Yeah, that's what made me suspicious from the start.",
+      "character_count": 104,
+      "word_count": 18,
+      "estimated_duration_seconds": 8,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 24,
+      "text": "Too clean, too convenient.\" \"Well, we got lucky,\" James continued, pulling out several photographs. \"A tourist was taking pictures of the city skyline that evening from a nearby rooftop restaurant.",
+      "character_count": 197,
+      "word_count": 30,
+      "estimated_duration_seconds": 15,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 25,
+      "text": "She didn't realize what she had captured until she got home and went through her photos.",
+      "character_count": 88,
+      "word_count": 16,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 26,
+      "text": "Look at this.\" He spread three photographs across the table.",
+      "character_count": 60,
+      "word_count": 10,
+      "estimated_duration_seconds": 4,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 27,
+      "text": "Sarah leaned forward, studying the images carefully.",
+      "character_count": 52,
+      "word_count": 7,
+      "estimated_duration_seconds": 4,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 28,
+      "text": "They showed Stevens' building from across the street, the time stamp indicating they were taken about twenty minutes before the estimated time of death.",
+      "character_count": 152,
+      "word_count": 24,
+      "estimated_duration_seconds": 12,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 29,
+      "text": "In the second photo, barely visible in the dying light, two figures could be seen on the roof.",
+      "character_count": 94,
+      "word_count": 18,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 30,
+      "text": "The third photo was slightly blurred, as if the camera had moved, but it clearly showed what appeared to be a confrontation. \"Can we enhance these?\" Sarah asked,",
+      "character_count": 161,
+      "word_count": 28,
+      "estimated_duration_seconds": 12,
+      "ends_with_sentence": false
+    },
+    {
+      "index": 31,
+      "text": "her detective instincts kicking into high gear. \"Get facial recognition on the second person?\" \"Already sent them to the lab,\" James replied with a slight smile. \"But that's not all.",
+      "character_count": 182,
+      "word_count": 30,
+      "estimated_duration_seconds": 14,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 32,
+      "text": "The tourist also had video on her phone. She was recording the sunset, panning across the skyline.",
+      "character_count": 98,
+      "word_count": 17,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 33,
+      "text": "You can see the struggle on the roof, clear as day. Stevens didn't jump, Sarah.",
+      "character_count": 79,
+      "word_count": 15,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 34,
+      "text": "He was pushed.\" The implications hit Sarah like a physical blow. This changed everything.",
+      "character_count": 89,
+      "word_count": 14,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 35,
+      "text": "They weren't investigating an accident anymore; this was murder.",
+      "character_count": 64,
+      "word_count": 9,
+      "estimated_duration_seconds": 5,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 36,
+      "text": "And if Stevens had been killed to prevent his testimony, it meant the corruption went even deeper than they had suspected.",
+      "character_count": 122,
+      "word_count": 21,
+      "estimated_duration_seconds": 9,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 37,
+      "text": "It also meant that whoever was responsible had the power and resources to cover it up-at least until now. \"We need to move carefully,\" Sarah said, her voice low. \"If this gets out before we're ready, evidence could disappear, witnesses could vanish.",
+      "character_count": 249,
+      "word_count": 42,
+      "estimated_duration_seconds": 19,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 38,
+      "text": "We need to build an airtight case before we make any moves.\" James agreed. \"I've already started running background checks on everyone who had access to Stevens' building that day.",
+      "character_count": 180,
+      "word_count": 30,
+      "estimated_duration_seconds": 14,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 39,
+      "text": "Building security, cleaning staff, deliveries-everyone.",
+      "character_count": 55,
+      "word_count": 5,
+      "estimated_duration_seconds": 4,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 40,
+      "text": "And I'm cross-referencing them with known associates of the people Stevens was planning to testify against.\" They spent the next hour going through the evidence, piece by piece, building a timeline and identifying potential suspects.",
+      "character_count": 233,
+      "word_count": 35,
+      "estimated_duration_seconds": 18,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 41,
+      "text": "The fog outside had begun to lift, revealing a city that seemed to wake up properly at last.",
+      "character_count": 92,
+      "word_count": 18,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 42,
+      "text": "Pedestrians filled the sidewalks, cars honked in traffic, life returned to normal.",
+      "character_count": 82,
+      "word_count": 12,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 43,
+      "text": "But for Sarah and James, nothing would be normal until they solved this case.",
+      "character_count": 77,
+      "word_count": 14,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 44,
+      "text": "As they left the coffee shop, Sarah felt a renewed sense of purpose.",
+      "character_count": 68,
+      "word_count": 13,
+      "estimated_duration_seconds": 5,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 45,
+      "text": "The pieces were finally starting to come together.",
+      "character_count": 50,
+      "word_count": 8,
+      "estimated_duration_seconds": 4,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 46,
+      "text": "Justice for Marcus Stevens was within reach, and she would make sure that whoever was responsible would face the consequences of their actions, no matter how powerful they were.",
+      "character_count": 177,
+      "word_count": 29,
+      "estimated_duration_seconds": 14,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 47,
+      "text": "The investigation was far from over, but for the first time in weeks, she felt like they had a real chance of bringing the truth to light.",
+      "character_count": 138,
+      "word_count": 27,
+      "estimated_duration_seconds": 11,
+      "ends_with_sentence": true
+    }
+  ]
+}

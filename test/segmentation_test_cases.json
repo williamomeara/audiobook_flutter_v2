@@ -1,0 +1,82 @@
+[
+  {
+    "test_case": "Short sentences",
+    "input_length": 36,
+    "input_word_count": 5,
+    "segment_count": 1,
+    "segments": [
+      {
+        "text": "First. Second. Third. Fourth. Fifth.",
+        "length": 36,
+        "words": 5
+      }
+    ]
+  },
+  {
+    "test_case": "Long sentence under 300 chars",
+    "input_length": 196,
+    "input_word_count": 34,
+    "segment_count": 1,
+    "segments": [
+      {
+        "text": "This is a moderately long sentence that contains quite a few words but is still well under the three hundred character limit that would trigger a forced split at commas or other punctuation marks.",
+        "length": 196,
+        "words": 34
+      }
+    ]
+  },
+  {
+    "test_case": "Mix of short and long",
+    "input_length": 145,
+    "input_word_count": 25,
+    "segment_count": 2,
+    "segments": [
+      {
+        "text": "Short. This is much longer sentence. Another short one.",
+        "length": 55,
+        "words": 9
+      },
+      {
+        "text": "And one more sentence that is somewhat longer than the first but shorter than the second.",
+        "length": 89,
+        "words": 16
+      }
+    ]
+  },
+  {
+    "test_case": "Dialogue",
+    "input_length": 124,
+    "input_word_count": 22,
+    "segment_count": 1,
+    "segments": [
+      {
+        "text": "\"Hello,\" she said. \"How are you doing today?\" He smiled. \"I'm doing well, thank you for asking.\" She nodded and walked away.",
+        "length": 124,
+        "words": 22
+      }
+    ]
+  },
+  {
+    "test_case": "Very long sentence (should split)",
+    "input_length": 507,
+    "input_word_count": 78,
+    "segment_count": 3,
+    "segments": [
+      {
+        "text": "This is an exceptionally long sentence that continues on and on with multiple clauses separated by commas, and it includes several different ideas that could arguably be separate sentences,",
+        "length": 189,
+        "words": 29
+      },
+      {
+        "text": "but for some reason the author chose to combine them all into a single run-on sentence that exceeds the three hundred character threshold, which should trigger our emergency splitting mechanism that breaks the sentence at the most appropriate comma or other punctuation mark to maintain some",
+        "length": 291,
+        "words": 46
+      },
+      {
+        "text": "semblance of readability.",
+        "length": 25,
+        "words": 3
+      }
+    ]
+  }
+]

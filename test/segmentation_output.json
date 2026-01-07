@@ -1,0 +1,138 @@
+{
+  "metadata": {
+    "total_segments": 16,
+    "total_characters": 1873,
+    "total_words": 309,
+    "average_segment_length": 116
+  },
+  "segments": [
+    {
+      "index": 0,
+      "text": "The morning was cold and gray.",
+      "character_count": 30,
+      "word_count": 6,
+      "estimated_duration_seconds": 2,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 1,
+      "text": "Detective Sarah Chen stood at the edge of the cliff, looking down at the churning waters below.",
+      "character_count": 95,
+      "word_count": 17,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 2,
+      "text": "Her partner, Marcus Rodriguez, arrived moments later with two cups of steaming coffee. \"Any signs of the suspect?\" he asked, his breath forming clouds in the frigid air. \"Nothing yet,\" Sarah replied.",
+      "character_count": 199,
+      "word_count": 32,
+      "estimated_duration_seconds": 15,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 3,
+      "text": "She turned to face him, accepting the coffee gratefully. \"But I found something interesting.",
+      "character_count": 92,
+      "word_count": 14,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 4,
+      "text": "There are fresh tire tracks leading to this exact spot, and they match the description of the vehicle we've been tracking for the past three weeks.\" Marcus knelt down to examine the tracks more closely, his experienced eyes noting every detail. \"These tracks are deep, suggesting a heavy load.",
+      "character_count": 293,
+      "word_count": 49,
+      "estimated_duration_seconds": 23,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 5,
+      "text": "The suspect might have been transporting something substantial, possibly the stolen artifacts from the museum heist last month.\" \"Exactly what I was thinking,\" Sarah said.",
+      "character_count": 171,
+      "word_count": 25,
+      "estimated_duration_seconds": 13,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 6,
+      "text": "She pulled out her phone and began taking photographs of the evidence. \"I'll send these to forensics immediately.\" The wind picked up, howling through the trees.",
+      "character_count": 161,
+      "word_count": 26,
+      "estimated_duration_seconds": 12,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 7,
+      "text": "In the distance, a raven called out, its harsh cry echoing across the landscape.",
+      "character_count": 80,
+      "word_count": 14,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 8,
+      "text": "Sarah shivered, though not entirely from the cold.",
+      "character_count": 50,
+      "word_count": 8,
+      "estimated_duration_seconds": 4,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 9,
+      "text": "Something about this case felt wrong, like pieces of a puzzle that didn't quite fit together despite appearing to match at first glance. \"We need to get back to the station,\" Marcus suggested.",
+      "character_count": 192,
+      "word_count": 33,
+      "estimated_duration_seconds": 15,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 10,
+      "text": "He stood up, brushing dirt from his knees. \"The captain wanted a full briefing by noon, and we're running out of time.",
+      "character_count": 118,
+      "word_count": 22,
+      "estimated_duration_seconds": 9,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 11,
+      "text": "Besides, I think a storm is coming.\" Sarah nodded in agreement.",
+      "character_count": 63,
+      "word_count": 11,
+      "estimated_duration_seconds": 5,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 12,
+      "text": "They walked back to their car, their footsteps crunching on the frozen ground.",
+      "character_count": 78,
+      "word_count": 13,
+      "estimated_duration_seconds": 6,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 13,
+      "text": "As they drove away, she couldn't shake the feeling that they were missing something crucial.",
+      "character_count": 92,
+      "word_count": 15,
+      "estimated_duration_seconds": 7,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 14,
+      "text": "The answer was there, somewhere in the details, waiting to be discovered.",
+      "character_count": 73,
+      "word_count": 12,
+      "estimated_duration_seconds": 5,
+      "ends_with_sentence": true
+    },
+    {
+      "index": 15,
+      "text": "She just needed to look at the evidence from a different angle.",
+      "character_count": 63,
+      "word_count": 12,
+      "estimated_duration_seconds": 5,
+      "ends_with_sentence": true
+    }
+  ]
+}
