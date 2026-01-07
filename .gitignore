@@ -46,3 +46,4 @@ app.*.map.json
 
 # Large downloaded model assets (generated)
 assets/supertonic/
+local_dev/dev_books/

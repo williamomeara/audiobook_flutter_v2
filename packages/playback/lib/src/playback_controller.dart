@@ -165,16 +165,25 @@ class AudiobookPlaybackController implements PlaybackController {
     int startIndex = 0,
     bool autoPlay = true,
   }) async {
-    if (tracks.isEmpty) return;
+    if (tracks.isEmpty) {
+      _logger.warning('loadChapter called with empty tracks array');
+      return;
+    }
+
+    _logger.info('Loading chapter with ${tracks.length} tracks (start: $startIndex, autoPlay: $autoPlay)');
 
     final opId = _newOp();
     await _stopPlayback();
-    if (!_isCurrentOp(opId)) return;
+    if (!_isCurrentOp(opId)) {
+      _logger.warning('loadChapter interrupted by new operation');
+      return;
+    }
 
     _scheduler.reset();
     _playIntent = autoPlay;
 
     final startTrack = tracks[startIndex.clamp(0, tracks.length - 1)];
+    _logger.info('Starting at track ${startIndex.clamp(0, tracks.length - 1)}: "${startTrack.text.substring(0, startTrack.text.length.clamp(0, 50))}..."');
 
     _updateState(PlaybackState(
       queue: tracks,
@@ -185,8 +194,13 @@ class AudiobookPlaybackController implements PlaybackController {
       playbackRate: _state.playbackRate,
     ));
 
+    _logger.info('State updated with ${tracks.length} tracks in queue');
+
     if (autoPlay) {
+      _logger.info('Auto-play enabled, starting synthesis...');
       await _speakCurrent(opId: opId);
+    } else {
+      _logger.info('Auto-play disabled, chapter loaded and ready');
     }
   }
 
@@ -326,15 +340,19 @@ class AudiobookPlaybackController implements PlaybackController {
   Future<void> _speakCurrent({required int opId}) async {
     final track = _state.currentTrack;
     if (track == null) {
+      _logger.warning('_speakCurrent called but currentTrack is null');
       _updateState(_state.copyWith(isBuffering: false));
       return;
     }
+
+    _logger.info('Speaking track ${track.segmentIndex}: "${track.text.substring(0, track.text.length.clamp(0, 50))}..."');
 
     // Pass null to the resolver to use the global selected voice when no
     // book-specific voice ID is available. Previously the bookId string was
     // (incorrectly) passed which caused the router to fail to find a matching
     // engine.
     final voiceId = voiceIdResolver(null);
+    _logger.info('Using voice: $voiceId');
 
     // Update scheduler context
     _scheduler.updateContext(
@@ -347,6 +365,7 @@ class AudiobookPlaybackController implements PlaybackController {
 
     // If device TTS, show helpful message (not yet implemented)
     if (voiceId == VoiceIds.device) {
+      _logger.warning('Device TTS selected but not yet implemented');
       _updateState(_state.copyWith(
         isBuffering: false,
         error: 'Please select an AI voice in Settings → Voice. Device TTS coming soon.',
@@ -356,9 +375,12 @@ class AudiobookPlaybackController implements PlaybackController {
 
     try {
       // Check if the voice is available before attempting synthesis
+      _logger.info('Checking voice readiness...');
       final voiceReadiness = await engine.checkVoiceReady(voiceId);
+      
       if (!voiceReadiness.isReady) {
         _logger.warning('Voice not ready: ${voiceReadiness.state}');
+        _logger.warning('Next action: ${voiceReadiness.nextActionUserShouldTake}');
         
         _updateState(_state.copyWith(
           isPlaying: false,
@@ -369,6 +391,9 @@ class AudiobookPlaybackController implements PlaybackController {
         return;
       }
 
+      _logger.info('Voice is ready, starting synthesis...');
+      final synthStart = DateTime.now();
+      
       // Synthesize current segment
       final result = await engine.synthesizeToWavFile(
         voiceId: voiceId,
@@ -376,16 +401,27 @@ class AudiobookPlaybackController implements PlaybackController {
         playbackRate: _state.playbackRate,
       );
 
-      if (!_isCurrentOp(opId) || !_playIntent) return;
+      final synthDuration = DateTime.now().difference(synthStart);
+      _logger.info('Synthesis complete in ${synthDuration.inMilliseconds}ms');
+      _logger.info('Audio file: ${result.file.path}');
+      _logger.info('Duration: ${result.durationMs}ms');
+
+      if (!_isCurrentOp(opId) || !_playIntent) {
+        _logger.info('Synthesis completed but operation was cancelled or play intent changed');
+        return;
+      }
 
       // Play the audio
       _speakingTrackId = track.id;
       _updateState(_state.copyWith(isBuffering: false));
+      _logger.info('Starting audio playback...');
 
       await _audioOutput.playFile(
         result.file.path,
         playbackRate: _state.playbackRate,
       );
+
+      _logger.info('Audio playback started successfully');
 
       // Start background prefetch
       _startPrefetchIfNeeded();

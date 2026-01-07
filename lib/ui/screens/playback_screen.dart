@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:playback/playback.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
@@ -20,48 +21,134 @@ class PlaybackScreen extends ConsumerStatefulWidget {
 class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   bool _initialized = false;
   int _currentChapterIndex = 0;
+  
+  // Scroll controllers for segment list
+  final ItemScrollController _itemScrollController = ItemScrollController();
+  final ItemPositionsListener _itemPositionsListener = ItemPositionsListener.create();
+  bool _autoScrollEnabled = true;
+  int _lastScrolledIndex = -1;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializePlayback();
+      _setupAutoScrollListener();
     });
   }
 
+  /// Set up listener for auto-scrolling based on playback state changes.
+  /// Runs outside of build method to avoid performance issues.
+  void _setupAutoScrollListener() {
+    // Listen to playback state changes and scroll accordingly
+    ref.listenManual(playbackStateProvider, (previous, next) {
+      if (!_autoScrollEnabled) return;
+      if (!mounted) return;
+      
+      final currentTrack = next.currentTrack;
+      if (currentTrack == null) return;
+      
+      final queue = next.queue;
+      final currentIndex = queue.indexWhere((t) => t.id == currentTrack.id);
+      
+      if (currentIndex >= 0 && currentIndex != _lastScrolledIndex) {
+        _scrollToIndex(currentIndex);
+      }
+    });
+  }
+
+  /// Scroll to a specific index if not already visible.
+  void _scrollToIndex(int index) {
+    if (!_itemScrollController.isAttached) return;
+    
+    // Check if current segment is visible
+    final positions = _itemPositionsListener.itemPositions.value;
+    final isVisible = positions.any((pos) => 
+        pos.index == index && 
+        pos.itemLeadingEdge >= 0 && 
+        pos.itemTrailingEdge <= 1);
+    
+    if (!isVisible) {
+      _itemScrollController.scrollTo(
+        index: index,
+        duration: const Duration(milliseconds: 300),
+        alignment: 0.3,
+      );
+    }
+    _lastScrolledIndex = index;
+  }
+
   Future<void> _initializePlayback() async {
-    if (_initialized) return;
+    if (_initialized) {
+      print('[PlaybackScreen] Already initialized, skipping');
+      return;
+    }
+
+    print('[PlaybackScreen] Initializing playback for book ${widget.bookId}...');
 
     // Wait for library to be available
     final libraryAsync = ref.read(libraryProvider);
     LibraryState? library;
     
     if (libraryAsync.hasValue) {
+      print('[PlaybackScreen] Library already loaded');
       library = libraryAsync.value;
     } else if (libraryAsync.isLoading) {
+      print('[PlaybackScreen] Waiting for library to load...');
       // Wait for library to load
       library = await ref.read(libraryProvider.future);
+      print('[PlaybackScreen] Library loaded');
     }
     
-    if (library == null) return;
+    if (library == null) {
+      print('[PlaybackScreen] ERROR: Library is null');
+      return;
+    }
     
     _initialized = true;
 
     final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
-    if (book == null) return;
+    if (book == null) {
+      print('[PlaybackScreen] ERROR: Book ${widget.bookId} not found in library');
+      return;
+    }
+
+    print('[PlaybackScreen] Book found: "${book.title}" by ${book.author}');
+    print('[PlaybackScreen] Book has ${book.chapters.length} chapters');
 
     final chapterIndex = book.progress.chapterIndex.clamp(0, book.chapters.length - 1);
     final segmentIndex = book.progress.segmentIndex;
 
+    print('[PlaybackScreen] Saved progress: chapter $chapterIndex, segment $segmentIndex');
+
     _currentChapterIndex = chapterIndex;
 
+    // CRITICAL: Wait for playback controller to be ready before calling loadChapter
+    print('[PlaybackScreen] Waiting for playback controller to initialize...');
+    try {
+      await ref.read(playbackControllerProvider.future);
+      print('[PlaybackScreen] Playback controller is ready');
+    } catch (e, st) {
+      print('[PlaybackScreen] ERROR: Failed to initialize playback controller: $e');
+      print('[PlaybackScreen] Stack trace: $st');
+      return;
+    }
+
     final notifier = ref.read(playbackControllerProvider.notifier);
-    await notifier.loadChapter(
-      book: book,
-      chapterIndex: chapterIndex,
-      startSegmentIndex: segmentIndex,
-      autoPlay: false,
-    );
+    print('[PlaybackScreen] Calling loadChapter...');
+    
+    try {
+      await notifier.loadChapter(
+        book: book,
+        chapterIndex: chapterIndex,
+        startSegmentIndex: segmentIndex,
+        autoPlay: false,
+      );
+      print('[PlaybackScreen] loadChapter completed successfully');
+    } catch (e, st) {
+      print('[PlaybackScreen] ERROR in loadChapter: $e');
+      print('[PlaybackScreen] Stack trace: $st');
+    }
   }
 
   Future<void> _togglePlay() async {
@@ -156,6 +243,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
 
     return Scaffold(
       backgroundColor: colors.background,
+      floatingActionButton: !_autoScrollEnabled
+          ? FloatingActionButton.small(
+              onPressed: _jumpToCurrentSegment,
+              backgroundColor: colors.primary,
+              child: Icon(Icons.my_location, color: colors.primaryForeground),
+            )
+          : null,
       body: libraryAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, st) => Center(
@@ -172,8 +266,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
           final chapterIdx = currentChapterIndex.clamp(0, book.chapters.length - 1);
           final chapter = book.chapters[chapterIdx];
           final currentTrack = playbackState.currentTrack;
-          final currentText = currentTrack?.text ?? '';
-          final queueLength = playbackState.queue.length;
+          final queue = playbackState.queue;
+          final queueLength = queue.length;
           
           // Show loading state if queue hasn't been loaded yet
           final isLoading = queueLength == 0;
@@ -201,7 +295,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                     ),
                   )
                 else ...[
-                  _buildTextDisplay(colors, currentText, queueLength),
+                  _buildTextDisplay(colors, queue, currentTrack),
                   _buildProgress(colors, currentIndex, queueLength, chapterIdx, book.chapters.length),
                   const SizedBox(height: 16),
                   _buildRateSelector(colors, playbackState.playbackRate),
@@ -277,23 +371,94 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     );
   }
 
-  Widget _buildTextDisplay(AppThemeColors colors, String currentText, int queueLength) {
+  Widget _buildTextDisplay(AppThemeColors colors, List<AudioTrack> queue, AudioTrack? currentTrack) {
+    if (queue.isEmpty) {
+      return Expanded(
+        child: Center(
+          child: Text('No content', style: TextStyle(color: colors.textTertiary)),
+        ),
+      );
+    }
+    
     return Expanded(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            if (currentText.isNotEmpty)
-              Text(currentText, style: TextStyle(fontSize: 20, height: 1.6, color: colors.text))
-            else
-              Text(
-                queueLength == 0 ? 'Loading...' : 'No content',
-                style: TextStyle(color: colors.textTertiary),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          // Disable auto-scroll when user scrolls manually
+          if (notification is UserScrollNotification) {
+            setState(() => _autoScrollEnabled = false);
+          }
+          return false;
+        },
+        child: ScrollablePositionedList.builder(
+          itemScrollController: _itemScrollController,
+          itemPositionsListener: _itemPositionsListener,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+          itemCount: queue.length,
+          itemBuilder: (context, index) {
+            final item = queue[index];
+            final isActive = currentTrack?.id == item.id;
+            
+            final textColor = isActive ? colors.text : colors.textSecondary;
+            final fontWeight = isActive ? FontWeight.w600 : FontWeight.normal;
+            final backgroundColor = isActive 
+                ? colors.primary.withValues(alpha: 0.14)
+                : null;
+            
+            return InkWell(
+              onTap: () => _seekToSegment(index),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                decoration: backgroundColor != null
+                    ? BoxDecoration(
+                        color: backgroundColor,
+                        borderRadius: BorderRadius.circular(8),
+                      )
+                    : null,
+                child: Text(
+                  item.text,
+                  style: TextStyle(
+                    fontSize: 16,
+                    height: 1.6,
+                    color: textColor,
+                    fontWeight: fontWeight,
+                  ),
+                ),
               ),
-          ],
+            );
+          },
         ),
       ),
     );
+  }
+  
+  Future<void> _seekToSegment(int index) async {
+    final notifier = ref.read(playbackControllerProvider.notifier);
+    final playbackState = ref.read(playbackStateProvider);
+    
+    if (index >= 0 && index < playbackState.queue.length) {
+      await notifier.seekToTrack(index, play: playbackState.isPlaying);
+      setState(() {
+        _autoScrollEnabled = true;
+        _lastScrolledIndex = index;
+      });
+    }
+  }
+  
+  void _jumpToCurrentSegment() {
+    final playbackState = ref.read(playbackStateProvider);
+    final currentIndex = playbackState.currentIndex;
+    
+    if (currentIndex >= 0 && _itemScrollController.isAttached) {
+      _itemScrollController.scrollTo(
+        index: currentIndex,
+        duration: const Duration(milliseconds: 300),
+        alignment: 0.3,
+      );
+      setState(() {
+        _autoScrollEnabled = true;
+        _lastScrolledIndex = currentIndex;
+      });
+    }
   }
 
   Widget _buildProgress(AppThemeColors colors, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {

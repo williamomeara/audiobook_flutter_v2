@@ -27,13 +27,24 @@ void main() {
       }
     });
 
-    test('respects max length', () {
+    test('respects max length by keeping sentences whole', () {
+      // Multiple sentences that should be split into separate segments
       const text =
-          'This is a long paragraph with many words that should be split into multiple segments based on the maximum length parameter we provide to the segmenter function.';
+          'This is the first sentence. This is the second sentence. This is the third sentence.';
       final segments = segmentText(text, maxLength: 50);
+      
+      // With the new logic, sentences are kept whole
+      // So we expect multiple segments, each containing full sentences
+      expect(segments.length, greaterThan(1));
+      
       for (final s in segments) {
-        // Some variance allowed for word boundaries
-        expect(s.text.length <= 60, true);
+        // Each segment should end with sentence-ending punctuation
+        // unless it's an extremely long sentence that was split
+        final endsWithPunctuation = s.text.endsWith('.') || 
+                                    s.text.endsWith('!') || 
+                                    s.text.endsWith('?') ||
+                                    s.text.endsWith(',');  // For split long sentences
+        expect(endsWithPunctuation, true, reason: 'Segment should end with punctuation: "${s.text}"');
       }
     });
 

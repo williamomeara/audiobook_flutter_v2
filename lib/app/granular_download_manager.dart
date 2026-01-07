@@ -23,7 +23,7 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
 
   @override
   FutureOr<GranularDownloadState> build() async {
-    final paths = await ref.watch(appPathsProvider.future);
+    final paths = await ref.read(appPathsProvider.future);
     _baseDir = paths.voiceAssetsDir;
     await _baseDir.create(recursive: true);
 
