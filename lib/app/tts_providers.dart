@@ -14,15 +14,15 @@ final ttsNativeApiProvider = Provider<TtsNativeApi>((ref) {
 /// Provider for Kokoro adapter.
 /// Checks granular download state to see if required cores are ready.
 final kokoroAdapterProvider = FutureProvider<KokoroAdapter?>((ref) async {
-  final paths = await ref.watch(appPathsProvider.future);
-  final granularState = await ref.watch(granularDownloadManagerProvider.future);
+  final paths = await ref.read(appPathsProvider.future);
+  final granularState = await ref.read(granularDownloadManagerProvider.future);
   
   // Check if Kokoro core is ready via granular system
   final isReady = granularState.cores['kokoro_core_v1']?.isReady ?? false;
   
   if (!isReady) return null;
 
-  final nativeApi = ref.watch(ttsNativeApiProvider);
+  final nativeApi = ref.read(ttsNativeApiProvider);
   return KokoroAdapter(
     nativeApi: nativeApi,
     coreDir: paths.voiceAssetsDir,
@@ -32,8 +32,8 @@ final kokoroAdapterProvider = FutureProvider<KokoroAdapter?>((ref) async {
 /// Provider for Piper adapter.
 /// Piper voices are per-model cores, check if any Piper core is ready.
 final piperAdapterProvider = FutureProvider<PiperAdapter?>((ref) async {
-  final paths = await ref.watch(appPathsProvider.future);
-  final granularState = await ref.watch(granularDownloadManagerProvider.future);
+  final paths = await ref.read(appPathsProvider.future);
+  final granularState = await ref.read(granularDownloadManagerProvider.future);
   
   // Check if any Piper core is ready
   final piperCores = granularState.cores.values.where((c) => c.engineType == 'piper');
@@ -41,7 +41,7 @@ final piperAdapterProvider = FutureProvider<PiperAdapter?>((ref) async {
   
   if (!isReady) return null;
 
-  final nativeApi = ref.watch(ttsNativeApiProvider);
+  final nativeApi = ref.read(ttsNativeApiProvider);
   return PiperAdapter(
     nativeApi: nativeApi,
     coreDir: paths.voiceAssetsDir,
@@ -51,15 +51,15 @@ final piperAdapterProvider = FutureProvider<PiperAdapter?>((ref) async {
 /// Provider for Supertonic adapter.
 /// Checks granular download state to see if required cores are ready.
 final supertonicAdapterProvider = FutureProvider<SupertonicAdapter?>((ref) async {
-  final paths = await ref.watch(appPathsProvider.future);
-  final granularState = await ref.watch(granularDownloadManagerProvider.future);
+  final paths = await ref.read(appPathsProvider.future);
+  final granularState = await ref.read(granularDownloadManagerProvider.future);
   
   // Check if Supertonic core is ready via granular system
   final isReady = granularState.cores['supertonic_core_v1']?.isReady ?? false;
   
   if (!isReady) return null;
 
-  final nativeApi = ref.watch(ttsNativeApiProvider);
+  final nativeApi = ref.read(ttsNativeApiProvider);
   return SupertonicAdapter(
     nativeApi: nativeApi,
     coreDir: paths.voiceAssetsDir,
@@ -68,10 +68,10 @@ final supertonicAdapterProvider = FutureProvider<SupertonicAdapter?>((ref) async
 
 /// Provider for the routing engine with all adapters.
 final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
-  final cache = await ref.watch(_ttsAudioCacheProvider.future);
-  final kokoro = await ref.watch(kokoroAdapterProvider.future);
-  final piper = await ref.watch(piperAdapterProvider.future);
-  final supertonic = await ref.watch(supertonicAdapterProvider.future);
+  final cache = await ref.read(_ttsAudioCacheProvider.future);
+  final kokoro = await ref.read(kokoroAdapterProvider.future);
+  final piper = await ref.read(piperAdapterProvider.future);
+  final supertonic = await ref.read(supertonicAdapterProvider.future);
 
   return RoutingEngine(
     cache: cache,
@@ -83,7 +83,7 @@ final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
 
 /// Private provider for the audio cache (used internally by TTS).
 final _ttsAudioCacheProvider = FutureProvider<AudioCache>((ref) async {
-  final paths = await ref.watch(appPathsProvider.future);
+  final paths = await ref.read(appPathsProvider.future);
   return FileAudioCache(cacheDir: paths.audioCacheDir);
 });
 

@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../app/granular_download_manager.dart';
+import '../../app/library_controller.dart';
 import '../../app/settings_controller.dart';
 import '../../app/tts_providers.dart';
 import '../theme/app_colors.dart';
@@ -29,11 +30,13 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
   
   bool _isSynthesizing = false;
   bool _isPlaying = false;
+  bool _isReimporting = false;
   String? _lastError;
   String? _lastAudioPath;
   int? _lastDurationMs;
   int? _lastFileSizeBytes;
   Duration _synthesisTime = Duration.zero;
+  String? _reimportMessage;
 
   @override
   void dispose() {
@@ -97,6 +100,10 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
                   children: [
                     // Current Voice Info
                     _buildInfoCard(colors, settings, downloadState),
+                    const SizedBox(height: 20),
+
+                    // Dev Tools Section
+                    _buildDevToolsCard(colors),
                     const SizedBox(height: 20),
 
                     // Sample Audio Test
@@ -193,6 +200,63 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
     if (VoiceIds.isPiper(voiceId)) return 'Piper';
     if (VoiceIds.isSupertonic(voiceId)) return 'Supertonic';
     return 'Unknown';
+  }
+
+  Widget _buildDevToolsCard(AppThemeColors colors) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Developer Tools',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: colors.text,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Reimport downloaded books from library',
+            style: TextStyle(
+              fontSize: 13,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _isReimporting ? null : _reimportDownloadedBooks,
+              icon: _isReimporting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              label: Text(_isReimporting ? 'Reimporting...' : 'Reimport Downloaded Books'),
+            ),
+          ),
+          if (_reimportMessage != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _reimportMessage!,
+              style: TextStyle(
+                fontSize: 13,
+                color: _reimportMessage!.contains('Error') ? colors.danger : colors.primary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildSampleAudioCard(AppThemeColors colors) {
@@ -450,7 +514,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
       final elapsed = DateTime.now().difference(startTime);
       final fileSize = await result.file.length();
 
-      print('[Developer] Synthesis complete: ${result.durationMs}ms, ${fileSize} bytes');
+      print('[Developer] Synthesis complete: ${result.durationMs}ms, $fileSize bytes');
       print('[Developer] File: ${result.file.path}');
 
       setState(() {
@@ -500,6 +564,84 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
       setState(() => _lastError = 'Playback error: $e');
     } finally {
       setState(() => _isPlaying = false);
+    }
+  }
+
+  Future<void> _reimportDownloadedBooks() async {
+    setState(() {
+      _isReimporting = true;
+      _reimportMessage = null;
+    });
+
+    try {
+      final libraryController = ref.read(libraryProvider.notifier);
+      final currentState = ref.read(libraryProvider).value;
+      
+      if (currentState == null || currentState.books.isEmpty) {
+        setState(() {
+          _reimportMessage = 'No books in library to reimport';
+          _isReimporting = false;
+        });
+        return;
+      }
+
+      final books = currentState.books;
+      print('[Developer] Found ${books.length} books in library to reimport');
+      
+      int reimported = 0;
+      int failed = 0;
+
+      for (final book in books) {
+        try {
+          if (book.filePath.isEmpty) {
+            print('[Developer] Skipping ${book.title}: no file path');
+            failed++;
+            continue;
+          }
+
+          final file = File(book.filePath);
+          if (!await file.exists()) {
+            print('[Developer] Skipping ${book.title}: file not found at ${book.filePath}');
+            failed++;
+            continue;
+          }
+
+          print('[Developer] Reimporting: ${book.title}');
+          
+          // Remove the old book entry
+          await libraryController.removeBook(book.id);
+          
+          // Re-import from the existing file path
+          final fileName = book.filePath.split('/').last;
+          await libraryController.importBookFromPath(
+            sourcePath: book.filePath,
+            fileName: fileName,
+            gutenbergId: book.gutenbergId,
+          );
+          
+          reimported++;
+          setState(() {
+            _reimportMessage = 'Reimported $reimported/${books.length} books...';
+          });
+        } catch (e) {
+          print('[Developer] Failed to reimport ${book.title}: $e');
+          failed++;
+        }
+      }
+
+      setState(() {
+        _reimportMessage = 
+            'Reimport complete: $reimported successful, $failed failed';
+      });
+      
+      print('[Developer] Reimport complete: $reimported successful, $failed failed');
+    } catch (e) {
+      print('[Developer] Reimport error: $e');
+      setState(() {
+        _reimportMessage = 'Error: $e';
+      });
+    } finally {
+      setState(() => _isReimporting = false);
     }
   }
 }

@@ -11,7 +11,13 @@ class TextSegmenter {
   TextSegmenter._();
 
   /// Default maximum characters per segment.
-  static const int defaultMaxLength = 500;
+  // Default set to 20 words ≈ 100 characters (avg 5 chars/word)
+  // Only breaks on sentence endings (. ! ?)
+  static const int defaultMaxLength = 100;
+
+  /// Maximum length before forced split (for very long sentences).
+  // Much larger than default to avoid breaking sentences unnecessarily
+  static const int maxLongSentenceLength = 300;
 
   /// Minimum characters for a valid segment.
   static const int minLength = 10;
@@ -19,7 +25,8 @@ class TextSegmenter {
   /// Segment text into a list of segments.
   ///
   /// [text] - The input text to segment.
-  /// [maxLength] - Maximum characters per segment (default 500).
+  /// [maxLength] - Target maximum characters per segment (default ~100, ~20 words).
+  ///               Sentences are kept whole unless they exceed maxLongSentenceLength.
   ///
   /// Returns a list of [Segment] objects.
   static List<Segment> segment(
@@ -36,9 +43,21 @@ class TextSegmenter {
     var segmentIndex = 0;
 
     for (final sentence in sentences) {
-      // If adding this sentence would exceed max length
-      if (currentChunk.length + sentence.length + 1 > maxLength) {
-        // Save current chunk if it has content
+      // If adding this sentence would exceed max length AND current chunk is not empty
+      // Keep sentences whole by starting a new segment
+      if (currentChunk.isNotEmpty && 
+          currentChunk.length + sentence.length + 1 > maxLength) {
+        // Save current chunk
+        final text = currentChunk.toString().trim();
+        if (text.length >= minLength) {
+          segments.add(Segment(text: text, index: segmentIndex++));
+        }
+        currentChunk.clear();
+      }
+
+      // If sentence itself is extremely long (> maxLongSentenceLength), split it
+      // This is the only case where we break mid-sentence
+      if (sentence.length > maxLongSentenceLength) {
         if (currentChunk.isNotEmpty) {
           final text = currentChunk.toString().trim();
           if (text.length >= minLength) {
@@ -46,19 +65,15 @@ class TextSegmenter {
           }
           currentChunk.clear();
         }
-
-        // If the sentence itself is too long, split it
-        if (sentence.length > maxLength) {
-          final subSegments = _splitLongSentence(sentence, maxLength);
-          for (final sub in subSegments) {
-            if (sub.length >= minLength) {
-              segments.add(Segment(text: sub, index: segmentIndex++));
-            }
+        
+        final subSegments = _splitLongSentence(sentence, maxLongSentenceLength);
+        for (final sub in subSegments) {
+          if (sub.length >= minLength) {
+            segments.add(Segment(text: sub, index: segmentIndex++));
           }
-        } else {
-          currentChunk.write(sentence);
         }
       } else {
+        // Add sentence to current chunk
         if (currentChunk.isNotEmpty) currentChunk.write(' ');
         currentChunk.write(sentence);
       }
@@ -114,21 +129,23 @@ class TextSegmenter {
     return result;
   }
 
-  /// Find a good break point within maxLength.
+  /// Find a good break point within maxLength for very long sentences.
+  /// Only used when sentence exceeds maxLongSentenceLength (~300 chars).
   static int _findBreakPoint(String text, int maxLength) {
     final searchText = text.substring(0, maxLength);
 
-    // Prefer breaking at clause boundaries (comma, semicolon, colon)
+    // For very long sentences, try to break at clause boundaries
+    // Priority: semicolon > comma > colon > dash > space
     for (final delimiter in ['; ', ', ', ': ', ' - ']) {
       final lastIndex = searchText.lastIndexOf(delimiter);
-      if (lastIndex > maxLength ~/ 3) {
+      if (lastIndex > maxLength ~/ 2) {  // Must be past halfway point
         return lastIndex + delimiter.length;
       }
     }
 
-    // Fall back to last space
+    // Fall back to last space if no punctuation found
     final lastSpace = searchText.lastIndexOf(' ');
-    if (lastSpace > maxLength ~/ 3) {
+    if (lastSpace > maxLength ~/ 2) {
       return lastSpace + 1;
     }
 
@@ -137,6 +154,7 @@ class TextSegmenter {
 }
 
 /// Convenience function for segmenting text.
-List<Segment> segmentText(String text, {int maxLength = 500}) {
+/// Segments at sentence boundaries (. ! ?) targeting ~20 words per segment.
+List<Segment> segmentText(String text, {int maxLength = 100}) {
   return TextSegmenter.segment(text, maxLength: maxLength);
 }

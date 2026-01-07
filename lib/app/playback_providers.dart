@@ -19,7 +19,7 @@ final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
 /// Provider for the routing engine.
 /// Uses ttsRoutingEngineProvider which has all AI voice engines registered.
 final routingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
-  return ref.watch(ttsRoutingEngineProvider.future);
+  return ref.read(ttsRoutingEngineProvider.future);
 });
 
 /// Provider for the playback controller.
@@ -36,34 +36,51 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
 
   @override
   FutureOr<PlaybackState> build() async {
-    // Use ref.read instead of ref.watch for dependencies that shouldn't 
-    // cause rebuilds during playback (like the routing engine which depends
-    // on download state)
-    final engine = await ref.read(routingEngineProvider.future);
-    final cache = await ref.read(audioCacheProvider.future);
+    print('[PlaybackProvider] Initializing playback controller...');
+    
+    try {
+      // Use ref.read instead of ref.watch for dependencies that shouldn't 
+      // cause rebuilds during playback (like the routing engine which depends
+      // on download state)
+      print('[PlaybackProvider] Loading routing engine...');
+      final engine = await ref.read(routingEngineProvider.future);
+      print('[PlaybackProvider] Routing engine loaded successfully');
+      
+      print('[PlaybackProvider] Loading audio cache...');
+      final cache = await ref.read(audioCacheProvider.future);
+      print('[PlaybackProvider] Audio cache loaded successfully');
 
-    _controller = AudiobookPlaybackController(
-      engine: engine,
-      cache: cache,
-      // Voice selection is global-only for now (per-book voice not implemented)
-      voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
-      onStateChange: (newState) {
-        // Update Riverpod state when controller state changes
+      print('[PlaybackProvider] Creating AudiobookPlaybackController...');
+      _controller = AudiobookPlaybackController(
+        engine: engine,
+        cache: cache,
+        // Voice selection is global-only for now (per-book voice not implemented)
+        voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
+        onStateChange: (newState) {
+          // Update Riverpod state when controller state changes
+          state = AsyncData(newState);
+        },
+      );
+      print('[PlaybackProvider] Controller created successfully');
+
+      // Listen to state changes
+      _stateSub = _controller!.stateStream.listen((newState) {
         state = AsyncData(newState);
-      },
-    );
+      });
 
-    // Listen to state changes
-    _stateSub = _controller!.stateStream.listen((newState) {
-      state = AsyncData(newState);
-    });
+      ref.onDispose(() {
+        print('[PlaybackProvider] Disposing playback controller');
+        _stateSub?.cancel();
+        _controller?.dispose();
+      });
 
-    ref.onDispose(() {
-      _stateSub?.cancel();
-      _controller?.dispose();
-    });
-
-    return _controller!.state;
+      print('[PlaybackProvider] Initialization complete');
+      return _controller!.state;
+    } catch (e, st) {
+      print('[PlaybackProvider] ERROR during initialization: $e');
+      print('[PlaybackProvider] Stack trace: $st');
+      rethrow;
+    }
   }
 
   /// Get the underlying controller.
@@ -77,15 +94,30 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     bool autoPlay = true,
   }) async {
     final ctrl = _controller;
-    if (ctrl == null) return;
+    if (ctrl == null) {
+      print('[PlaybackProvider] ERROR: Controller is null, cannot load chapter');
+      return;
+    }
 
-    if (chapterIndex < 0 || chapterIndex >= book.chapters.length) return;
+    if (chapterIndex < 0 || chapterIndex >= book.chapters.length) {
+      print('[PlaybackProvider] ERROR: Invalid chapter index $chapterIndex (book has ${book.chapters.length} chapters)');
+      return;
+    }
+
+    print('[PlaybackProvider] Loading chapter $chapterIndex for book "${book.title}"');
+    print('[PlaybackProvider] Start segment: $startSegmentIndex, autoPlay: $autoPlay');
 
     final chapter = book.chapters[chapterIndex];
+    print('[PlaybackProvider] Chapter: "${chapter.title}", content length: ${chapter.content.length} chars');
+    
+    final segmentStart = DateTime.now();
     final segments = segmentText(chapter.content);
+    final segmentDuration = DateTime.now().difference(segmentStart);
+    print('[PlaybackProvider] Segmented into ${segments.length} segments in ${segmentDuration.inMilliseconds}ms');
 
     // Handle empty chapter - create a single "empty" track to show in UI
     if (segments.isEmpty) {
+      print('[PlaybackProvider] WARNING: Chapter has no segments, creating empty track');
       final emptyTrack = AudioTrack(
         id: IdGenerator.audioTrackId(book.id, chapterIndex, 0),
         text: '(This chapter has no readable content)',
@@ -93,16 +125,19 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         segmentIndex: 0,
         estimatedDuration: Duration.zero,
       );
+      print('[PlaybackProvider] Loading controller with 1 empty track');
       await ctrl.loadChapter(
         tracks: [emptyTrack],
         bookId: book.id,
         startIndex: 0,
         autoPlay: false,  // Don't auto-play empty content
       );
+      print('[PlaybackProvider] Empty chapter loaded successfully');
       return;
     }
 
     // Convert segments to AudioTracks
+    print('[PlaybackProvider] Converting ${segments.length} segments to AudioTracks...');
     final tracks = segments.asMap().entries.map((entry) {
       final segment = entry.value;
       return AudioTrack(
@@ -114,12 +149,22 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       );
     }).toList();
 
-    await ctrl.loadChapter(
-      tracks: tracks,
-      bookId: book.id,
-      startIndex: startSegmentIndex.clamp(0, tracks.length - 1),
-      autoPlay: autoPlay,
-    );
+    final clampedStart = startSegmentIndex.clamp(0, tracks.length - 1);
+    print('[PlaybackProvider] Loading ${tracks.length} tracks into controller (starting at index $clampedStart)');
+
+    try {
+      await ctrl.loadChapter(
+        tracks: tracks,
+        bookId: book.id,
+        startIndex: clampedStart,
+        autoPlay: autoPlay,
+      );
+      print('[PlaybackProvider] Chapter loaded successfully');
+    } catch (e, st) {
+      print('[PlaybackProvider] ERROR loading chapter: $e');
+      print('[PlaybackProvider] Stack trace: $st');
+      rethrow;
+    }
   }
 
   /// Play current track.
