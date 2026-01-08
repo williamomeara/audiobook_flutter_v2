@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' as java;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -428,47 +429,56 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Book cover placeholder
-            Container(
-              width: 240,
-              height: 360,
-              decoration: BoxDecoration(
-                color: colors.card,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: book.coverImagePath != null
-                  ? ClipRRect(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Book cover
+              ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 240,
+                  maxHeight: 360,
+                ),
+                child: AspectRatio(
+                  aspectRatio: 2 / 3,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: colors.card,
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.asset(
-                        book.coverImagePath!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _buildCoverPlaceholder(colors, book),
-                      ),
-                    )
-                  : _buildCoverPlaceholder(colors, book),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              book.title,
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: colors.text),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'By ${book.author}',
-              style: TextStyle(fontSize: 14, color: colors.textSecondary),
-            ),
-          ],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: book.coverImagePath != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(
+                              java.File(book.coverImagePath!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _buildCoverPlaceholder(colors, book),
+                            ),
+                          )
+                        : _buildCoverPlaceholder(colors, book),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                book.title,
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: colors.text),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'By ${book.author}',
+                style: TextStyle(fontSize: 14, color: colors.textSecondary),
+              ),
+            ],
+          ),
         ),
       ),
     );
