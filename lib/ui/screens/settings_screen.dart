@@ -112,6 +112,16 @@ class SettingsScreen extends ConsumerWidget {
                       title: 'Playback',
                       children: [
                         _SettingsRow(
+                          label: 'Smart synthesis',
+                          subLabel: 'Pre-synthesize audio for instant playback',
+                          trailing: Switch(
+                            value: settings.smartSynthesisEnabled,
+                            onChanged: ref.read(settingsProvider.notifier).setSmartSynthesisEnabled,
+                            activeColor: colors.primary,
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
                           label: 'Auto-advance chapters',
                           subLabel: 'Automatically move to next chapter',
                           trailing: Switch(
