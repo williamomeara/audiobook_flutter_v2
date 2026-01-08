@@ -77,4 +77,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/voice_previews/
     - packages/downloads/lib/manifests/voices_manifest.json
