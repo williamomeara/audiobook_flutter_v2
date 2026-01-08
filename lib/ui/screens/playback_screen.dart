@@ -30,6 +30,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   // Scroll controller for text view
   final ScrollController _scrollController = ScrollController();
   bool _autoScrollEnabled = true;
+  bool _isProgrammaticScroll = false; // Prevents disabling auto-scroll during programmatic scroll
   int _lastAutoScrolledIndex = -1;
   
   // View mode: true = cover view, false = text view
@@ -592,8 +593,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            // Disable auto-scroll when user finishes scrolling manually
-            if (notification is ScrollEndNotification && _autoScrollEnabled) {
+            // Disable auto-scroll when user finishes scrolling manually (not programmatic)
+            if (notification is ScrollEndNotification && _autoScrollEnabled && !_isProgrammaticScroll) {
               setState(() => _autoScrollEnabled = false);
             }
             return false;
@@ -644,25 +645,31 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     );
   }
   
-  void _jumpToCurrent() {
-    // Scroll to the current position first
+  void _jumpToCurrent() async {
     final playbackState = ref.read(playbackStateProvider);
-    if (playbackState.queue.isNotEmpty && _scrollController.hasClients) {
-      final progress = playbackState.currentIndex / playbackState.queue.length;
-      final maxScroll = _scrollController.position.maxScrollExtent;
-      final targetScroll = maxScroll * progress;
-      
-      _scrollController.animateTo(
-        targetScroll.clamp(0, maxScroll),
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-    }
+    if (playbackState.queue.isEmpty || !_scrollController.hasClients) return;
+    
+    // Set flag to prevent scroll notification from disabling auto-scroll
+    _isProgrammaticScroll = true;
+    
+    // Calculate scroll position - aim for one segment before current
+    final currentIndex = playbackState.currentIndex;
+    final targetIndex = (currentIndex - 1).clamp(0, playbackState.queue.length - 1);
+    final progress = targetIndex / playbackState.queue.length;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final targetScroll = maxScroll * progress;
+    
+    await _scrollController.animateTo(
+      targetScroll.clamp(0, maxScroll),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
     
     // Re-enable auto-scroll (button will disappear)
+    _isProgrammaticScroll = false;
     setState(() {
       _autoScrollEnabled = true;
-      _lastAutoScrolledIndex = -1; // Reset to allow future auto-scrolls
+      _lastAutoScrolledIndex = currentIndex;
     });
   }
   
