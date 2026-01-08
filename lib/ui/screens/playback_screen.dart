@@ -30,6 +30,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   // Scroll controller for text view
   final ScrollController _scrollController = ScrollController();
   bool _autoScrollEnabled = true;
+  int _lastAutoScrolledIndex = -1;
   
   // View mode: true = cover view, false = text view
   bool _showCover = false;
@@ -44,12 +45,21 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializePlayback();
+      _setupPlaybackListener();
     });
-    
-    // Detect manual scrolling
-    _scrollController.addListener(() {
-      if (_scrollController.position.isScrollingNotifier.value) {
-        setState(() => _autoScrollEnabled = false);
+  }
+  
+  void _setupPlaybackListener() {
+    // Listen to playback state changes for auto-scrolling
+    ref.listenManual(playbackStateProvider, (previous, next) {
+      if (!mounted) return;
+      if (!_autoScrollEnabled) return;
+      if (_showCover) return; // Don't scroll when showing cover
+      
+      final currentIndex = next.currentIndex;
+      if (currentIndex >= 0 && currentIndex != _lastAutoScrolledIndex) {
+        _lastAutoScrolledIndex = currentIndex;
+        // Trigger a rebuild to update highlighting and potentially scroll
       }
     });
   }
@@ -582,8 +592,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            // Disable auto-scroll when user scrolls manually
-            if (notification is UserScrollNotification) {
+            // Disable auto-scroll when user finishes scrolling manually
+            if (notification is ScrollEndNotification && _autoScrollEnabled) {
               setState(() => _autoScrollEnabled = false);
             }
             return false;
@@ -597,7 +607,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
           ),
         ),
         
-        // Jump to current button (bottom right)
+        // Jump to current button (bottom right) - shown when auto-scroll is disabled
         if (!_autoScrollEnabled)
           Positioned(
             bottom: 16,
@@ -607,7 +617,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
               borderRadius: BorderRadius.circular(24),
               elevation: 4,
               child: InkWell(
-                onTap: _resetAutoScroll,
+                onTap: _jumpToCurrent,
                 borderRadius: BorderRadius.circular(24),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -617,7 +627,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                       Icon(Icons.my_location, size: 18, color: colors.primaryForeground),
                       const SizedBox(width: 8),
                       Text(
-                        'Resume auto-scroll',
+                        'Jump to current',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -634,8 +644,27 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     );
   }
   
-  void _resetAutoScroll() {
-    setState(() => _autoScrollEnabled = true);
+  void _jumpToCurrent() {
+    // Re-enable auto-scroll and scroll to the current position
+    setState(() {
+      _autoScrollEnabled = true;
+      _lastAutoScrolledIndex = -1; // Reset to trigger scroll on next build
+    });
+    
+    // Scroll to roughly center of the content - since we're using continuous text,
+    // we estimate based on current progress
+    final playbackState = ref.read(playbackStateProvider);
+    if (playbackState.queue.isNotEmpty && _scrollController.hasClients) {
+      final progress = playbackState.currentIndex / playbackState.queue.length;
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final targetScroll = maxScroll * progress;
+      
+      _scrollController.animateTo(
+        targetScroll.clamp(0, maxScroll),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
   
   Future<void> _seekToSegment(int index) async {
