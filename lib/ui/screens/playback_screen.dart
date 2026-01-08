@@ -33,6 +33,9 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   bool _isProgrammaticScroll = false; // Prevents disabling auto-scroll during programmatic scroll
   int _lastAutoScrolledIndex = -1;
   
+  // GlobalKey for the currently active segment (for precise scrolling)
+  GlobalKey? _activeSegmentKey;
+  
   // View mode: true = cover view, false = text view
   bool _showCover = false;
   
@@ -60,43 +63,24 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       final currentIndex = next.currentIndex;
       if (currentIndex >= 0 && currentIndex != _lastAutoScrolledIndex) {
         _lastAutoScrolledIndex = currentIndex;
-        _autoScrollToCurrentSegment(currentIndex, next.queue);
+        // Schedule scroll after the frame is built (so the new key is available)
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToActiveSegment();
+        });
       }
     });
   }
   
-  void _autoScrollToCurrentSegment(int currentIndex, List<AudioTrack> queue) {
-    if (!_scrollController.hasClients) return;
-    if (queue.isEmpty) return;
+  void _scrollToActiveSegment() {
+    if (_activeSegmentKey?.currentContext == null) return;
     
     _isProgrammaticScroll = true;
     
-    // Calculate scroll position based on character count (more accurate than segment count)
-    // Count total characters and characters up to current segment
-    int totalChars = 0;
-    int charsBeforeCurrent = 0;
-    
-    for (int i = 0; i < queue.length; i++) {
-      final segmentLength = queue[i].text.length;
-      if (i < currentIndex) {
-        charsBeforeCurrent += segmentLength;
-      }
-      totalChars += segmentLength;
-    }
-    
-    // Calculate progress based on character position
-    final progress = totalChars > 0 ? charsBeforeCurrent / totalChars : 0.0;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    
-    // Adjust to put current segment near top of screen (about 10% from top)
-    final viewportFraction = 0.10;
-    final adjustment = _scrollController.position.viewportDimension * viewportFraction;
-    final targetScroll = (maxScroll * progress) - adjustment;
-    
-    _scrollController.animateTo(
-      targetScroll.clamp(0, maxScroll),
+    Scrollable.ensureVisible(
+      _activeSegmentKey!.currentContext!,
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
+      alignment: 0.15, // Position at 15% from top
     ).then((_) {
       _isProgrammaticScroll = false;
     });
@@ -600,18 +584,34 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
         textColor = colors.textTertiary.withValues(alpha: 0.5); // slate-700 for not downloaded
       }
       
-      // Add the segment text with a trailing space and tap handler
       final segmentIndex = index; // Capture for closure
-      spans.add(TextSpan(
-        text: '${item.text} ',
-        style: TextStyle(
-          fontSize: 17,
-          height: 1.7,
-          color: textColor,
-          fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
-        ),
-        recognizer: TapGestureRecognizer()..onTap = () => _seekToSegment(segmentIndex),
-      ));
+      final textStyle = TextStyle(
+        fontSize: 17,
+        height: 1.7,
+        color: textColor,
+        fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
+      );
+      
+      // Use WidgetSpan for active segment to enable precise scrolling
+      if (isActive) {
+        _activeSegmentKey = GlobalKey();
+        spans.add(WidgetSpan(
+          alignment: PlaceholderAlignment.baseline,
+          baseline: TextBaseline.alphabetic,
+          child: GestureDetector(
+            key: _activeSegmentKey,
+            onTap: () => _seekToSegment(segmentIndex),
+            child: Text('${item.text} ', style: textStyle),
+          ),
+        ));
+      } else {
+        // Use regular TextSpan for non-active segments
+        spans.add(TextSpan(
+          text: '${item.text} ',
+          style: textStyle,
+          recognizer: TapGestureRecognizer()..onTap = () => _seekToSegment(segmentIndex),
+        ));
+      }
       
       // Add synthesizing indicator if not ready
       if (!isReady && !isPast && !isActive) {
@@ -682,9 +682,9 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     );
   }
   
-  void _jumpToCurrent() async {
+  void _jumpToCurrent() {
     final playbackState = ref.read(playbackStateProvider);
-    if (playbackState.queue.isEmpty || !_scrollController.hasClients) return;
+    if (playbackState.queue.isEmpty) return;
     
     final currentIndex = playbackState.currentIndex;
     
@@ -694,8 +694,10 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       _lastAutoScrolledIndex = currentIndex;
     });
     
-    // Use the same scroll logic as auto-scroll
-    _autoScrollToCurrentSegment(currentIndex, playbackState.queue);
+    // Use Scrollable.ensureVisible for precise scrolling
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToActiveSegment();
+    });
   }
   
   Future<void> _seekToSegment(int index) async {
