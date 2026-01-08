@@ -176,4 +176,39 @@ class VoiceIds {
     }
     return null;
   }
+
+  /// Get human-readable display name for a voice ID.
+  static String getDisplayName(String voiceId) {
+    // Device TTS
+    if (voiceId == device) return 'Device Voice';
+    
+    // Supertonic voices
+    if (voiceId.startsWith('supertonic_')) {
+      final suffix = voiceId.substring(11).toUpperCase();
+      return 'Supertonic $suffix';
+    }
+    
+    // Kokoro voices
+    if (voiceId.startsWith('kokoro_')) {
+      final parts = voiceId.substring(7).split('_');
+      if (parts.length >= 2) {
+        final name = parts[1][0].toUpperCase() + parts[1].substring(1);
+        return 'Kokoro $name';
+      }
+      return 'Kokoro ${voiceId.substring(7).toUpperCase()}';
+    }
+    
+    // Piper voices (format: piper:en_GB-alan-medium)
+    if (voiceId.startsWith('piper:')) {
+      final modelKey = voiceId.substring(6);
+      final parts = modelKey.split('-');
+      if (parts.length >= 2) {
+        final name = parts[1][0].toUpperCase() + parts[1].substring(1);
+        return 'Piper $name';
+      }
+      return 'Piper $modelKey';
+    }
+    
+    return voiceId;
+  }
 }

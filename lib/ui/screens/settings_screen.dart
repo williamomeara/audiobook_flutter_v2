@@ -542,6 +542,9 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
     final voiceId = settings.selectedVoice;
     final configManager = ref.watch(engineConfigManagerProvider);
 
+    // Get human-readable voice name
+    final voiceName = VoiceIds.getDisplayName(voiceId);
+    
     return FutureBuilder<DeviceEngineConfig?>(
       future: configManager.loadConfig(voiceId),
       builder: (context, snapshot) {
@@ -560,7 +563,7 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Device optimization',
+                          'Optimize: $voiceName',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
@@ -639,17 +642,31 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
       return 'Running optimization test ($_progress/$_total)...';
     }
     if (!hasBeenOptimized) {
-      return 'Run a quick test to optimize playback for your device';
+      return 'Optimize current voice for your device';
     }
     final tunedAt = config?.tunedAt;
     if (tunedAt != null) {
       final daysAgo = DateTime.now().difference(tunedAt).inDays;
+      final tierName = _getTierDisplayName(config!.deviceTier);
       if (daysAgo == 0) {
-        return 'Optimized today • ${config!.deviceTier.name.toUpperCase()} device';
+        return 'Optimized today • $tierName performance';
       }
-      return 'Optimized $daysAgo days ago • ${config!.deviceTier.name.toUpperCase()} device';
+      return 'Optimized $daysAgo days ago • $tierName performance';
     }
-    return 'Optimized for your device';
+    return 'Optimized for this voice';
+  }
+
+  String _getTierDisplayName(DevicePerformanceTier tier) {
+    switch (tier) {
+      case DevicePerformanceTier.flagship:
+        return 'Excellent';
+      case DevicePerformanceTier.midRange:
+        return 'Good';
+      case DevicePerformanceTier.budget:
+        return 'Moderate';
+      case DevicePerformanceTier.legacy:
+        return 'Limited';
+    }
   }
 
   Widget _buildConfigDetails(DeviceEngineConfig config) {
