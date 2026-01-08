@@ -9,6 +9,134 @@ import 'app_paths.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
 
+/// Global segment readiness tracker singleton.
+/// This is used to track synthesis state for UI opacity feedback.
+/// Key format: "bookId:chapterIndex"
+class SegmentReadinessTracker {
+  SegmentReadinessTracker._();
+  static final instance = SegmentReadinessTracker._();
+  
+  final Map<String, Map<int, SegmentReadiness>> _readiness = {};
+  final _controllers = <String, StreamController<Map<int, SegmentReadiness>>>{};
+  
+  /// Get current readiness for a chapter.
+  Map<int, SegmentReadiness> getReadiness(String key) {
+    return _readiness[key] ?? {};
+  }
+  
+  /// Get readiness for a specific segment.
+  SegmentReadiness? getForSegment(String key, int index) {
+    return _readiness[key]?[index];
+  }
+  
+  /// Get opacity for a specific segment.
+  double opacityForSegment(String key, int index) {
+    return _readiness[key]?[index]?.opacity ?? 0.4;
+  }
+  
+  /// Stream of readiness changes for a chapter.
+  Stream<Map<int, SegmentReadiness>> stream(String key) {
+    _controllers[key] ??= StreamController.broadcast();
+    return _controllers[key]!.stream;
+  }
+  
+  /// Mark segment as synthesis started.
+  void onSynthesisStarted(String key, int index) {
+    _readiness[key] ??= {};
+    _readiness[key]![index] = SegmentReadiness.synthesizing(index);
+    _notify(key);
+  }
+  
+  /// Mark segment as ready.
+  void onSynthesisComplete(String key, int index) {
+    _readiness[key] ??= {};
+    _readiness[key]![index] = SegmentReadiness.ready(index);
+    _notify(key);
+  }
+  
+  /// Mark segment as queued.
+  void onSegmentQueued(String key, int index) {
+    _readiness[key] ??= {};
+    final current = _readiness[key]![index];
+    if (current?.state == SegmentState.ready ||
+        current?.state == SegmentState.synthesizing) {
+      return;
+    }
+    _readiness[key]![index] = SegmentReadiness.queued(index);
+    _notify(key);
+  }
+  
+  /// Initialize from cached segments.
+  void initializeFromCache(String key, List<int> cachedIndices) {
+    _readiness[key] = {};
+    for (final index in cachedIndices) {
+      _readiness[key]![index] = SegmentReadiness.ready(index);
+    }
+    _notify(key);
+  }
+  
+  /// Reset readiness for a chapter.
+  void reset(String key) {
+    _readiness[key]?.clear();
+    _notify(key);
+  }
+  
+  void _notify(String key) {
+    if (_controllers[key] != null && !_controllers[key]!.isClosed) {
+      _controllers[key]!.add(_readiness[key] ?? {});
+    }
+  }
+}
+
+/// Provider that streams segment readiness for a chapter.
+final segmentReadinessStreamProvider = StreamProvider.family<Map<int, SegmentReadiness>, String>(
+  (ref, key) async* {
+    // Emit current state first
+    yield SegmentReadinessTracker.instance.getReadiness(key);
+    // Then emit updates
+    await for (final update in SegmentReadinessTracker.instance.stream(key)) {
+      yield update;
+    }
+  },
+);
+
+/// Simple provider for current segment readiness (non-reactive snapshot).
+final segmentReadinessProvider = Provider.family<Map<int, SegmentReadiness>, String>(
+  (ref, key) => SegmentReadinessTracker.instance.getReadiness(key),
+);
+
+/// Provider for smart synthesis manager
+/// Creates appropriate manager based on selected voice engine type
+/// Returns null if smart synthesis is disabled in settings
+final smartSynthesisManagerProvider = Provider<SmartSynthesisManager?>((ref) {
+  // Check if smart synthesis is enabled
+  final smartSynthesisEnabled = ref.watch(settingsProvider.select((s) => s.smartSynthesisEnabled));
+  
+  if (!smartSynthesisEnabled) {
+    return null;  // Disabled - will use JIT synthesis
+  }
+  
+  // Get selected voice and determine engine type
+  final selectedVoice = ref.watch(settingsProvider.select((s) => s.selectedVoice));
+  final engineType = VoiceIds.engineFor(selectedVoice);
+  
+  // Select appropriate manager based on engine type
+  switch (engineType) {
+    case EngineType.supertonic:
+      return SupertonicSmartSynthesis();
+    case EngineType.piper:
+      return PiperSmartSynthesis();
+    case EngineType.kokoro:
+      // Kokoro RTF > 1.0 means it's slower than real-time
+      // Use Supertonic strategy as fallback until Kokoro-specific strategy is implemented
+      // TODO: Implement KokoroSmartSynthesis with pre-synthesis workflow
+      return SupertonicSmartSynthesis();
+    case EngineType.device:
+      // Device TTS doesn't need smart synthesis (no caching)
+      return null;
+  }
+});
+
 /// Provider for the audio cache.
 /// Re-exported from tts_providers for backwards compatibility.
 final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
@@ -20,6 +148,16 @@ final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
 /// Uses ttsRoutingEngineProvider which has all AI voice engines registered.
 final routingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
   return ref.read(ttsRoutingEngineProvider.future);
+});
+
+/// Provider for the resource monitor (Phase 2: Battery-aware prefetch).
+/// Singleton that monitors battery level and charging state.
+final resourceMonitorProvider = Provider<ResourceMonitor>((ref) {
+  final monitor = ResourceMonitor();
+  // Initialize in background - don't block
+  monitor.initialize();
+  ref.onDispose(() => monitor.dispose());
+  return monitor;
 });
 
 /// Provider for the playback controller.
@@ -50,15 +188,35 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       final cache = await ref.read(audioCacheProvider.future);
       print('[PlaybackProvider] Audio cache loaded successfully');
 
+      print('[PlaybackProvider] Loading smart synthesis manager...');
+      final smartSynthesisManager = ref.read(smartSynthesisManagerProvider);
+      print('[PlaybackProvider] Smart synthesis manager loaded');
+
+      // Phase 2: Resource monitor for battery-aware prefetch
+      print('[PlaybackProvider] Loading resource monitor...');
+      final resourceMonitor = ref.read(resourceMonitorProvider);
+      print('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
+
       print('[PlaybackProvider] Creating AudiobookPlaybackController...');
       _controller = AudiobookPlaybackController(
         engine: engine,
         cache: cache,
         // Voice selection is global-only for now (per-book voice not implemented)
         voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
+        smartSynthesisManager: smartSynthesisManager,
+        resourceMonitor: resourceMonitor,  // Phase 2
         onStateChange: (newState) {
           // Update Riverpod state when controller state changes
           state = AsyncData(newState);
+        },
+        // Wire up segment readiness callbacks for UI feedback
+        onSegmentSynthesisStarted: (bookId, chapterIndex, segmentIndex) {
+          final key = '$bookId:$chapterIndex';
+          SegmentReadinessTracker.instance.onSynthesisStarted(key, segmentIndex);
+        },
+        onSegmentSynthesisComplete: (bookId, chapterIndex, segmentIndex) {
+          final key = '$bookId:$chapterIndex';
+          SegmentReadinessTracker.instance.onSynthesisComplete(key, segmentIndex);
         },
       );
       print('[PlaybackProvider] Controller created successfully');
@@ -151,6 +309,31 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
 
     final clampedStart = startSegmentIndex.clamp(0, tracks.length - 1);
     print('[PlaybackProvider] Loading ${tracks.length} tracks into controller (starting at index $clampedStart)');
+
+    // Initialize segment readiness tracker - check which segments are already cached
+    final readinessKey = '${book.id}:$chapterIndex';
+    SegmentReadinessTracker.instance.reset(readinessKey);
+    
+    try {
+      // Check cache for already-ready segments
+      final cache = await ref.read(audioCacheProvider.future);
+      final voiceId = ref.read(settingsProvider).selectedVoice;
+      final playbackRate = ref.read(settingsProvider).defaultPlaybackRate;
+      
+      for (var i = 0; i < tracks.length; i++) {
+        final cacheKey = CacheKeyGenerator.generate(
+          voiceId: voiceId,
+          text: tracks[i].text,
+          playbackRate: CacheKeyGenerator.getSynthesisRate(playbackRate),
+        );
+        if (await cache.isReady(cacheKey)) {
+          SegmentReadinessTracker.instance.onSynthesisComplete(readinessKey, i);
+        }
+      }
+    } catch (e) {
+      print('[PlaybackProvider] Error checking cache: $e');
+      // Continue anyway - readiness will update as segments are synthesized
+    }
 
     try {
       await ctrl.loadChapter(

@@ -380,6 +380,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       );
     }
     
+    // Watch segment readiness stream for opacity-based visualization
+    final readinessKey = '${widget.bookId}:$_currentChapterIndex';
+    final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
+    final segmentReadiness = segmentReadinessAsync.value ?? {};
+    
     return Expanded(
       child: NotificationListener<ScrollNotification>(
         onNotification: (notification) {
@@ -398,29 +403,42 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
             final item = queue[index];
             final isActive = currentTrack?.id == item.id;
             
-            final textColor = isActive ? colors.text : colors.textSecondary;
+            // Get segment readiness opacity (1.0 = ready, 0.4 = not queued)
+            final readiness = segmentReadiness[index];
+            final segmentOpacity = readiness?.opacity ?? 0.4;
+            
+            // Active segment is always fully visible
+            final effectiveOpacity = isActive ? 1.0 : segmentOpacity;
+            
+            final textColor = isActive 
+                ? colors.text 
+                : colors.textSecondary.withOpacity(effectiveOpacity);
             final fontWeight = isActive ? FontWeight.w600 : FontWeight.normal;
             final backgroundColor = isActive 
                 ? colors.primary.withValues(alpha: 0.14)
                 : null;
             
-            return InkWell(
-              onTap: () => _seekToSegment(index),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                decoration: backgroundColor != null
-                    ? BoxDecoration(
-                        color: backgroundColor,
-                        borderRadius: BorderRadius.circular(8),
-                      )
-                    : null,
-                child: Text(
-                  item.text,
-                  style: TextStyle(
-                    fontSize: 16,
-                    height: 1.6,
-                    color: textColor,
-                    fontWeight: fontWeight,
+            return AnimatedOpacity(
+              opacity: effectiveOpacity,
+              duration: const Duration(milliseconds: 300),
+              child: InkWell(
+                onTap: () => _seekToSegment(index),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                  decoration: backgroundColor != null
+                      ? BoxDecoration(
+                          color: backgroundColor,
+                          borderRadius: BorderRadius.circular(8),
+                        )
+                      : null,
+                  child: Text(
+                    item.text,
+                    style: TextStyle(
+                      fontSize: 16,
+                      height: 1.6,
+                      color: textColor,
+                      fontWeight: fontWeight,
+                    ),
                   ),
                 ),
               ),
