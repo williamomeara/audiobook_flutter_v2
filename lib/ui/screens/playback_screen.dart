@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:playback/playback.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
@@ -26,11 +25,9 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   bool _initialized = false;
   int _currentChapterIndex = 0;
   
-  // Scroll controllers for segment list
-  final ItemScrollController _itemScrollController = ItemScrollController();
-  final ItemPositionsListener _itemPositionsListener = ItemPositionsListener.create();
+  // Scroll controller for text view
+  final ScrollController _scrollController = ScrollController();
   bool _autoScrollEnabled = true;
-  int _lastScrolledIndex = -1;
   
   // View mode: true = cover view, false = text view
   bool _showCover = false;
@@ -45,55 +42,21 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializePlayback();
-      _setupAutoScrollListener();
+    });
+    
+    // Detect manual scrolling
+    _scrollController.addListener(() {
+      if (_scrollController.position.isScrollingNotifier.value) {
+        setState(() => _autoScrollEnabled = false);
+      }
     });
   }
   
   @override
   void dispose() {
     _sleepTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
-  }
-
-  /// Set up listener for auto-scrolling based on playback state changes.
-  /// Runs outside of build method to avoid performance issues.
-  void _setupAutoScrollListener() {
-    // Listen to playback state changes and scroll accordingly
-    ref.listenManual(playbackStateProvider, (previous, next) {
-      if (!_autoScrollEnabled) return;
-      if (!mounted) return;
-      
-      final currentTrack = next.currentTrack;
-      if (currentTrack == null) return;
-      
-      final queue = next.queue;
-      final currentIndex = queue.indexWhere((t) => t.id == currentTrack.id);
-      
-      if (currentIndex >= 0 && currentIndex != _lastScrolledIndex) {
-        _scrollToIndex(currentIndex);
-      }
-    });
-  }
-
-  /// Scroll to a specific index if not already visible.
-  void _scrollToIndex(int index) {
-    if (!_itemScrollController.isAttached) return;
-    
-    // Check if current segment is visible
-    final positions = _itemPositionsListener.itemPositions.value;
-    final isVisible = positions.any((pos) => 
-        pos.index == index && 
-        pos.itemLeadingEdge >= 0 && 
-        pos.itemTrailingEdge <= 1);
-    
-    if (!isVisible) {
-      _itemScrollController.scrollTo(
-        index: index,
-        duration: const Duration(milliseconds: 300),
-        alignment: 0.3,
-      );
-    }
-    _lastScrolledIndex = index;
   }
 
   Future<void> _initializePlayback() async {
@@ -184,6 +147,14 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     } else {
       await notifier.play();
     }
+  }
+
+  Future<void> _nextSegment() async {
+    await ref.read(playbackControllerProvider.notifier).nextTrack();
+  }
+
+  Future<void> _previousSegment() async {
+    await ref.read(playbackControllerProvider.notifier).previousTrack();
   }
 
   Future<void> _nextChapter() async {
@@ -547,6 +518,53 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
     final segmentReadiness = segmentReadinessAsync.value ?? {};
     
+    // Build text spans for continuous text flow
+    final List<InlineSpan> spans = [];
+    for (int index = 0; index < queue.length; index++) {
+      final item = queue[index];
+      final isActive = index == currentIndex;
+      final isPast = index < currentIndex;
+      
+      // Get segment readiness (1.0 = ready, lower = not ready)
+      final readiness = segmentReadiness[index];
+      final isReady = readiness?.opacity == 1.0;
+      
+      // Text styling based on state (matching Figma design)
+      Color textColor;
+      if (isActive) {
+        textColor = colors.textHighlight; // amber-400 for current
+      } else if (isPast) {
+        textColor = colors.textPast; // slate-500 for past
+      } else if (isReady) {
+        textColor = colors.textSecondary; // slate-300 for ready future
+      } else {
+        textColor = colors.textTertiary.withValues(alpha: 0.5); // slate-700 for not downloaded
+      }
+      
+      // Add the segment text with a trailing space
+      spans.add(TextSpan(
+        text: '${item.text} ',
+        style: TextStyle(
+          fontSize: 17,
+          height: 1.7,
+          color: textColor,
+          fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
+        ),
+      ));
+      
+      // Add synthesizing indicator if not ready
+      if (!isReady && !isPast && !isActive) {
+        spans.add(TextSpan(
+          text: '(synthesizing...) ',
+          style: TextStyle(
+            fontSize: 11,
+            color: colors.textTertiary.withValues(alpha: 0.7),
+            fontStyle: FontStyle.italic,
+          ),
+        ));
+      }
+    }
+    
     return Stack(
       children: [
         NotificationListener<ScrollNotification>(
@@ -557,62 +575,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
             }
             return false;
           },
-          child: ScrollablePositionedList.builder(
-            itemScrollController: _itemScrollController,
-            itemPositionsListener: _itemPositionsListener,
+          child: SingleChildScrollView(
+            controller: _scrollController,
             padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
-            itemCount: queue.length,
-            itemBuilder: (context, index) {
-              final item = queue[index];
-              final isActive = index == currentIndex;
-              final isPast = index < currentIndex;
-              
-              // Get segment readiness (1.0 = ready, lower = not ready)
-              final readiness = segmentReadiness[index];
-              final isReady = readiness?.opacity == 1.0;
-              
-              // Text styling based on state (matching Figma design)
-              Color textColor;
-              if (isActive) {
-                textColor = colors.textHighlight; // amber-400 for current
-              } else if (isPast) {
-                textColor = colors.textPast; // slate-500 for past
-              } else if (isReady) {
-                textColor = colors.textSecondary; // slate-300 for ready future
-              } else {
-                textColor = colors.textTertiary.withValues(alpha: 0.5); // slate-700 for not downloaded
-              }
-              
-              return GestureDetector(
-                onTap: () => _seekToSegment(index),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: RichText(
-                    text: TextSpan(
-                      text: item.text,
-                      style: TextStyle(
-                        fontSize: 17,
-                        height: 1.7,
-                        color: textColor,
-                        fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
-                      ),
-                      children: [
-                        const TextSpan(text: ' '),
-                        if (!isReady && !isPast && !isActive)
-                          TextSpan(
-                            text: '(synthesizing...)',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: colors.textTertiary.withValues(alpha: 0.7),
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
+            child: RichText(
+              text: TextSpan(children: spans),
+            ),
           ),
         ),
         
@@ -626,7 +594,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
               borderRadius: BorderRadius.circular(24),
               elevation: 4,
               child: InkWell(
-                onTap: _jumpToCurrentSegment,
+                onTap: _resetAutoScroll,
                 borderRadius: BorderRadius.circular(24),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -636,7 +604,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                       Icon(Icons.my_location, size: 18, color: colors.primaryForeground),
                       const SizedBox(width: 8),
                       Text(
-                        'Jump to current',
+                        'Resume auto-scroll',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -653,34 +621,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     );
   }
   
-  Future<void> _seekToSegment(int index) async {
-    final notifier = ref.read(playbackControllerProvider.notifier);
-    final playbackState = ref.read(playbackStateProvider);
-    
-    if (index >= 0 && index < playbackState.queue.length) {
-      await notifier.seekToTrack(index, play: playbackState.isPlaying);
-      setState(() {
-        _autoScrollEnabled = true;
-        _lastScrolledIndex = index;
-      });
-    }
-  }
-  
-  void _jumpToCurrentSegment() {
-    final playbackState = ref.read(playbackStateProvider);
-    final currentIndex = playbackState.currentIndex;
-    
-    if (currentIndex >= 0 && _itemScrollController.isAttached) {
-      _itemScrollController.scrollTo(
-        index: currentIndex,
-        duration: const Duration(milliseconds: 300),
-        alignment: 0.3,
-      );
-      setState(() {
-        _autoScrollEnabled = true;
-        _lastScrolledIndex = currentIndex;
-      });
-    }
+  void _resetAutoScroll() {
+    setState(() => _autoScrollEnabled = true);
   }
 
   Widget _buildPlaybackControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
@@ -816,17 +758,34 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                     onTap: chapterIdx > 0 ? _previousChapter : null,
                     borderRadius: BorderRadius.circular(24),
                     child: Padding(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(8),
                       child: Icon(
                         Icons.skip_previous,
-                        size: 28,
+                        size: 24,
                         color: chapterIdx > 0 ? colors.text : colors.textTertiary,
                       ),
                     ),
                   ),
                 ),
                 
-                const SizedBox(width: 16),
+                // Previous segment
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: currentIndex > 0 ? _previousSegment : null,
+                    borderRadius: BorderRadius.circular(24),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(
+                        Icons.fast_rewind,
+                        size: 28,
+                        color: currentIndex > 0 ? colors.text : colors.textTertiary,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(width: 12),
                 
                 // Play/Pause button
                 Material(
@@ -858,7 +817,24 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                   ),
                 ),
                 
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
+                
+                // Next segment
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: currentIndex < queueLength - 1 ? _nextSegment : null,
+                    borderRadius: BorderRadius.circular(24),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(
+                        Icons.fast_forward,
+                        size: 28,
+                        color: currentIndex < queueLength - 1 ? colors.text : colors.textTertiary,
+                      ),
+                    ),
+                  ),
+                ),
                 
                 // Next chapter
                 Material(
@@ -867,10 +843,10 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                     onTap: _nextChapter,
                     borderRadius: BorderRadius.circular(24),
                     child: Padding(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(8),
                       child: Icon(
                         Icons.skip_next,
-                        size: 28,
+                        size: 24,
                         color: colors.text,
                       ),
                     ),
