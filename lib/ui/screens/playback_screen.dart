@@ -6,7 +6,9 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
+import '../../app/settings_controller.dart';
 import '../theme/app_colors.dart';
+import '../widgets/optimization_prompt_dialog.dart';
 import 'package:core_domain/core_domain.dart';
 
 class PlaybackScreen extends ConsumerStatefulWidget {
@@ -122,6 +124,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     print('[PlaybackScreen] Saved progress: chapter $chapterIndex, segment $segmentIndex');
 
     _currentChapterIndex = chapterIndex;
+
+    // Check if current engine needs optimization (first-run prompt)
+    final voiceId = ref.read(settingsProvider).selectedVoice;
+    if (mounted) {
+      await OptimizationPromptDialog.promptIfNeeded(context, ref, voiceId);
+    }
 
     // CRITICAL: Wait for playback controller to be ready before calling loadChapter
     print('[PlaybackScreen] Waiting for playback controller to initialize...');
