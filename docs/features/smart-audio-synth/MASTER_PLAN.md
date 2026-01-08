@@ -378,146 +378,17 @@ class PiperSmartSynthesis extends SmartSynthesisManager {
 - ✅ Piper implementation (100% buffering elimination)
 - ✅ Benchmark validation (0s buffering)
 
-### Phase 3: Kokoro Analysis & Optimization (Weeks 4-5)
+### Phase 3: Kokoro Optimization ⏸️ DEFERRED
 
-**Goal**: Determine optimal strategy for Kokoro based on performance analysis
+> **Note**: Kokoro optimization has been moved to a separate project at `docs/features/kokoro-optimization/`. 
+> This work is high-risk and may require breaking and rebuilding the Kokoro integration.
+> See `../kokoro-optimization/README.md` for the dedicated project plan.
 
-#### Week 4: Deep Profiling
+**Current Status**: Kokoro currently has RTF 2.76x (slower than real-time). Until optimization is complete, Kokoro will use the fallback strategy of pre-synthesizing multiple segments before playback.
 
-**Tasks**:
+---
 
-1. **Implement Performance Profiler**
-```dart
-// packages/platform_android_tts/lib/src/kokoro/kokoro_profiler.dart
-
-class KokoroPerformanceProfiler {
-  Future<ProfileReport> analyzePerformance(String testText) async {
-    final report = ProfileReport();
-    
-    // Test 1: Component timing
-    final t1 = DateTime.now();
-    final phonemes = await _phonemize(testText);
-    report.phonemizationMs = DateTime.now().difference(t1).inMilliseconds;
-    
-    final t2 = DateTime.now();
-    final audio = await _runInference(phonemes);
-    report.inferenceMs = DateTime.now().difference(t2).inMilliseconds;
-    
-    final t3 = DateTime.now();
-    final processed = await _postprocess(audio);
-    report.postprocessingMs = DateTime.now().difference(t3).inMilliseconds;
-    
-    // Test 2: Parallel synthesis
-    final sequentialTime = await _testSequential(testText);
-    final parallelTime = await _testParallel(testText);
-    report.parallelSpeedup = sequentialTime / parallelTime;
-    
-    // Test 3: Memory usage
-    report.memoryUsageMB = await _measureMemory();
-    
-    return report;
-  }
-}
-```
-
-2. **Phoneme Warning Investigation**
-```dart
-class PhonemeAnalyzer {
-  Future<Map<String, int>> analyzeUnknownPhonemes(List<String> testTexts) async {
-    final frequency = <String, int>{};
-    
-    for (var text in testTexts) {
-      final phonemes = await _phonemize(text);
-      // Extract unknown phoneme patterns
-      final unknowns = _extractUnknownPhonemes(phonemes);
-      for (var unknown in unknowns) {
-        frequency[unknown] = (frequency[unknown] ?? 0) + 1;
-      }
-    }
-    
-    return frequency;
-  }
-}
-```
-
-3. **Alternative Quantization Testing**
-```dart
-// Test float32, float16, int8 models if available
-class QuantizationBenchmark {
-  Future<Map<String, double>> compareQuantizations() async {
-    final results = <String, double>{};
-    
-    for (var precision in ['int8', 'float16', 'float32']) {
-      final model = await _loadModel(precision);
-      final rtf = await _measureRTF(model);
-      results[precision] = rtf;
-    }
-    
-    return results;
-  }
-}
-```
-
-**Deliverables**:
-- ✅ Performance profile report identifying bottleneck
-- ✅ Phoneme frequency analysis with slowdown correlation
-- ✅ Quantization comparison (if alternative models available)
-- ✅ Parallel synthesis test results
-
-#### Week 5: Strategy Implementation
-
-Based on Week 4 results, implement one of three scenarios:
-
-**Scenario A: RTF < 1.0 Achieved** (Optimistic)
-```dart
-class KokoroRealTimeStrategy extends SmartSynthesisManager {
-  // Standard pre-synthesis approach
-  @override
-  Future<void> prepareForPlayback(Book book, int startPosition) async {
-    await _warmUpSession();
-    await synthesizeSegment(segments[0]);
-    await synthesizeSegment(segments[1]);
-  }
-}
-```
-
-**Scenario B: RTF 1.0-1.5x** (Borderline)
-```dart
-class KokoroHybridStrategy extends SmartSynthesisManager {
-  // Extended pre-synthesis with progress UI
-  @override
-  Future<void> prepareForPlayback(Book book, int startPosition) async {
-    final preloadCount = (measuredRTF * 3).ceil();  // e.g., RTF 1.2 → 4 segments
-    
-    for (var i = 0; i < preloadCount; i++) {
-      await synthesizeSegment(segments[i]);
-      _notifyProgress(i + 1, preloadCount);
-    }
-  }
-}
-```
-
-**Scenario C: RTF > 1.5x** (Most Likely)
-```dart
-class KokoroPreSynthesisStrategy extends SmartSynthesisManager {
-  // Full chapter pre-synthesis workflow
-  Future<void> preSynthesizeChapter(Book book, int chapterIndex) async {
-    final segments = _segmentChapter(book, chapterIndex);
-    
-    for (var i = 0; i < segments.length; i++) {
-      await synthesizeSegment(segments[i]);
-      _notifyProgress(i + 1, segments.length);
-    }
-  }
-}
-```
-
-**Deliverables**:
-- ✅ Kokoro implementation (based on achieved RTF)
-- ✅ UI updates for Kokoro-specific workflow
-- ✅ Voice selection warnings if needed
-
-### Phase 4: Auto-Tuning System (Week 6)
+### Phase 3: Auto-Tuning System (Week 4)
 
 **Goal**: Automatic device performance profiling and configuration
 
@@ -1427,59 +1298,53 @@ void main() {
 
 ## 14. Timeline and Milestones
 
-### Gantt Chart (10 Weeks)
+### Gantt Chart (8 Weeks)
+
+> **Note**: Kokoro optimization has been moved to a separate project.
+> See `docs/features/kokoro-optimization/` for the dedicated 4-6 week plan.
 
 ```
-Week 1: Foundation
+Week 1: Foundation ✅
 ├─ SmartSynthesisManager interface
 ├─ Supertonic implementation
 └─ Integration with playback controller
 
-Week 2: Foundation (continued)
+Week 2: Foundation (continued) ✅
 ├─ UI updates (loading states)
+├─ Resource-aware prefetch (Phase 2)
 └─ Testing and validation
 
-Week 3: Piper Optimization
+Week 3: Piper Optimization ✅
 ├─ Piper implementation
 ├─ Benchmark validation
 └─ Testing
 
-Week 4: Kokoro Analysis
-├─ Performance profiling
-├─ Phoneme investigation
-└─ Quantization testing
-
-Week 5: Kokoro Optimization
-├─ ONNX Runtime tuning
-├─ Strategy implementation (based on RTF)
-└─ UI updates for Kokoro workflow
-
-Week 6: Auto-Tuning System
+Week 4: Auto-Tuning System
 ├─ Device profiler
 ├─ Configuration manager
 ├─ First-run optimization prompt
 └─ Settings integration
 
-Week 7: Intelligent Cache Management
+Week 5: Intelligent Cache Management ✅ (Core complete)
 ├─ Core cache manager with metadata
 ├─ Intelligent eviction algorithm
-├─ User quota settings UI
-└─ Disk space monitoring
+├─ User quota settings UI ⏳
+└─ Disk space monitoring ⏳
 
-Week 8: Segment Readiness UI + Cache Polish
+Week 6: Segment Readiness UI + Cache Polish ✅ (Core complete)
 ├─ SegmentReadinessProvider
 ├─ ReadableText widget with opacity states
 ├─ Buffer scheduler integration
-├─ Cache analytics & insights
+├─ Cache analytics & insights ⏳
 
-Week 9: Testing & Validation
+Week 7: Testing & Validation
 ├─ Device matrix testing
 ├─ Integration tests
 ├─ Battery impact assessment
 ├─ Cache eviction testing
 └─ Bug fixes
 
-Week 10: Polish & Deployment
+Week 8: Polish & Deployment
 ├─ UI refinements
 ├─ Analytics instrumentation
 ├─ Documentation
@@ -1488,27 +1353,28 @@ Week 10: Polish & Deployment
 
 ### Key Milestones
 
-| Date | Milestone | Deliverables |
-|------|-----------|--------------|
-| **End of Week 2** | Foundation Complete | Supertonic 0s buffering achieved |
-| **End of Week 3** | Piper Complete | Piper 0s buffering achieved |
-| **End of Week 5** | Kokoro Strategy Decided | Kokoro implementation path chosen |
-| **End of Week 6** | Auto-Tuning Complete | Device profiling working |
-| **End of Week 7** | Cache Management Complete | User quota + intelligent eviction |
-| **End of Week 8** | Segment Readiness UI Complete | Text opacity states working |
-| **End of Week 9** | Testing Complete | All tests passing, ready for production |
-| **End of Week 10** | Production Deployment | Feature live for 100% users |
+| Date | Milestone | Deliverables | Status |
+|------|-----------|--------------|--------|
+| **End of Week 2** | Foundation Complete | Supertonic/Piper 0s buffering achieved | ✅ |
+| **End of Week 3** | Resource-Aware Complete | Battery-aware prefetch working | ✅ |
+| **End of Week 4** | Auto-Tuning Complete | Device profiling working | ⏳ |
+| **End of Week 5** | Cache Management Complete | User quota + intelligent eviction | ✅ Core |
+| **End of Week 6** | Segment Readiness UI Complete | Text opacity states working | ✅ Core |
+| **End of Week 7** | Testing Complete | All tests passing, ready for production | ⏳ |
+| **End of Week 8** | Production Deployment | Feature live for 100% users | ⏳ |
 
 ---
 
 ## Conclusion
 
-This master plan consolidates 10 weeks of work to eliminate buffering across all TTS engines through smart pre-synthesis strategies. Key achievements:
+This master plan consolidates 8 weeks of work to eliminate buffering for Supertonic and Piper TTS engines through smart pre-synthesis strategies. Kokoro optimization has been moved to a dedicated project due to its complexity and risk.
+
+Key achievements:
 
 ✅ **Supertonic**: 100% buffering elimination (5.2s → 0s) via single-segment pre-synthesis  
 ✅ **Piper**: 100% buffering elimination (9.8s → 0s) via two-phase pre-synthesis  
-✅ **Kokoro**: Strategy TBD based on optimization results, but excellent UX guaranteed  
-✅ **Auto-Tuning**: Device-adaptive configuration for optimal performance across all device tiers  
+⏸️ **Kokoro**: Deferred to separate project (see `docs/features/kokoro-optimization/`)  
+⏳ **Auto-Tuning**: Device-adaptive configuration for optimal performance across all device tiers  
 ✅ **Intelligent Cache**: User-configurable storage quota with smart eviction algorithms  
 ✅ **Segment Readiness UI**: Visual feedback showing text opacity based on synthesis state  
 
@@ -1522,7 +1388,7 @@ The plan is realistic, phased, and includes comprehensive testing and risk mitig
 - **TECHNICAL_IMPLEMENTATION.md**: Detailed architecture and code samples
 - **ENGINE_SUPERTONIC_PLAN.md**: Supertonic-specific optimization (1 week)
 - **ENGINE_PIPER_PLAN.md**: Piper-specific optimization (2 weeks)
-- **ENGINE_KOKORO_PLAN.md**: Kokoro-specific optimization (6 weeks)
+- **../kokoro-optimization/README.md**: Kokoro optimization project (separate project, 4-6 weeks)
 - **AUTO_TUNING_SYSTEM.md**: Device profiling and auto-configuration
 - **INTELLIGENT_CACHE_MANAGEMENT.md**: User-configurable storage quota and smart eviction
 - **SEGMENT_READINESS_UI.md**: Text opacity states for synthesis feedback
@@ -1531,7 +1397,7 @@ The plan is realistic, phased, and includes comprehensive testing and risk mitig
 
 ---
 
-**Document Version**: 1.1  
-**Last Updated**: 2026-01-07  
-**Status**: Ready for Implementation  
-**Total Estimated Effort**: 10 weeks (1 senior developer)
+**Document Version**: 1.2  
+**Last Updated**: 2026-01-08  
+**Status**: In Progress (Weeks 1-3 Complete, Week 4-5 Core Complete)  
+**Total Estimated Effort**: 8 weeks (1 senior developer)
