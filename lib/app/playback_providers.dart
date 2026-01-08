@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -142,6 +143,31 @@ final smartSynthesisManagerProvider = Provider<SmartSynthesisManager?>((ref) {
 final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
   final paths = await ref.watch(appPathsProvider.future);
   return FileAudioCache(cacheDir: paths.audioCacheDir);
+});
+
+/// Provider for the intelligent cache manager (Phase 3: Cache management).
+/// Provides quota control, eviction scoring, and usage stats.
+final intelligentCacheManagerProvider = FutureProvider<IntelligentCacheManager>((ref) async {
+  final paths = await ref.watch(appPathsProvider.future);
+  final settings = ref.watch(settingsProvider);
+  
+  final manager = IntelligentCacheManager(
+    cacheDir: paths.audioCacheDir,
+    metadataFile: File('${paths.audioCacheDir.path}/.cache_metadata.json'),
+    quotaSettings: CacheQuotaSettings.fromGB(settings.cacheQuotaGB),
+  );
+  
+  await manager.initialize();
+  
+  ref.onDispose(() => manager.dispose());
+  return manager;
+});
+
+/// Provider for cache usage statistics.
+/// Refreshes when quota settings change or on demand.
+final cacheUsageStatsProvider = FutureProvider<CacheUsageStats>((ref) async {
+  final manager = await ref.watch(intelligentCacheManagerProvider.future);
+  return manager.getUsageStats();
 });
 
 /// Provider for the routing engine.

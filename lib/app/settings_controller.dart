@@ -11,6 +11,7 @@ class SettingsState {
     this.autoAdvanceChapters = true,
     this.defaultPlaybackRate = 1.0,
     this.smartSynthesisEnabled = true,
+    this.cacheQuotaGB = 2.0,
   });
 
   /// Whether dark mode is enabled.
@@ -28,12 +29,16 @@ class SettingsState {
   /// Whether smart synthesis (first-segment pre-synthesis) is enabled.
   final bool smartSynthesisEnabled;
 
+  /// Audio cache quota in GB (0.5 to 10.0).
+  final double cacheQuotaGB;
+
   SettingsState copyWith({
     bool? darkMode,
     String? selectedVoice,
     bool? autoAdvanceChapters,
     double? defaultPlaybackRate,
     bool? smartSynthesisEnabled,
+    double? cacheQuotaGB,
   }) {
     return SettingsState(
       darkMode: darkMode ?? this.darkMode,
@@ -41,6 +46,7 @@ class SettingsState {
       autoAdvanceChapters: autoAdvanceChapters ?? this.autoAdvanceChapters,
       defaultPlaybackRate: defaultPlaybackRate ?? this.defaultPlaybackRate,
       smartSynthesisEnabled: smartSynthesisEnabled ?? this.smartSynthesisEnabled,
+      cacheQuotaGB: cacheQuotaGB ?? this.cacheQuotaGB,
     );
   }
 }
@@ -52,6 +58,7 @@ class SettingsController extends Notifier<SettingsState> {
   static const _keyAutoAdvance = 'auto_advance_chapters';
   static const _keyPlaybackRate = 'default_playback_rate';
   static const _keySmartSynthesis = 'smart_synthesis_enabled';
+  static const _keyCacheQuotaGB = 'cache_quota_gb';
 
   @override
   SettingsState build() {
@@ -70,6 +77,7 @@ class SettingsController extends Notifier<SettingsState> {
       autoAdvanceChapters: _prefs?.getBool(_keyAutoAdvance) ?? true,
       defaultPlaybackRate: _prefs?.getDouble(_keyPlaybackRate) ?? 1.0,
       smartSynthesisEnabled: _prefs?.getBool(_keySmartSynthesis) ?? true,
+      cacheQuotaGB: _prefs?.getDouble(_keyCacheQuotaGB) ?? 2.0,
     );
   }
 
@@ -96,6 +104,11 @@ class SettingsController extends Notifier<SettingsState> {
   Future<void> setSmartSynthesisEnabled(bool value) async {
     state = state.copyWith(smartSynthesisEnabled: value);
     await _prefs?.setBool(_keySmartSynthesis, value);
+  }
+
+  Future<void> setCacheQuotaGB(double quotaGB) async {
+    state = state.copyWith(cacheQuotaGB: quotaGB);
+    await _prefs?.setDouble(_keyCacheQuotaGB, quotaGB);
   }
 }
 

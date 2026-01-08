@@ -1022,9 +1022,9 @@ Part of **Week 7-8** cache management sprint:
 | Core cache manager with metadata | 3 days | ✅ Complete |
 | Intelligent eviction algorithm | 2 days | ✅ Complete |
 | Compression module | 2 days | ✅ Complete |
-| User settings UI | 2 days | ⏳ Pending |
+| User settings UI (cache size slider) | 2 days | ✅ Complete |
+| Disk space monitoring | 1 day | ✅ Complete |
 | Native Opus integration | 2 days | ⏳ Pending |
-| Disk space monitoring & edge cases | 2 days | ⏳ Pending |
 | Testing & polish | 2 days | ⏳ Pending |
 
 **Detailed Design**: See `INTELLIGENT_CACHE_MANAGEMENT.md`
@@ -1357,9 +1357,9 @@ Week 8: Polish & Deployment
 |------|-----------|--------------|--------|
 | **End of Week 2** | Foundation Complete | Supertonic/Piper 0s buffering achieved | ✅ |
 | **End of Week 3** | Resource-Aware Complete | Battery-aware prefetch working | ✅ |
-| **End of Week 4** | Auto-Tuning Complete | Device profiling working | ⏳ |
-| **End of Week 5** | Cache Management Complete | User quota + intelligent eviction | ✅ Core |
-| **End of Week 6** | Segment Readiness UI Complete | Text opacity states working | ✅ Core |
+| **End of Week 4** | Auto-Tuning Complete | Device profiling working | ✅ |
+| **End of Week 5** | Cache Management Complete | User quota + intelligent eviction | ✅ |
+| **End of Week 6** | Segment Readiness UI Complete | Text opacity states working | ✅ |
 | **End of Week 7** | Testing Complete | All tests passing, ready for production | ⏳ |
 | **End of Week 8** | Production Deployment | Feature live for 100% users | ⏳ |
 
@@ -1374,8 +1374,8 @@ Key achievements:
 ✅ **Supertonic**: 100% buffering elimination (5.2s → 0s) via single-segment pre-synthesis  
 ✅ **Piper**: 100% buffering elimination (9.8s → 0s) via two-phase pre-synthesis  
 ⏸️ **Kokoro**: Deferred to separate project (see `docs/features/kokoro-optimization/`)  
-⏳ **Auto-Tuning**: Device-adaptive configuration for optimal performance across all device tiers  
-✅ **Intelligent Cache**: User-configurable storage quota with smart eviction algorithms  
+✅ **Auto-Tuning**: Device-adaptive configuration for optimal performance across all device tiers  
+✅ **Intelligent Cache**: User-configurable storage quota (slider 0.5-10 GB) with smart eviction  
 ✅ **Segment Readiness UI**: Visual feedback showing text opacity based on synthesis state  
 
 The plan is realistic, phased, and includes comprehensive testing and risk mitigation. Success is defined not just by technical metrics but by user experience: **instant playback with zero frustration**.
@@ -1397,7 +1397,7 @@ The plan is realistic, phased, and includes comprehensive testing and risk mitig
 
 ---
 
-**Document Version**: 1.2  
-**Last Updated**: 2026-01-08  
-**Status**: In Progress (Weeks 1-3 Complete, Week 4-5 Core Complete)  
+**Document Version**: 1.3  
+**Last Updated**: 2026-01-09  
+**Status**: In Progress (Weeks 1-6 Complete, Week 7-8 Pending)  
 **Total Estimated Effort**: 8 weeks (1 senior developer)
