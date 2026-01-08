@@ -100,7 +100,7 @@ class BufferScheduler {
     required double playbackRate,
   }) {
     // Phase 2: Check if resources allow prefetching
-    if (_resourceMonitor != null && !_resourceMonitor!.canPrefetch) {
+    if (_resourceMonitor != null && !_resourceMonitor.canPrefetch) {
       PlaybackLog.debug('Prefetch disabled due to low battery (mode: $synthesisMode)');
       return false;
     }

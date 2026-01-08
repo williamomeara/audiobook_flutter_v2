@@ -547,12 +547,10 @@ class _VoiceOption extends ConsumerStatefulWidget {
   const _VoiceOption({
     required this.name,
     required this.voiceId,
-    this.description,
   });
 
   final String name;
   final String voiceId;
-  final String? description;
 
   @override
   ConsumerState<_VoiceOption> createState() => _VoiceOptionState();
@@ -629,11 +627,6 @@ class _VoiceOptionState extends ConsumerState<_VoiceOption> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(widget.name, style: TextStyle(color: colors.text, fontSize: 16)),
-                  if (widget.description != null)
-                    Text(
-                      widget.description!,
-                      style: TextStyle(color: colors.textSecondary, fontSize: 14),
-                    ),
                 ],
               ),
             ),

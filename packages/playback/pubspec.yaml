@@ -1,6 +1,7 @@
 name: playback
 description: "Playback controller with buffering and prefetch for audiobook TTS"
 version: 0.0.1
+publish_to: 'none'
 
 environment:
   sdk: ^3.7.0

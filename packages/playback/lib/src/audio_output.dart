@@ -140,7 +140,7 @@ class JustAudioOutput implements AudioOutput {
     // Listen to position changes (for detailed playback tracking)
     _positionSub = _player.positionStream.listen((position) {
       final duration = _player.duration;
-      if (duration != null && position != null && duration.inMilliseconds > 0) {
+      if (duration != null && duration.inMilliseconds > 0) {
         final percent = position.inMilliseconds / duration.inMilliseconds * 100;
         // Log at 25%, 50%, 75%  to track progress without spam
         if ((percent > 24.5 && percent < 25.5) || 

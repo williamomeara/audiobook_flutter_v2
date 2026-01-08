@@ -229,7 +229,7 @@ class AudiobookPlaybackController implements PlaybackController {
       final chapterIndex = tracks.isNotEmpty ? tracks.first.chapterIndex : 0;
       
       try {
-        final result = await _smartSynthesisManager!.prepareForPlayback(
+        final result = await _smartSynthesisManager.prepareForPlayback(
           engine: engine,
           cache: cache,
           tracks: tracks,
@@ -643,10 +643,10 @@ class AudiobookPlaybackController implements PlaybackController {
       targetIndex: targetIdx,
       shouldContinue: () => _isCurrentOp(opId) && _playIntent && !_disposed,
       onSynthesisStarted: _onSegmentSynthesisStarted != null
-          ? (segmentIndex) => _onSegmentSynthesisStarted!(bookId, chapterIndex, segmentIndex)
+          ? (segmentIndex) => _onSegmentSynthesisStarted(bookId, chapterIndex, segmentIndex)
           : null,
       onSynthesisComplete: _onSegmentSynthesisComplete != null
-          ? (segmentIndex) => _onSegmentSynthesisComplete!(bookId, chapterIndex, segmentIndex)
+          ? (segmentIndex) => _onSegmentSynthesisComplete(bookId, chapterIndex, segmentIndex)
           : null,
     ));
   }
