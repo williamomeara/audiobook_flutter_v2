@@ -60,25 +60,36 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       final currentIndex = next.currentIndex;
       if (currentIndex >= 0 && currentIndex != _lastAutoScrolledIndex) {
         _lastAutoScrolledIndex = currentIndex;
-        _autoScrollToCurrentSegment(currentIndex, next.queue.length);
+        _autoScrollToCurrentSegment(currentIndex, next.queue);
       }
     });
   }
   
-  void _autoScrollToCurrentSegment(int currentIndex, int totalSegments) {
+  void _autoScrollToCurrentSegment(int currentIndex, List<AudioTrack> queue) {
     if (!_scrollController.hasClients) return;
-    if (totalSegments == 0) return;
+    if (queue.isEmpty) return;
     
     _isProgrammaticScroll = true;
     
-    // Estimate scroll position based on segment index
-    // We want the current segment near the top (about 15% from top)
-    final progress = currentIndex / totalSegments;
+    // Calculate scroll position based on character count (more accurate than segment count)
+    // Count total characters and characters up to current segment
+    int totalChars = 0;
+    int charsBeforeCurrent = 0;
+    
+    for (int i = 0; i < queue.length; i++) {
+      final segmentLength = queue[i].text.length;
+      if (i < currentIndex) {
+        charsBeforeCurrent += segmentLength;
+      }
+      totalChars += segmentLength;
+    }
+    
+    // Calculate progress based on character position
+    final progress = totalChars > 0 ? charsBeforeCurrent / totalChars : 0.0;
     final maxScroll = _scrollController.position.maxScrollExtent;
     
-    // Adjust to put current segment near top of screen (not center)
-    // Subtract a bit to account for wanting it near top
-    final viewportFraction = 0.15; // 15% from top
+    // Adjust to put current segment near top of screen (about 10% from top)
+    final viewportFraction = 0.10;
     final adjustment = _scrollController.position.viewportDimension * viewportFraction;
     final targetScroll = (maxScroll * progress) - adjustment;
     
@@ -676,7 +687,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     if (playbackState.queue.isEmpty || !_scrollController.hasClients) return;
     
     final currentIndex = playbackState.currentIndex;
-    final totalSegments = playbackState.queue.length;
     
     // Re-enable auto-scroll first (button will disappear)
     setState(() {
@@ -685,7 +695,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     });
     
     // Use the same scroll logic as auto-scroll
-    _autoScrollToCurrentSegment(currentIndex, totalSegments);
+    _autoScrollToCurrentSegment(currentIndex, playbackState.queue);
   }
   
   Future<void> _seekToSegment(int index) async {
