@@ -35,10 +35,21 @@ class DevicePerformanceProfiler {
     'Time flies when you are having fun with good company and laughter.',
   ];
 
+  /// Generate unique test texts to avoid cache hits.
+  /// Appends a unique identifier to each sentence.
+  List<String> _generateUniqueTestTexts(int timestamp) {
+    return _testSentences.map((sentence) {
+      // Append unique ID at the end - natural sounding and ensures no cache hit
+      return '$sentence Test run number $timestamp.';
+    }).toList();
+  }
+
   /// Run performance profiling for an engine.
   ///
   /// This synthesizes several test segments and measures synthesis time
   /// vs audio duration to calculate RTF.
+  /// 
+  /// Note: Uses randomized text with timestamp to avoid cache hits.
   Future<DeviceProfile> profileEngine({
     required RoutingEngine engine,
     required String voiceId,
@@ -47,10 +58,14 @@ class DevicePerformanceProfiler {
   }) async {
     print('[Profiler] Starting device profiling for $voiceId');
     print('[Profiler] Warmup: $warmupSegmentCount, Samples: $sampleSegmentCount');
+    
+    // Generate unique test texts to avoid cache hits
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final testTexts = _generateUniqueTestTexts(timestamp);
 
     // Warmup - don't count these (first runs are slower)
     for (var i = 0; i < warmupSegmentCount; i++) {
-      final text = _testSentences[i % _testSentences.length];
+      final text = testTexts[i % testTexts.length];
       try {
         await engine.synthesizeToWavFile(
           voiceId: voiceId,
@@ -68,7 +83,7 @@ class DevicePerformanceProfiler {
     final audioDurationsMs = <int>[];
 
     for (var i = 0; i < sampleSegmentCount; i++) {
-      final text = _testSentences[(warmupSegmentCount + i) % _testSentences.length];
+      final text = testTexts[(warmupSegmentCount + i) % testTexts.length];
       onProgress?.call(i + 1, sampleSegmentCount);
 
       try {
