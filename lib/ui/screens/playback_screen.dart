@@ -60,8 +60,34 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       final currentIndex = next.currentIndex;
       if (currentIndex >= 0 && currentIndex != _lastAutoScrolledIndex) {
         _lastAutoScrolledIndex = currentIndex;
-        // Trigger a rebuild to update highlighting and potentially scroll
+        _autoScrollToCurrentSegment(currentIndex, next.queue.length);
       }
+    });
+  }
+  
+  void _autoScrollToCurrentSegment(int currentIndex, int totalSegments) {
+    if (!_scrollController.hasClients) return;
+    if (totalSegments == 0) return;
+    
+    _isProgrammaticScroll = true;
+    
+    // Estimate scroll position based on segment index
+    // We want the current segment near the top (about 15% from top)
+    final progress = currentIndex / totalSegments;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    
+    // Adjust to put current segment near top of screen (not center)
+    // Subtract a bit to account for wanting it near top
+    final viewportFraction = 0.15; // 15% from top
+    final adjustment = _scrollController.position.viewportDimension * viewportFraction;
+    final targetScroll = (maxScroll * progress) - adjustment;
+    
+    _scrollController.animateTo(
+      targetScroll.clamp(0, maxScroll),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    ).then((_) {
+      _isProgrammaticScroll = false;
     });
   }
   
@@ -649,28 +675,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     final playbackState = ref.read(playbackStateProvider);
     if (playbackState.queue.isEmpty || !_scrollController.hasClients) return;
     
-    // Set flag to prevent scroll notification from disabling auto-scroll
-    _isProgrammaticScroll = true;
-    
-    // Calculate scroll position - aim for one segment before current
     final currentIndex = playbackState.currentIndex;
-    final targetIndex = (currentIndex - 1).clamp(0, playbackState.queue.length - 1);
-    final progress = targetIndex / playbackState.queue.length;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final targetScroll = maxScroll * progress;
+    final totalSegments = playbackState.queue.length;
     
-    await _scrollController.animateTo(
-      targetScroll.clamp(0, maxScroll),
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
-    
-    // Re-enable auto-scroll (button will disappear)
-    _isProgrammaticScroll = false;
+    // Re-enable auto-scroll first (button will disappear)
     setState(() {
       _autoScrollEnabled = true;
       _lastAutoScrolledIndex = currentIndex;
     });
+    
+    // Use the same scroll logic as auto-scroll
+    _autoScrollToCurrentSegment(currentIndex, totalSegments);
   }
   
   Future<void> _seekToSegment(int index) async {
