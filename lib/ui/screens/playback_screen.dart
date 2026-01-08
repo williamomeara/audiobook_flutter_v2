@@ -627,7 +627,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                       Icon(Icons.my_location, size: 18, color: colors.primaryForeground),
                       const SizedBox(width: 8),
                       Text(
-                        'Jump to current',
+                        'Resume auto-scroll',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -645,14 +645,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   }
   
   void _jumpToCurrent() {
-    // Re-enable auto-scroll and scroll to the current position
-    setState(() {
-      _autoScrollEnabled = true;
-      _lastAutoScrolledIndex = -1; // Reset to trigger scroll on next build
-    });
-    
-    // Scroll to roughly center of the content - since we're using continuous text,
-    // we estimate based on current progress
+    // Scroll to the current position first
     final playbackState = ref.read(playbackStateProvider);
     if (playbackState.queue.isNotEmpty && _scrollController.hasClients) {
       final progress = playbackState.currentIndex / playbackState.queue.length;
@@ -665,6 +658,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
         curve: Curves.easeInOut,
       );
     }
+    
+    // Re-enable auto-scroll (button will disappear)
+    setState(() {
+      _autoScrollEnabled = true;
+      _lastAutoScrolledIndex = -1; // Reset to allow future auto-scrolls
+    });
   }
   
   Future<void> _seekToSegment(int index) async {
