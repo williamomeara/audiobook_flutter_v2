@@ -141,8 +141,9 @@ final smartSynthesisManagerProvider = Provider<SmartSynthesisManager?>((ref) {
 /// Provider for the audio cache.
 /// Re-exported from tts_providers for backwards compatibility.
 final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
-  final paths = await ref.watch(appPathsProvider.future);
-  return FileAudioCache(cacheDir: paths.audioCacheDir);
+  // Use IntelligentCacheManager as the single source of truth for audio cache
+  final manager = await ref.watch(intelligentCacheManagerProvider.future);
+  return manager;
 });
 
 /// Provider for the intelligent cache manager (Phase 3: Cache management).
