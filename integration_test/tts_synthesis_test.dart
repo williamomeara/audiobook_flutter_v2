@@ -22,6 +22,10 @@ import 'package:audiobook_flutter_v2/app/app_paths.dart';
 import 'package:audiobook_flutter_v2/app/granular_download_manager.dart';
 import 'package:audiobook_flutter_v2/app/tts_providers.dart';
 
+import 'test_logger.dart';
+
+// ignore_for_file: avoid_print (using TestLogger instead)
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -71,7 +75,7 @@ void main() {
         expect(downloadState.voices.containsKey('piper:en_GB-alan-medium'), isTrue);
         expect(downloadState.voices.containsKey('supertonic_m1'), isTrue);
 
-        print('✓ Manifest loaded with ${downloadState.cores.length} cores and ${downloadState.voices.length} voices');
+        TestLogger.success(' Manifest loaded with ${downloadState.cores.length} cores and ${downloadState.voices.length} voices');
       });
 
       test('should report correct download status for Piper Alan', () async {
@@ -79,12 +83,12 @@ void main() {
         final piperAlanCore = downloadState.cores['piper_alan_gb_v1'];
 
         expect(piperAlanCore, isNotNull);
-        print('Piper Alan core status: ${piperAlanCore!.status}');
+        TestLogger.log('Piper Alan core status: ${piperAlanCore!.status}');
 
         if (piperAlanCore.isReady) {
-          print('✓ Piper Alan is already downloaded');
+          TestLogger.success(' Piper Alan is already downloaded');
         } else {
-          print('✗ Piper Alan needs to be downloaded (status: ${piperAlanCore.status})');
+          TestLogger.error(' Piper Alan needs to be downloaded (status: ${piperAlanCore.status})');
         }
       });
     });
@@ -99,7 +103,7 @@ void main() {
         expect(piperAlanCore, isNotNull, reason: 'Piper Alan core should exist in manifest');
 
         if (!piperAlanCore!.isReady) {
-          print('Downloading Piper Alan voice model...');
+          TestLogger.log('Downloading Piper Alan voice model...');
           await downloadManager.downloadCore('piper_alan_gb_v1');
 
           // Wait for download to complete (poll state)
@@ -111,14 +115,14 @@ void main() {
             final core = downloadState.cores['piper_alan_gb_v1']!;
 
             if (core.isReady) {
-              print('✓ Download complete!');
+              TestLogger.success(' Download complete!');
               break;
             } else if (core.isFailed) {
               fail('Download failed: ${core.error}');
             }
 
             if (core.progress > 0) {
-              print('  Downloading: ${(core.progress * 100).toStringAsFixed(1)}%');
+              TestLogger.progress('Downloading: ${(core.progress * 100).toStringAsFixed(1)}%');
             }
             attempts++;
           }
@@ -127,7 +131,7 @@ void main() {
             fail('Download timed out after ${maxAttempts}s');
           }
         } else {
-          print('✓ Piper Alan already downloaded, skipping download');
+          TestLogger.success(' Piper Alan already downloaded, skipping download');
         }
 
         // Verify core directory exists with expected files (sherpa-onnx format)
@@ -146,9 +150,9 @@ void main() {
         expect(await tokensFile.exists(), isTrue, reason: 'tokens.txt should exist');
 
         final activeModel = await modelFile.exists() ? modelFile : sherpaModelFile;
-        print('✓ Model files verified (sherpa-onnx format)');
-        print('  - ${activeModel.path.split('/').last}: ${await activeModel.length()} bytes');
-        print('  - tokens.txt: ${await tokensFile.length()} bytes');
+        TestLogger.success(' Model files verified (sherpa-onnx format)');
+        TestLogger.progress('- ${activeModel.path.split('/').last}: ${await activeModel.length()} bytes');
+        TestLogger.progress('- tokens.txt: ${await tokensFile.length()} bytes');
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('should synthesize text with Piper Alan', () async {
@@ -157,8 +161,8 @@ void main() {
         final piperAlanCore = downloadState.cores['piper_alan_gb_v1'];
 
         if (!piperAlanCore!.isReady) {
-          print('⚠ Skipping synthesis test - Piper Alan not downloaded');
-          print('  Run the download test first or download via the app');
+          TestLogger.log('⚠ Skipping synthesis test - Piper Alan not downloaded');
+          TestLogger.progress('Run the download test first or download via the app');
           return;
         }
 
@@ -178,8 +182,8 @@ void main() {
         const testText = 'Hello, this is a test of the Piper text to speech engine.';
         const voiceId = 'piper:en_GB-alan-medium';
 
-        print('Synthesizing: "$testText"');
-        print('Voice: $voiceId');
+        TestLogger.log('Synthesizing: "$testText"');
+        TestLogger.log('Voice: $voiceId');
 
         final startTime = DateTime.now();
 
@@ -195,11 +199,11 @@ void main() {
         expect(result.durationMs, greaterThan(0), reason: 'Duration should be positive');
 
         final fileSize = await result.file.length();
-        print('✓ Synthesis complete!');
-        print('  - Duration: ${result.durationMs}ms');
-        print('  - File size: ${(fileSize / 1024).toStringAsFixed(1)} KB');
-        print('  - Processing time: ${elapsed.inMilliseconds}ms');
-        print('  - Real-time factor: ${(elapsed.inMilliseconds / result.durationMs).toStringAsFixed(2)}x');
+        TestLogger.success(' Synthesis complete!');
+        TestLogger.progress('- Duration: ${result.durationMs}ms');
+        TestLogger.progress('- File size: ${(fileSize / 1024).toStringAsFixed(1)} KB');
+        TestLogger.progress('- Processing time: ${elapsed.inMilliseconds}ms');
+        TestLogger.progress('- Real-time factor: ${(elapsed.inMilliseconds / result.durationMs).toStringAsFixed(2)}x');
       }, timeout: const Timeout(Duration(minutes: 2)));
 
       test('should synthesize multiple segments sequentially', () async {
@@ -207,7 +211,7 @@ void main() {
         final piperAlanCore = downloadState.cores['piper_alan_gb_v1'];
 
         if (!piperAlanCore!.isReady) {
-          print('⚠ Skipping multi-segment test - Piper Alan not downloaded');
+          TestLogger.log('⚠ Skipping multi-segment test - Piper Alan not downloaded');
           return;
         }
 
@@ -220,7 +224,7 @@ void main() {
           'Third segment. And finally, the conclusion.',
         ];
 
-        print('Synthesizing ${segments.length} segments...');
+        TestLogger.log('Synthesizing ${segments.length} segments...');
 
         var totalDuration = 0;
         final startTime = DateTime.now();
@@ -234,13 +238,13 @@ void main() {
 
           expect(result.file.existsSync(), isTrue);
           totalDuration += result.durationMs;
-          print('  Segment ${i + 1}: ${result.durationMs}ms');
+          TestLogger.progress('Segment ${i + 1}: ${result.durationMs}ms');
         }
 
         final elapsed = DateTime.now().difference(startTime);
-        print('✓ All segments synthesized');
-        print('  - Total audio duration: ${totalDuration}ms');
-        print('  - Total processing time: ${elapsed.inMilliseconds}ms');
+        TestLogger.success(' All segments synthesized');
+        TestLogger.progress('- Total audio duration: ${totalDuration}ms');
+        TestLogger.progress('- Total processing time: ${elapsed.inMilliseconds}ms');
       }, timeout: const Timeout(Duration(minutes: 3)));
     });
 
@@ -250,12 +254,12 @@ void main() {
         final kokoroCore = downloadState.cores['kokoro_core_v1'];
 
         expect(kokoroCore, isNotNull);
-        print('Kokoro core status: ${kokoroCore!.status}');
+        TestLogger.log('Kokoro core status: ${kokoroCore!.status}');
 
         if (kokoroCore.isReady) {
-          print('✓ Kokoro is downloaded');
+          TestLogger.success(' Kokoro is downloaded');
         } else {
-          print('✗ Kokoro needs to be downloaded (status: ${kokoroCore.status})');
+          TestLogger.error(' Kokoro needs to be downloaded (status: ${kokoroCore.status})');
         }
       });
 
@@ -265,7 +269,7 @@ void main() {
         final kokoroCore = downloadState.cores['kokoro_core_v1'];
 
         if (!kokoroCore!.isReady) {
-          print('Downloading Kokoro core model...');
+          TestLogger.log('Downloading Kokoro core model...');
           await downloadManager.downloadCore('kokoro_core_v1');
 
           // Wait for download to complete (poll state)
@@ -277,14 +281,14 @@ void main() {
             final core = downloadState.cores['kokoro_core_v1']!;
 
             if (core.isReady) {
-              print('✓ Download complete!');
+              TestLogger.success(' Download complete!');
               break;
             } else if (core.isFailed) {
               fail('Download failed: ${core.error}');
             }
 
             if (core.progress > 0) {
-              print('  Downloading: ${(core.progress * 100).toStringAsFixed(1)}%');
+              TestLogger.progress('Downloading: ${(core.progress * 100).toStringAsFixed(1)}%');
             }
             attempts++;
           }
@@ -293,7 +297,7 @@ void main() {
             fail('Download timed out after ${maxAttempts}s');
           }
         } else {
-          print('✓ Kokoro already downloaded, skipping download');
+          TestLogger.success(' Kokoro already downloaded, skipping download');
         }
 
         // Verify core directory exists with expected files (sherpa-onnx format)
@@ -315,10 +319,10 @@ void main() {
         expect(await espeakDir.exists(), isTrue, reason: 'espeak-ng-data directory should exist');
 
         final activeModel = await modelFile.exists() ? modelFile : int8ModelFile;
-        print('✓ Model files verified (sherpa-onnx format)');
-        print('  - ${activeModel.path.split('/').last}: ${await activeModel.length()} bytes');
-        print('  - tokens.txt: ${await tokensFile.length()} bytes');
-        print('  - voices.bin: ${await voicesFile.length()} bytes');
+        TestLogger.success(' Model files verified (sherpa-onnx format)');
+        TestLogger.progress('- ${activeModel.path.split('/').last}: ${await activeModel.length()} bytes');
+        TestLogger.progress('- tokens.txt: ${await tokensFile.length()} bytes');
+        TestLogger.progress('- voices.bin: ${await voicesFile.length()} bytes');
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('should synthesize text with Kokoro', () async {
@@ -326,8 +330,8 @@ void main() {
         final kokoroCore = downloadState.cores['kokoro_core_v1'];
 
         if (!kokoroCore!.isReady) {
-          print('⚠ Skipping Kokoro synthesis test - core not downloaded');
-          print('  Run the download test first or download via the app');
+          TestLogger.log('⚠ Skipping Kokoro synthesis test - core not downloaded');
+          TestLogger.progress('Run the download test first or download via the app');
           return;
         }
 
@@ -347,8 +351,8 @@ void main() {
         const testText = 'Hello, this is a test of the Kokoro text to speech engine.';
         const voiceId = 'kokoro_af';
 
-        print('Synthesizing: "$testText"');
-        print('Voice: $voiceId');
+        TestLogger.log('Synthesizing: "$testText"');
+        TestLogger.log('Voice: $voiceId');
 
         final startTime = DateTime.now();
 
@@ -365,11 +369,11 @@ void main() {
 
         final fileSize = await result.file.length();
         final rtf = elapsed.inMilliseconds / result.durationMs;
-        print('✓ Kokoro synthesis complete!');
-        print('  - Duration: ${result.durationMs}ms');
-        print('  - File size: ${(fileSize / 1024).toStringAsFixed(1)} KB');
-        print('  - Processing time: ${elapsed.inMilliseconds}ms');
-        print('  - Real-time factor: ${rtf.toStringAsFixed(2)}x');
+        TestLogger.success(' Kokoro synthesis complete!');
+        TestLogger.progress('- Duration: ${result.durationMs}ms');
+        TestLogger.progress('- File size: ${(fileSize / 1024).toStringAsFixed(1)} KB');
+        TestLogger.progress('- Processing time: ${elapsed.inMilliseconds}ms');
+        TestLogger.progress('- Real-time factor: ${rtf.toStringAsFixed(2)}x');
         
         // Kokoro should be reasonably fast (< 2x real-time)
         expect(rtf, lessThan(2.0), reason: 'Kokoro RTF should be less than 2x');
@@ -380,7 +384,7 @@ void main() {
         final kokoroCore = downloadState.cores['kokoro_core_v1'];
 
         if (!kokoroCore!.isReady) {
-          print('⚠ Skipping multi-voice test - Kokoro core not downloaded');
+          TestLogger.log('⚠ Skipping multi-voice test - Kokoro core not downloaded');
           return;
         }
 
@@ -393,7 +397,7 @@ void main() {
           ('kokoro_bf_emma', 'British Female (Emma)'),
         ];
 
-        print('Testing ${voices.length} Kokoro voices...');
+        TestLogger.log('Testing ${voices.length} Kokoro voices...');
 
         for (final (voiceId, voiceName) in voices) {
           final result = await routingEngine.synthesizeToWavFile(
@@ -403,10 +407,10 @@ void main() {
           );
 
           expect(result.file.existsSync(), isTrue);
-          print('  ✓ $voiceName ($voiceId): ${result.durationMs}ms');
+          TestLogger.progress('✓ $voiceName ($voiceId): ${result.durationMs}ms');
         }
 
-        print('✓ All Kokoro voices synthesized successfully');
+        TestLogger.success(' All Kokoro voices synthesized successfully');
       }, timeout: const Timeout(Duration(minutes: 3)));
 
       test('should benchmark Kokoro performance', () async {
@@ -414,7 +418,7 @@ void main() {
         final kokoroCore = downloadState.cores['kokoro_core_v1'];
 
         if (!kokoroCore!.isReady) {
-          print('⚠ Skipping benchmark test - Kokoro core not downloaded');
+          TestLogger.log('⚠ Skipping benchmark test - Kokoro core not downloaded');
           return;
         }
 
@@ -428,8 +432,8 @@ void main() {
           ('long', 'In a distant land, there lived a young adventurer who dreamed of exploring the uncharted territories beyond the great mountains. Each day, they would gaze at the peaks and wonder what mysteries awaited.'),
         ];
 
-        print('Kokoro Performance Benchmark');
-        print('=' * 50);
+        TestLogger.log('Kokoro Performance Benchmark');
+        TestLogger.log('=' * 50);
 
         for (final (label, text) in benchmarks) {
           final startTime = DateTime.now();
@@ -444,11 +448,11 @@ void main() {
           final rtf = elapsed.inMilliseconds / result.durationMs;
           final charsPerSecond = (text.length * 1000) / elapsed.inMilliseconds;
 
-          print('$label (${text.length} chars):');
-          print('  - Audio: ${result.durationMs}ms');
-          print('  - Synth: ${elapsed.inMilliseconds}ms');
-          print('  - RTF: ${rtf.toStringAsFixed(2)}x');
-          print('  - Speed: ${charsPerSecond.toStringAsFixed(0)} chars/sec');
+          TestLogger.log('$label (${text.length} chars):');
+          TestLogger.progress('- Audio: ${result.durationMs}ms');
+          TestLogger.progress('- Synth: ${elapsed.inMilliseconds}ms');
+          TestLogger.progress('- RTF: ${rtf.toStringAsFixed(2)}x');
+          TestLogger.progress('- Speed: ${charsPerSecond.toStringAsFixed(0)} chars/sec');
         }
       }, timeout: const Timeout(Duration(minutes: 5)));
     });
@@ -459,12 +463,12 @@ void main() {
         final supertonicCore = downloadState.cores['supertonic_core_v1'];
 
         expect(supertonicCore, isNotNull);
-        print('Supertonic core status: ${supertonicCore!.status}');
+        TestLogger.log('Supertonic core status: ${supertonicCore!.status}');
 
         if (supertonicCore.isReady) {
-          print('✓ Supertonic is downloaded');
+          TestLogger.success(' Supertonic is downloaded');
         } else {
-          print('✗ Supertonic needs to be downloaded (status: ${supertonicCore.status})');
+          TestLogger.error(' Supertonic needs to be downloaded (status: ${supertonicCore.status})');
         }
       });
 
@@ -474,7 +478,7 @@ void main() {
         final supertonicCore = downloadState.cores['supertonic_core_v1'];
 
         if (!supertonicCore!.isReady) {
-          print('Downloading Supertonic core model...');
+          TestLogger.log('Downloading Supertonic core model...');
           await downloadManager.downloadCore('supertonic_core_v1');
 
           // Wait for download to complete (poll state)
@@ -486,14 +490,14 @@ void main() {
             final core = downloadState.cores['supertonic_core_v1']!;
 
             if (core.isReady) {
-              print('✓ Download complete!');
+              TestLogger.success(' Download complete!');
               break;
             } else if (core.isFailed) {
               fail('Download failed: ${core.error}');
             }
 
             if (core.progress > 0) {
-              print('  Downloading: ${(core.progress * 100).toStringAsFixed(1)}%');
+              TestLogger.progress('Downloading: ${(core.progress * 100).toStringAsFixed(1)}%');
             }
             attempts++;
           }
@@ -502,7 +506,7 @@ void main() {
             fail('Download timed out after ${maxAttempts}s');
           }
         } else {
-          print('✓ Supertonic already downloaded, skipping download');
+          TestLogger.success(' Supertonic already downloaded, skipping download');
         }
 
         // Verify core directory exists with expected files
@@ -523,12 +527,12 @@ void main() {
         expect(await vocoderFile.exists(), isTrue, reason: 'vocoder.onnx should exist');
         expect(await unicodeIndexerFile.exists(), isTrue, reason: 'unicode_indexer.json should exist');
 
-        print('✓ Supertonic model files verified');
-        print('  - text_encoder.onnx: ${await textEncoderFile.length()} bytes');
-        print('  - duration_predictor.onnx: ${await durationPredictorFile.length()} bytes');
-        print('  - vector_estimator.onnx: ${await vectorEstimatorFile.length()} bytes');
-        print('  - vocoder.onnx: ${await vocoderFile.length()} bytes');
-        print('  - unicode_indexer.json: ${await unicodeIndexerFile.length()} bytes');
+        TestLogger.success(' Supertonic model files verified');
+        TestLogger.progress('- text_encoder.onnx: ${await textEncoderFile.length()} bytes');
+        TestLogger.progress('- duration_predictor.onnx: ${await durationPredictorFile.length()} bytes');
+        TestLogger.progress('- vector_estimator.onnx: ${await vectorEstimatorFile.length()} bytes');
+        TestLogger.progress('- vocoder.onnx: ${await vocoderFile.length()} bytes');
+        TestLogger.progress('- unicode_indexer.json: ${await unicodeIndexerFile.length()} bytes');
       }, timeout: const Timeout(Duration(minutes: 10)));
 
       test('should synthesize text with Supertonic', () async {
@@ -536,8 +540,8 @@ void main() {
         final supertonicCore = downloadState.cores['supertonic_core_v1'];
 
         if (!supertonicCore!.isReady) {
-          print('⚠ Skipping Supertonic synthesis test - core not downloaded');
-          print('  Run the download test first or download via the app');
+          TestLogger.log('⚠ Skipping Supertonic synthesis test - core not downloaded');
+          TestLogger.progress('Run the download test first or download via the app');
           return;
         }
 
@@ -553,8 +557,8 @@ void main() {
         const testText = 'Hello, this is a test of the Supertonic text to speech engine.';
         const voiceId = 'supertonic_m1';
 
-        print('Synthesizing with Supertonic: "$testText"');
-        print('Voice: $voiceId');
+        TestLogger.log('Synthesizing with Supertonic: "$testText"');
+        TestLogger.log('Voice: $voiceId');
 
         final startTime = DateTime.now();
 
@@ -571,11 +575,11 @@ void main() {
 
         final fileSize = await result.file.length();
         final rtf = elapsed.inMilliseconds / result.durationMs;
-        print('✓ Supertonic synthesis complete!');
-        print('  - Duration: ${result.durationMs}ms');
-        print('  - File size: ${(fileSize / 1024).toStringAsFixed(1)} KB');
-        print('  - Processing time: ${elapsed.inMilliseconds}ms');
-        print('  - Real-time factor: ${rtf.toStringAsFixed(2)}x');
+        TestLogger.success(' Supertonic synthesis complete!');
+        TestLogger.progress('- Duration: ${result.durationMs}ms');
+        TestLogger.progress('- File size: ${(fileSize / 1024).toStringAsFixed(1)} KB');
+        TestLogger.progress('- Processing time: ${elapsed.inMilliseconds}ms');
+        TestLogger.progress('- Real-time factor: ${rtf.toStringAsFixed(2)}x');
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('should synthesize with multiple Supertonic voices', () async {
@@ -583,7 +587,7 @@ void main() {
         final supertonicCore = downloadState.cores['supertonic_core_v1'];
 
         if (!supertonicCore!.isReady) {
-          print('⚠ Skipping multi-voice test - Supertonic core not downloaded');
+          TestLogger.log('⚠ Skipping multi-voice test - Supertonic core not downloaded');
           return;
         }
 
@@ -596,7 +600,7 @@ void main() {
           ('supertonic_f1', 'Female 1'),
         ];
 
-        print('Testing ${voices.length} Supertonic voices...');
+        TestLogger.log('Testing ${voices.length} Supertonic voices...');
 
         for (final (voiceId, voiceName) in voices) {
           final result = await routingEngine.synthesizeToWavFile(
@@ -606,10 +610,10 @@ void main() {
           );
 
           expect(result.file.existsSync(), isTrue);
-          print('  ✓ $voiceName ($voiceId): ${result.durationMs}ms');
+          TestLogger.progress('✓ $voiceName ($voiceId): ${result.durationMs}ms');
         }
 
-        print('✓ All Supertonic voices synthesized successfully');
+        TestLogger.success(' All Supertonic voices synthesized successfully');
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('should benchmark Supertonic performance', () async {
@@ -617,7 +621,7 @@ void main() {
         final supertonicCore = downloadState.cores['supertonic_core_v1'];
 
         if (!supertonicCore!.isReady) {
-          print('⚠ Skipping benchmark test - Supertonic core not downloaded');
+          TestLogger.log('⚠ Skipping benchmark test - Supertonic core not downloaded');
           return;
         }
 
@@ -631,8 +635,8 @@ void main() {
           ('long', 'In a distant land, there lived a young adventurer who dreamed of exploring the uncharted territories beyond the great mountains. Each day, they would gaze at the peaks and wonder what mysteries awaited.'),
         ];
 
-        print('Supertonic Performance Benchmark');
-        print('=' * 50);
+        TestLogger.log('Supertonic Performance Benchmark');
+        TestLogger.log('=' * 50);
 
         for (final (label, text) in benchmarks) {
           final startTime = DateTime.now();
@@ -647,11 +651,11 @@ void main() {
           final rtf = elapsed.inMilliseconds / result.durationMs;
           final charsPerSecond = (text.length * 1000) / elapsed.inMilliseconds;
 
-          print('$label (${text.length} chars):');
-          print('  - Audio: ${result.durationMs}ms');
-          print('  - Synth: ${elapsed.inMilliseconds}ms');
-          print('  - RTF: ${rtf.toStringAsFixed(2)}x');
-          print('  - Speed: ${charsPerSecond.toStringAsFixed(0)} chars/sec');
+          TestLogger.log('$label (${text.length} chars):');
+          TestLogger.progress('- Audio: ${result.durationMs}ms');
+          TestLogger.progress('- Synth: ${elapsed.inMilliseconds}ms');
+          TestLogger.progress('- RTF: ${rtf.toStringAsFixed(2)}x');
+          TestLogger.progress('- Speed: ${charsPerSecond.toStringAsFixed(0)} chars/sec');
         }
       }, timeout: const Timeout(Duration(minutes: 10)));
     });
@@ -660,22 +664,22 @@ void main() {
       test('should correctly report voice readiness for all voices', () async {
         final downloadState = await container.read(granularDownloadManagerProvider.future);
 
-        print('\nVoice Readiness Report:');
-        print('=' * 50);
+        TestLogger.log('\nVoice Readiness Report:');
+        TestLogger.log('=' * 50);
 
         for (final voice in downloadState.voices.values) {
           final isReady = voice.allCoresReady(downloadState.cores);
           final status = isReady ? '✓ Ready' : '✗ Not ready';
-          print('  ${voice.displayName}: $status');
+          TestLogger.progress('${voice.displayName}: $status');
 
           if (!isReady) {
             final missingCores = voice.getMissingCoreIds(downloadState.cores);
-            print('    Missing: ${missingCores.join(', ')}');
+            TestLogger.progress('  Missing: ${missingCores.join(', ')}');
           }
         }
 
-        print('=' * 50);
-        print('Ready voices: ${downloadState.readyVoiceCount}/${downloadState.totalVoiceCount}');
+        TestLogger.log('=' * 50);
+        TestLogger.log('Ready voices: ${downloadState.readyVoiceCount}/${downloadState.totalVoiceCount}');
       });
     });
 
@@ -685,7 +689,7 @@ void main() {
         final piperAlanCore = downloadState.cores['piper_alan_gb_v1'];
 
         if (!piperAlanCore!.isReady) {
-          print('⚠ Skipping edge case test - Piper Alan not downloaded');
+          TestLogger.log('⚠ Skipping edge case test - Piper Alan not downloaded');
           return;
         }
 
@@ -698,9 +702,9 @@ void main() {
             text: '',
             playbackRate: 1.0,
           );
-          print('Empty text synthesis returned: ${result.durationMs}ms');
+          TestLogger.log('Empty text synthesis returned: ${result.durationMs}ms');
         } catch (e) {
-          print('Empty text threw expected error: $e');
+          TestLogger.log('Empty text threw expected error: $e');
           // This is acceptable behavior
         }
       });
@@ -710,7 +714,7 @@ void main() {
         final piperAlanCore = downloadState.cores['piper_alan_gb_v1'];
 
         if (!piperAlanCore!.isReady) {
-          print('⚠ Skipping long text test - Piper Alan not downloaded');
+          TestLogger.log('⚠ Skipping long text test - Piper Alan not downloaded');
           return;
         }
 
@@ -721,7 +725,7 @@ void main() {
             'This is sentence number ${i + 1} in a very long paragraph. '
         ).join();
 
-        print('Synthesizing long text (${longText.length} chars)...');
+        TestLogger.log('Synthesizing long text (${longText.length} chars)...');
 
         final startTime = DateTime.now();
         final result = await routingEngine.synthesizeToWavFile(
@@ -732,9 +736,9 @@ void main() {
         final elapsed = DateTime.now().difference(startTime);
 
         expect(result.file.existsSync(), isTrue);
-        print('✓ Long text synthesis complete');
-        print('  - Duration: ${result.durationMs}ms');
-        print('  - Processing time: ${elapsed.inMilliseconds}ms');
+        TestLogger.success(' Long text synthesis complete');
+        TestLogger.progress('- Duration: ${result.durationMs}ms');
+        TestLogger.progress('- Processing time: ${elapsed.inMilliseconds}ms');
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('should handle special characters', () async {
@@ -742,7 +746,7 @@ void main() {
         final piperAlanCore = downloadState.cores['piper_alan_gb_v1'];
 
         if (!piperAlanCore!.isReady) {
-          print('⚠ Skipping special chars test - Piper Alan not downloaded');
+          TestLogger.log('⚠ Skipping special chars test - Piper Alan not downloaded');
           return;
         }
 
@@ -757,7 +761,7 @@ void main() {
         );
 
         expect(result.file.existsSync(), isTrue);
-        print('✓ Special characters handled correctly');
+        TestLogger.success(' Special characters handled correctly');
       });
     });
 
@@ -767,7 +771,7 @@ void main() {
         final piperAlanCore = downloadState.cores['piper_alan_gb_v1'];
 
         if (!piperAlanCore!.isReady) {
-          print('⚠ Skipping benchmark - Piper Alan not downloaded');
+          TestLogger.log('⚠ Skipping benchmark - Piper Alan not downloaded');
           return;
         }
 
@@ -805,13 +809,13 @@ void main() {
         final avgDuration = durations.reduce((a, b) => a + b) / durations.length;
         final rtf = avgTime / avgDuration;
 
-        print('\nBenchmark Results ($iterations iterations):');
-        print('=' * 50);
-        print('  Average processing time: ${avgTime.toStringAsFixed(1)}ms');
-        print('  Average audio duration: ${avgDuration.toStringAsFixed(1)}ms');
-        print('  Real-time factor: ${rtf.toStringAsFixed(2)}x');
-        print('  ${rtf < 1.0 ? '✓ Faster than real-time!' : '✗ Slower than real-time'}');
-        print('=' * 50);
+        TestLogger.log('\nBenchmark Results ($iterations iterations):');
+        TestLogger.log('=' * 50);
+        TestLogger.progress('Average processing time: ${avgTime.toStringAsFixed(1)}ms');
+        TestLogger.progress('Average audio duration: ${avgDuration.toStringAsFixed(1)}ms');
+        TestLogger.progress('Real-time factor: ${rtf.toStringAsFixed(2)}x');
+        TestLogger.progress(rtf < 1.0 ? '✓ Faster than real-time!' : '✗ Slower than real-time');
+        TestLogger.log('=' * 50);
       }, timeout: const Timeout(Duration(minutes: 3)));
     });
   });

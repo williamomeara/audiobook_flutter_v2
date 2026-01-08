@@ -11,6 +11,7 @@ import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
 import '../../app/tts_providers.dart';
+import '../../utils/app_logger.dart';
 import '../theme/app_colors.dart';
 import 'package:core_domain/core_domain.dart';
 
@@ -317,13 +318,13 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
       }
 
       // Get external storage path for saving previews
-      final directory = await Directory('/storage/emulated/0/Download/voice_previews');
+      final directory = Directory('/storage/emulated/0/Download/voice_previews');
       if (!await directory.exists()) {
         await directory.create(recursive: true);
       }
 
-      print('[PreviewGen] Saving previews to: ${directory.path}');
-      print('[PreviewGen] Found ${readyVoices.length} ready voices');
+      DevLogger.info('[PreviewGen] Saving previews to: ${directory.path}');
+      DevLogger.info('[PreviewGen] Found ${readyVoices.length} ready voices');
 
       int generated = 0;
       int failed = 0;
@@ -337,7 +338,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
         });
 
         try {
-          print('[PreviewGen] Synthesizing preview for: $voiceId');
+          DevLogger.info('[PreviewGen] Synthesizing preview for: $voiceId');
           
           final result = await routingEngine.synthesizeToWavFile(
             voiceId: voiceId,
@@ -350,11 +351,11 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
           final destPath = '${directory.path}/$safeId.wav';
           await result.file.copy(destPath);
 
-          print('[PreviewGen] ✓ Generated: $destPath');
+          DevLogger.info('[PreviewGen] ✓ Generated: $destPath');
           successPaths.add(safeId);
           generated++;
         } catch (e) {
-          print('[PreviewGen] ✗ Failed for $voiceId: $e');
+          DevLogger.error('[PreviewGen] ✗ Failed for $voiceId: $e');
           failed++;
         }
       }
@@ -376,9 +377,9 @@ Copy these files to assets/voice_previews/ in your project.
 ''';
       });
 
-      print('[PreviewGen] Complete! Generated: $generated, Failed: $failed');
+      DevLogger.info('[PreviewGen] Complete! Generated: $generated, Failed: $failed');
     } catch (e) {
-      print('[PreviewGen] Error: $e');
+      DevLogger.error('[PreviewGen] Error: $e');
       setState(() {
         _previewGenerationMessage = 'Error: $e';
       });
@@ -700,7 +701,7 @@ Copy these files to assets/voice_previews/ in your project.
     
     try {
       // Generate a simple sine wave test tone
-      print('[Developer] Playing test tone...');
+      DevLogger.info('[Developer] Playing test tone...');
       
       // Use a system sound or just test the player
       await _testPlayer.setAsset('assets/test_tone.wav');
@@ -711,7 +712,7 @@ Copy these files to assets/voice_previews/ in your project.
         (state) => state.processingState == ProcessingState.completed,
       );
     } catch (e) {
-      print('[Developer] Test tone error: $e');
+      DevLogger.error('[Developer] Test tone error: $e');
       // If no test tone asset, try URL
       try {
         await _testPlayer.setUrl(
@@ -754,8 +755,8 @@ Copy these files to assets/voice_previews/ in your project.
     });
 
     try {
-      print('[Developer] Synthesizing text with voice: $voiceId');
-      print('[Developer] Text: $text');
+      DevLogger.info('[Developer] Synthesizing text with voice: $voiceId');
+      DevLogger.info('[Developer] Text: $text');
       
       final startTime = DateTime.now();
       
@@ -770,8 +771,8 @@ Copy these files to assets/voice_previews/ in your project.
       final elapsed = DateTime.now().difference(startTime);
       final fileSize = await result.file.length();
 
-      print('[Developer] Synthesis complete: ${result.durationMs}ms, $fileSize bytes');
-      print('[Developer] File: ${result.file.path}');
+      DevLogger.info('[Developer] Synthesis complete: ${result.durationMs}ms, $fileSize bytes');
+      DevLogger.info('[Developer] File: ${result.file.path}');
 
       setState(() {
         _lastAudioPath = result.file.path;
@@ -781,8 +782,8 @@ Copy these files to assets/voice_previews/ in your project.
         _lastError = null;
       });
     } catch (e, st) {
-      print('[Developer] Synthesis error: $e');
-      print('[Developer] Stack: $st');
+      DevLogger.error('[Developer] Synthesis error: $e');
+      DevLogger.error('[Developer] Stack: $st');
       setState(() {
         _lastError = e.toString();
         _lastAudioPath = null;
@@ -804,19 +805,19 @@ Copy these files to assets/voice_previews/ in your project.
     setState(() => _isPlaying = true);
     
     try {
-      print('[Developer] Playing: $_lastAudioPath');
+      DevLogger.info('[Developer] Playing: $_lastAudioPath');
       await _testPlayer.setFilePath(_lastAudioPath!);
-      print('[Developer] Duration: ${_testPlayer.duration}');
+      DevLogger.info('[Developer] Duration: ${_testPlayer.duration}');
       await _testPlayer.play();
-      print('[Developer] Play started, waiting for completion...');
+      DevLogger.info('[Developer] Play started, waiting for completion...');
       
       // Wait for completion
       await _testPlayer.playerStateStream.firstWhere(
         (state) => state.processingState == ProcessingState.completed,
       );
-      print('[Developer] Playback completed');
+      DevLogger.info('[Developer] Playback completed');
     } catch (e) {
-      print('[Developer] Playback error: $e');
+      DevLogger.error('[Developer] Playback error: $e');
       setState(() => _lastError = 'Playback error: $e');
     } finally {
       setState(() => _isPlaying = false);
@@ -842,7 +843,7 @@ Copy these files to assets/voice_previews/ in your project.
       }
 
       final books = currentState.books;
-      print('[Developer] Found ${books.length} books in library to reimport');
+      DevLogger.info('[Developer] Found ${books.length} books in library to reimport');
       
       int reimported = 0;
       int failed = 0;
@@ -850,19 +851,19 @@ Copy these files to assets/voice_previews/ in your project.
       for (final book in books) {
         try {
           if (book.filePath.isEmpty) {
-            print('[Developer] Skipping ${book.title}: no file path');
+            DevLogger.info('[Developer] Skipping ${book.title}: no file path');
             failed++;
             continue;
           }
 
           final file = File(book.filePath);
           if (!await file.exists()) {
-            print('[Developer] Skipping ${book.title}: file not found at ${book.filePath}');
+            DevLogger.info('[Developer] Skipping ${book.title}: file not found at ${book.filePath}');
             failed++;
             continue;
           }
 
-          print('[Developer] Reimporting: ${book.title}');
+          DevLogger.info('[Developer] Reimporting: ${book.title}');
           
           // Remove the old book entry
           await libraryController.removeBook(book.id);
@@ -880,7 +881,7 @@ Copy these files to assets/voice_previews/ in your project.
             _reimportMessage = 'Reimported $reimported/${books.length} books...';
           });
         } catch (e) {
-          print('[Developer] Failed to reimport ${book.title}: $e');
+          DevLogger.error('[Developer] Failed to reimport ${book.title}: $e');
           failed++;
         }
       }
@@ -890,9 +891,9 @@ Copy these files to assets/voice_previews/ in your project.
             'Reimport complete: $reimported successful, $failed failed';
       });
       
-      print('[Developer] Reimport complete: $reimported successful, $failed failed');
+      DevLogger.info('[Developer] Reimport complete: $reimported successful, $failed failed');
     } catch (e) {
-      print('[Developer] Reimport error: $e');
+      DevLogger.error('[Developer] Reimport error: $e');
       setState(() {
         _reimportMessage = 'Error: $e';
       });
@@ -945,9 +946,9 @@ They left the office together, heading out into the rain. The afternoon was grow
       _lastError = null;
     });
 
-    print('[Benchmark] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    print('[Benchmark] STARTING SYNTHESIS BENCHMARK');
-    print('[Benchmark] Voice: $voiceId');
+    DevLogger.info('[Benchmark] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    DevLogger.info('[Benchmark] STARTING SYNTHESIS BENCHMARK');
+    DevLogger.info('[Benchmark] Voice: $voiceId');
 
     try {
       // Get TTS engine
@@ -966,21 +967,21 @@ They left the office together, heading out into the rain. The afternoon was grow
 
       // Generate test chapter
       final chapterText = _generateBenchmarkChapter();
-      print('[Benchmark] Generated chapter: ${chapterText.length} characters');
+      DevLogger.info('[Benchmark] Generated chapter: ${chapterText.length} characters');
       
       // ════════════════════════════════════════════════════════════════════════
       // CLEAR CACHE for accurate benchmark (we want to measure synthesis, not cache hits)
       // ════════════════════════════════════════════════════════════════════════
-      print('[Benchmark] Clearing cache for accurate measurement...');
+      DevLogger.info('[Benchmark] Clearing cache for accurate measurement...');
       await cache.clear();
-      print('[Benchmark] Cache cleared');
+      DevLogger.info('[Benchmark] Cache cleared');
       
       // Segment text using SAME logic as playback
       final benchmarkStart = DateTime.now();
       final segments = segmentText(chapterText);
       final segmentDuration = DateTime.now().difference(benchmarkStart);
       
-      print('[Benchmark] Segmented into ${segments.length} segments in ${segmentDuration.inMilliseconds}ms');
+      DevLogger.info('[Benchmark] Segmented into ${segments.length} segments in ${segmentDuration.inMilliseconds}ms');
       
       // Calculate expected audio duration
       final expectedDurationMs = segments.fold<int>(
@@ -988,7 +989,7 @@ They left the office together, heading out into the rain. The afternoon was grow
         (sum, segment) => sum + segment.estimatedDuration.inMilliseconds,
       );
       final expectedMinutes = (expectedDurationMs / 60000).toStringAsFixed(1);
-      print('[Benchmark] Expected audio duration: $expectedMinutes minutes');
+      DevLogger.info('[Benchmark] Expected audio duration: $expectedMinutes minutes');
 
       // Synthesize all segments (simulating playback logic)
       int synthesized = 0;
@@ -1012,14 +1013,14 @@ They left the office together, heading out into the rain. The afternoon was grow
         // Check cache
         final isCached = await cache.isReady(cacheKey);
         if (isCached) {
-          print('[Benchmark] [$i/${segments.length}] Cached');
+          DevLogger.debug('[Benchmark] [$i/${segments.length}] Cached');
           cached++;
           synthesisTimesMs.add(0); // Cached = instant
           continue;
         }
 
         // Synthesize using SAME engine as playback
-        print('[Benchmark] [$i/${segments.length}] Synthesizing...');
+        DevLogger.debug('[Benchmark] [$i/${segments.length}] Synthesizing...');
         final segmentStart = DateTime.now();
         
         try {
@@ -1034,9 +1035,9 @@ They left the office together, heading out into the rain. The afternoon was grow
           synthesisTimesMs.add(segmentDuration.inMilliseconds);
           synthesized++;
           
-          print('[Benchmark] [$i/${segments.length}] Done in ${segmentDuration.inMilliseconds}ms');
+          DevLogger.debug('[Benchmark] [$i/${segments.length}] Done in ${segmentDuration.inMilliseconds}ms');
         } catch (e) {
-          print('[Benchmark] [$i/${segments.length}] FAILED: $e');
+          DevLogger.error('[Benchmark] [$i/${segments.length}] FAILED: $e');
           synthesisTimesMs.add(0); // Failed = no time counted
           failed++;
         }
@@ -1094,27 +1095,27 @@ They left the office together, heading out into the rain. The afternoon was grow
           ? (totalBufferingMs / expectedDurationMs * 100) 
           : 0.0;
 
-      print('[Benchmark] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      print('[Benchmark] BENCHMARK COMPLETE');
-      print('[Benchmark] Total segments: ${segments.length}');
-      print('[Benchmark] Synthesized: $synthesized');
-      print('[Benchmark] Cached: $cached');
-      print('[Benchmark] Failed: $failed');
-      print('[Benchmark] Total time: ${totalDuration.inSeconds}s');
-      print('[Benchmark] Average synthesis time: ${avgSynthesisTime.toStringAsFixed(0)}ms/segment');
-      print('[Benchmark] RTF: ${rtf.toStringAsFixed(2)}x');
-      print('[Benchmark] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      print('[Benchmark] 🔴 USER EXPERIENCE METRICS (MOST IMPORTANT!)');
-      print('[Benchmark] Total buffering time: ${(totalBufferingMs / 1000).toStringAsFixed(1)}s');
-      print('[Benchmark] Buffering events: $bufferingEvents');
-      print('[Benchmark] Buffering percentage: ${bufferingPercent.toStringAsFixed(1)}% of playback');
+      DevLogger.info('[Benchmark] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      DevLogger.info('[Benchmark] BENCHMARK COMPLETE');
+      DevLogger.info('[Benchmark] Total segments: ${segments.length}');
+      DevLogger.info('[Benchmark] Synthesized: $synthesized');
+      DevLogger.info('[Benchmark] Cached: $cached');
+      DevLogger.info('[Benchmark] Failed: $failed');
+      DevLogger.info('[Benchmark] Total time: ${totalDuration.inSeconds}s');
+      DevLogger.info('[Benchmark] Average synthesis time: ${avgSynthesisTime.toStringAsFixed(0)}ms/segment');
+      DevLogger.info('[Benchmark] RTF: ${rtf.toStringAsFixed(2)}x');
+      DevLogger.info('[Benchmark] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      DevLogger.info('[Benchmark] 🔴 USER EXPERIENCE METRICS (MOST IMPORTANT!)');
+      DevLogger.info('[Benchmark] Total buffering time: ${(totalBufferingMs / 1000).toStringAsFixed(1)}s');
+      DevLogger.info('[Benchmark] Buffering events: $bufferingEvents');
+      DevLogger.info('[Benchmark] Buffering percentage: ${bufferingPercent.toStringAsFixed(1)}% of playback');
       if (bufferingEvents > 0) {
-        print('[Benchmark] First segment wait: ${(synthesisTimesMs[0] / 1000).toStringAsFixed(1)}s');
+        DevLogger.info('[Benchmark] First segment wait: ${(synthesisTimesMs[0] / 1000).toStringAsFixed(1)}s');
         if (bufferingEvents > 1) {
-          print('[Benchmark] Additional pauses: ${bufferingEvents - 1} during playback');
+          DevLogger.info('[Benchmark] Additional pauses: ${bufferingEvents - 1} during playback');
         }
       }
-      print('[Benchmark] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      DevLogger.info('[Benchmark] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       setState(() {
         _benchmarkResults = '''
@@ -1149,8 +1150,8 @@ ${failed > 0 ? '\n⚠️ $failed segments failed' : ''}
 ''';
       });
     } catch (e, st) {
-      print('[Benchmark] ERROR: $e');
-      print('[Benchmark] Stack: $st');
+      DevLogger.error('[Benchmark] ERROR: $e');
+      DevLogger.error('[Benchmark] Stack: $st');
       setState(() {
         _lastError = 'Benchmark failed: $e';
         _benchmarkResults = null;

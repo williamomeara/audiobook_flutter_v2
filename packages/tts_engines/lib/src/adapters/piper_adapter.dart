@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
@@ -11,6 +10,7 @@ import '../interfaces/segment_synth_request.dart';
 import '../interfaces/synth_request.dart';
 import '../interfaces/synth_result.dart';
 import '../interfaces/tts_state_machines.dart';
+import '../tts_log.dart';
 
 /// Piper TTS engine adapter.
 ///
@@ -123,7 +123,7 @@ class PiperAdapter implements AiVoiceEngine {
 
   @override
   Future<SynthResult> synthesizeToFile(SynthRequest request) async {
-    print('[PiperAdapter] synthesizeToFile called for voice: ${request.voiceId}');
+    TtsLog.info('synthesizeToFile called for voice: ${request.voiceId}');
     
     final segment = SegmentSynthRequest(
       segmentId: 'legacy_${request.voiceId}',
@@ -153,12 +153,12 @@ class PiperAdapter implements AiVoiceEngine {
   Future<ExtendedSynthResult> synthesizeSegment(
       SegmentSynthRequest request) async {
     _activeRequests[request.opId] = request;
-    print('[PiperAdapter] synthesizeSegment: ${request.voiceId}');
+    TtsLog.info('synthesizeSegment: ${request.voiceId}');
 
     try {
-      print('[PiperAdapter] Checking voice readiness...');
+      TtsLog.debug('Checking voice readiness...');
       final readiness = await checkVoiceReady(request.voiceId);
-      print('[PiperAdapter] Voice readiness: ${readiness.state} - isReady: ${readiness.isReady}');
+      TtsLog.debug('Voice readiness: ${readiness.state} - isReady: ${readiness.isReady}');
       
       if (!readiness.isReady) {
         return ExtendedSynthResult.failedWith(
@@ -175,19 +175,19 @@ class PiperAdapter implements AiVoiceEngine {
 
       // Piper-specific: need to load the voice model if not loaded
       final modelKey = VoiceIds.piperModelKey(request.voiceId);
-      print('[PiperAdapter] modelKey: $modelKey, loaded voices: ${_loadedVoices.keys.toList()}');
+      TtsLog.debug('modelKey: $modelKey, loaded voices: ${_loadedVoices.keys.toList()}');
       
       if (modelKey != null && !_loadedVoices.containsKey(request.voiceId)) {
         final coreId = _getCoreIdForModelKey(modelKey);
         final modelPath = '${_coreDir.path}/piper/$coreId';
-        print('[PiperAdapter] Loading voice from: $modelPath');
+        TtsLog.info('Loading voice from: $modelPath');
         await _loadVoice(request.voiceId, modelPath);
-        print('[PiperAdapter] Voice loaded successfully');
+        TtsLog.info('Voice loaded successfully');
       }
 
       final tmpPath = '${request.outputFile.path}.tmp';
 
-      print('[PiperAdapter] Calling native synthesize...');
+      TtsLog.debug('Calling native synthesize...');
       final nativeRequest = SynthesizeRequest(
         engineType: NativeEngineType.piper,
         voiceId: request.voiceId,
@@ -198,7 +198,7 @@ class PiperAdapter implements AiVoiceEngine {
       );
 
       final result = await _nativeApi.synthesize(nativeRequest);
-      print('[PiperAdapter] Native synthesize returned: success=${result.success}, error=${result.errorMessage}');
+      TtsLog.debug('Native synthesize returned: success=${result.success}, error=${result.errorMessage}');
 
       if (request.isCancelled) {
         await _deleteTempFile(tmpPath);

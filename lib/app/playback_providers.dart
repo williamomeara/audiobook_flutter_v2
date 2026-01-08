@@ -9,6 +9,7 @@ import 'package:tts_engines/tts_engines.dart';
 import 'app_paths.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
+import '../utils/app_logger.dart';
 
 /// Global segment readiness tracker singleton.
 /// This is used to track synthesis state for UI opacity feedback.
@@ -216,30 +217,30 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
 
   @override
   FutureOr<PlaybackState> build() async {
-    print('[PlaybackProvider] Initializing playback controller...');
+    PlaybackLogger.info('[PlaybackProvider] Initializing playback controller...');
     
     try {
       // Use ref.read instead of ref.watch for dependencies that shouldn't 
       // cause rebuilds during playback (like the routing engine which depends
       // on download state)
-      print('[PlaybackProvider] Loading routing engine...');
+      PlaybackLogger.info('[PlaybackProvider] Loading routing engine...');
       final engine = await ref.read(routingEngineProvider.future);
-      print('[PlaybackProvider] Routing engine loaded successfully');
+      PlaybackLogger.info('[PlaybackProvider] Routing engine loaded successfully');
       
-      print('[PlaybackProvider] Loading audio cache...');
+      PlaybackLogger.info('[PlaybackProvider] Loading audio cache...');
       final cache = await ref.read(audioCacheProvider.future);
-      print('[PlaybackProvider] Audio cache loaded successfully');
+      PlaybackLogger.info('[PlaybackProvider] Audio cache loaded successfully');
 
-      print('[PlaybackProvider] Loading smart synthesis manager...');
+      PlaybackLogger.info('[PlaybackProvider] Loading smart synthesis manager...');
       final smartSynthesisManager = ref.read(smartSynthesisManagerProvider);
-      print('[PlaybackProvider] Smart synthesis manager loaded');
+      PlaybackLogger.info('[PlaybackProvider] Smart synthesis manager loaded');
 
       // Phase 2: Resource monitor for battery-aware prefetch
-      print('[PlaybackProvider] Loading resource monitor...');
+      PlaybackLogger.info('[PlaybackProvider] Loading resource monitor...');
       final resourceMonitor = ref.read(resourceMonitorProvider);
-      print('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
+      PlaybackLogger.info('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
 
-      print('[PlaybackProvider] Creating AudiobookPlaybackController...');
+      PlaybackLogger.info('[PlaybackProvider] Creating AudiobookPlaybackController...');
       _controller = AudiobookPlaybackController(
         engine: engine,
         cache: cache,
@@ -261,7 +262,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           SegmentReadinessTracker.instance.onSynthesisComplete(key, segmentIndex);
         },
       );
-      print('[PlaybackProvider] Controller created successfully');
+      PlaybackLogger.info('[PlaybackProvider] Controller created successfully');
 
       // Listen to state changes
       _stateSub = _controller!.stateStream.listen((newState) {
@@ -269,16 +270,16 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       });
 
       ref.onDispose(() {
-        print('[PlaybackProvider] Disposing playback controller');
+        PlaybackLogger.info('[PlaybackProvider] Disposing playback controller');
         _stateSub?.cancel();
         _controller?.dispose();
       });
 
-      print('[PlaybackProvider] Initialization complete');
+      PlaybackLogger.info('[PlaybackProvider] Initialization complete');
       return _controller!.state;
     } catch (e, st) {
-      print('[PlaybackProvider] ERROR during initialization: $e');
-      print('[PlaybackProvider] Stack trace: $st');
+      PlaybackLogger.error('[PlaybackProvider] ERROR during initialization: $e');
+      PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       rethrow;
     }
   }
@@ -295,29 +296,29 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   }) async {
     final ctrl = _controller;
     if (ctrl == null) {
-      print('[PlaybackProvider] ERROR: Controller is null, cannot load chapter');
+      PlaybackLogger.error('[PlaybackProvider] ERROR: Controller is null, cannot load chapter');
       return;
     }
 
     if (chapterIndex < 0 || chapterIndex >= book.chapters.length) {
-      print('[PlaybackProvider] ERROR: Invalid chapter index $chapterIndex (book has ${book.chapters.length} chapters)');
+      PlaybackLogger.error('[PlaybackProvider] ERROR: Invalid chapter index $chapterIndex (book has ${book.chapters.length} chapters)');
       return;
     }
 
-    print('[PlaybackProvider] Loading chapter $chapterIndex for book "${book.title}"');
-    print('[PlaybackProvider] Start segment: $startSegmentIndex, autoPlay: $autoPlay');
+    PlaybackLogger.info('[PlaybackProvider] Loading chapter $chapterIndex for book "${book.title}"');
+    PlaybackLogger.info('[PlaybackProvider] Start segment: $startSegmentIndex, autoPlay: $autoPlay');
 
     final chapter = book.chapters[chapterIndex];
-    print('[PlaybackProvider] Chapter: "${chapter.title}", content length: ${chapter.content.length} chars');
+    PlaybackLogger.info('[PlaybackProvider] Chapter: "${chapter.title}", content length: ${chapter.content.length} chars');
     
     final segmentStart = DateTime.now();
     final segments = segmentText(chapter.content);
     final segmentDuration = DateTime.now().difference(segmentStart);
-    print('[PlaybackProvider] Segmented into ${segments.length} segments in ${segmentDuration.inMilliseconds}ms');
+    PlaybackLogger.info('[PlaybackProvider] Segmented into ${segments.length} segments in ${segmentDuration.inMilliseconds}ms');
 
     // Handle empty chapter - create a single "empty" track to show in UI
     if (segments.isEmpty) {
-      print('[PlaybackProvider] WARNING: Chapter has no segments, creating empty track');
+      PlaybackLogger.error('[PlaybackProvider] WARNING: Chapter has no segments, creating empty track');
       final emptyTrack = AudioTrack(
         id: IdGenerator.audioTrackId(book.id, chapterIndex, 0),
         text: '(This chapter has no readable content)',
@@ -325,19 +326,19 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         segmentIndex: 0,
         estimatedDuration: Duration.zero,
       );
-      print('[PlaybackProvider] Loading controller with 1 empty track');
+      PlaybackLogger.info('[PlaybackProvider] Loading controller with 1 empty track');
       await ctrl.loadChapter(
         tracks: [emptyTrack],
         bookId: book.id,
         startIndex: 0,
         autoPlay: false,  // Don't auto-play empty content
       );
-      print('[PlaybackProvider] Empty chapter loaded successfully');
+      PlaybackLogger.info('[PlaybackProvider] Empty chapter loaded successfully');
       return;
     }
 
     // Convert segments to AudioTracks
-    print('[PlaybackProvider] Converting ${segments.length} segments to AudioTracks...');
+    PlaybackLogger.info('[PlaybackProvider] Converting ${segments.length} segments to AudioTracks...');
     final tracks = segments.asMap().entries.map((entry) {
       final segment = entry.value;
       return AudioTrack(
@@ -350,7 +351,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     }).toList();
 
     final clampedStart = startSegmentIndex.clamp(0, tracks.length - 1);
-    print('[PlaybackProvider] Loading ${tracks.length} tracks into controller (starting at index $clampedStart)');
+    PlaybackLogger.info('[PlaybackProvider] Loading ${tracks.length} tracks into controller (starting at index $clampedStart)');
 
     // Initialize segment readiness tracker - check which segments are already cached
     final readinessKey = '${book.id}:$chapterIndex';
@@ -373,7 +374,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         }
       }
     } catch (e) {
-      print('[PlaybackProvider] Error checking cache: $e');
+      PlaybackLogger.error('[PlaybackProvider] Error checking cache: $e');
       // Continue anyway - readiness will update as segments are synthesized
     }
 
@@ -384,10 +385,10 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         startIndex: clampedStart,
         autoPlay: autoPlay,
       );
-      print('[PlaybackProvider] Chapter loaded successfully');
+      PlaybackLogger.info('[PlaybackProvider] Chapter loaded successfully');
     } catch (e, st) {
-      print('[PlaybackProvider] ERROR loading chapter: $e');
-      print('[PlaybackProvider] Stack trace: $st');
+      PlaybackLogger.error('[PlaybackProvider] ERROR loading chapter: $e');
+      PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       rethrow;
     }
   }

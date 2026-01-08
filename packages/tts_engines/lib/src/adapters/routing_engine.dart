@@ -8,6 +8,7 @@ import '../interfaces/synth_request.dart';
 import '../interfaces/synth_result.dart';
 import '../interfaces/tts_state_machines.dart';
 import '../cache/audio_cache.dart';
+import '../tts_log.dart';
 
 /// Routes synthesis requests to the appropriate voice engine.
 ///
@@ -104,8 +105,8 @@ class RoutingEngine implements AiVoiceEngine {
     final voiceId = request.voiceId;
     
     // Debug: log what voice is being requested
-    print('[RoutingEngine] synthesizeToFile called for voice: $voiceId');
-    print('[RoutingEngine] Engines available - Kokoro: ${kokoroEngine != null}, Piper: ${piperEngine != null}, Supertonic: ${supertonicEngine != null}');
+    TtsLog.info('synthesizeToFile called for voice: $voiceId');
+    TtsLog.debug('Engines available - Kokoro: ${kokoroEngine != null}, Piper: ${piperEngine != null}, Supertonic: ${supertonicEngine != null}');
 
     // Check cache first
     final cacheKey = CacheKeyGenerator.generate(
@@ -119,13 +120,13 @@ class RoutingEngine implements AiVoiceEngine {
       await cache.markUsed(cacheKey);
       // Return cached file with estimated duration
       final durationMs = estimateDurationMs(request.text);
-      print('[RoutingEngine] Returning cached audio for $voiceId');
+      TtsLog.info('Returning cached audio for $voiceId');
       return SynthResult(file: file, durationMs: durationMs);
     }
 
     // Route to appropriate engine
     final engine = _engineForVoice(voiceId);
-    print('[RoutingEngine] Engine for $voiceId: $engine');
+    TtsLog.debug('Engine for $voiceId: $engine');
     if (engine == null) {
       throw VoiceNotAvailableException(
         voiceId,

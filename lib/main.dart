@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:logging/logging.dart';
 
 import 'app/settings_controller.dart';
+import 'utils/app_logger.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/library_screen.dart';
 import 'ui/screens/book_details_screen.dart';
@@ -17,12 +18,12 @@ void main() {
   // Setup logging
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
-    print('${record.level.name}: ${record.time}: ${record.loggerName}: ${record.message}');
+    AppLogger.log('${record.level.name}: ${record.time}: ${record.loggerName}: ${record.message}');
     if (record.error != null) {
-      print('Error: ${record.error}');
+      AppLogger.info('Error: ${record.error}');
     }
     if (record.stackTrace != null) {
-      print('StackTrace: ${record.stackTrace}');
+      AppLogger.info('StackTrace: ${record.stackTrace}');
     }
   });
 

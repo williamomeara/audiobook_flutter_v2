@@ -2,6 +2,7 @@ import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/tts_engines.dart';
 
 import 'engine_config.dart';
+import 'playback_log.dart';
 
 /// Profiles device performance by running synthesis benchmarks.
 ///
@@ -67,8 +68,8 @@ class DevicePerformanceProfiler {
     void Function(int current, int total)? onProgress,
   }) async {
     final engineId = engineIdFromVoice(voiceId);
-    print('[Profiler] Starting device profiling for engine: $engineId (voice: $voiceId)');
-    print('[Profiler] Warmup: $warmupSegmentCount, Samples: $sampleSegmentCount');
+    PlaybackLog.progress('Starting device profiling for engine: $engineId (voice: $voiceId)');
+    PlaybackLog.progress('Warmup: $warmupSegmentCount, Samples: $sampleSegmentCount');
     
     // Generate unique test texts to avoid cache hits
     final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -84,10 +85,10 @@ class DevicePerformanceProfiler {
           playbackRate: playbackRate,
         );
       } catch (e) {
-        print('[Profiler] Warmup $i failed: $e');
+        PlaybackLog.debug('Warmup $i failed: $e');
       }
     }
-    print('[Profiler] Warmup complete');
+    PlaybackLog.progress('Warmup complete');
 
     // Measure synthesis performance
     final synthesisTimesMs = <int>[];
@@ -112,9 +113,9 @@ class DevicePerformanceProfiler {
         final estimatedDurationMs = (wordCount / 150 * 60 * 1000).round();
         audioDurationsMs.add(estimatedDurationMs);
 
-        print('[Profiler] Segment $i: ${synthTimeMs}ms synth / ${estimatedDurationMs}ms audio');
+        PlaybackLog.debug('Segment $i: ${synthTimeMs}ms synth / ${estimatedDurationMs}ms audio');
       } catch (e) {
-        print('[Profiler] Segment $i failed: $e');
+        PlaybackLog.debug('Segment $i failed: $e');
         // Skip failed segments
       }
     }
@@ -137,14 +138,14 @@ class DevicePerformanceProfiler {
       profiledAt: DateTime.now(),
     );
 
-    print('[Profiler] ═══════════════════════════════');
-    print('[Profiler] PROFILING COMPLETE');
-    print('[Profiler] Engine: $engineId');
-    print('[Profiler] RTF: ${rtf.toStringAsFixed(3)}');
-    print('[Profiler] Tier: ${profile.tier}');
-    print('[Profiler] Avg Synthesis: ${avgSynthMs}ms');
-    print('[Profiler] Avg Audio: ${avgAudioMs}ms');
-    print('[Profiler] ═══════════════════════════════');
+    PlaybackLog.progress('═══════════════════════════════');
+    PlaybackLog.progress('PROFILING COMPLETE');
+    PlaybackLog.progress('Engine: $engineId');
+    PlaybackLog.progress('RTF: ${rtf.toStringAsFixed(3)}');
+    PlaybackLog.progress('Tier: ${profile.tier}');
+    PlaybackLog.progress('Avg Synthesis: ${avgSynthMs}ms');
+    PlaybackLog.progress('Avg Audio: ${avgAudioMs}ms');
+    PlaybackLog.progress('═══════════════════════════════');
 
     return profile;
   }

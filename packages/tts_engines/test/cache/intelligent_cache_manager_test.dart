@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/src/cache/intelligent_cache_manager.dart';
-import 'package:tts_engines/src/cache/cache_entry_metadata.dart';
 
 void main() {
   late Directory tempDir;

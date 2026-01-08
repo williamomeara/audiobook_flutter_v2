@@ -4,6 +4,7 @@ import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/tts_engines.dart';
 
 import 'playback_config.dart';
+import 'playback_log.dart';
 import 'resource_monitor.dart';
 
 /// Manages audio prefetching for smooth playback.
@@ -100,16 +101,16 @@ class BufferScheduler {
   }) {
     // Phase 2: Check if resources allow prefetching
     if (_resourceMonitor != null && !_resourceMonitor!.canPrefetch) {
-      print('[BufferScheduler] Prefetch disabled due to low battery (mode: $synthesisMode)');
+      PlaybackLog.debug('Prefetch disabled due to low battery (mode: $synthesisMode)');
       return false;
     }
     
     if (_isSuspended) {
-      print('[BufferScheduler] Prefetch suspended, not starting');
+      PlaybackLog.debug('Prefetch suspended, not starting');
       return false;
     }
     if (_isRunning) {
-      print('[BufferScheduler] Prefetch already running');
+      PlaybackLog.debug('Prefetch already running');
       return false;
     }
 
@@ -123,7 +124,7 @@ class BufferScheduler {
     final lowWaterSec = (PlaybackConfig.lowWatermarkMs / 1000).toStringAsFixed(1);
     final shouldStart = bufferedMs < PlaybackConfig.lowWatermarkMs;
     
-    print('[BufferScheduler] Buffer check: ${bufferedSec}s buffered (threshold: ${lowWaterSec}s), mode: $synthesisMode → ${shouldStart ? "START PREFETCH" : "no prefetch needed"}');
+    PlaybackLog.debug('Buffer check: ${bufferedSec}s buffered (threshold: ${lowWaterSec}s), mode: $synthesisMode → ${shouldStart ? "START PREFETCH" : "no prefetch needed"}');
     
     return shouldStart;
   }
@@ -141,7 +142,7 @@ class BufferScheduler {
     final targetBufferMs = _resourceMonitor?.bufferTargetMs ?? 
                            PlaybackConfig.bufferTargetMs;
     
-    print('[BufferScheduler] Calculating target index from current=$currentIndex (mode: $synthesisMode, maxTracks: $maxTracks)');
+    PlaybackLog.debug('Calculating target index from current=$currentIndex (mode: $synthesisMode, maxTracks: $maxTracks)');
     
     var targetIdx = currentIndex + 1;
     var accMs = 0;
@@ -151,14 +152,14 @@ class BufferScheduler {
       accMs += estimateDurationMs(queue[i].text, playbackRate: playbackRate);
       targetIdx = i;
       if (accMs >= targetBufferMs) {
-        print('[BufferScheduler] Target reached at index $targetIdx (${(accMs/1000).toStringAsFixed(1)}s buffered)');
+        PlaybackLog.debug('Target reached at index $targetIdx (${(accMs/1000).toStringAsFixed(1)}s buffered)');
         break;
       }
     }
 
     final finalTarget = targetIdx.clamp(0, queue.length - 1);
     final segmentCount = finalTarget - currentIndex;
-    print('[BufferScheduler] Target index: $finalTarget ($segmentCount segments ahead)');
+    PlaybackLog.debug('Target index: $finalTarget ($segmentCount segments ahead)');
     return finalTarget;
   }
 
@@ -188,18 +189,18 @@ class BufferScheduler {
     void Function(int segmentIndex)? onSynthesisStarted,
     void Function(int segmentIndex)? onSynthesisComplete,
   }) async {
-    print('[BufferScheduler] ━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    print('[BufferScheduler] PREFETCH START');
-    print('[BufferScheduler] Target index: $targetIndex');
-    print('[BufferScheduler] Current prefetched through: $_prefetchedThroughIndex');
-    print('[BufferScheduler] Voice: $voiceId, Rate: ${playbackRate}x');
+    PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    PlaybackLog.progress('PREFETCH START');
+    PlaybackLog.progress('Target index: $targetIndex');
+    PlaybackLog.progress('Current prefetched through: $_prefetchedThroughIndex');
+    PlaybackLog.progress('Voice: $voiceId, Rate: ${playbackRate}x');
     
     if (targetIndex <= _prefetchedThroughIndex) {
-      print('[BufferScheduler] ✓ Already prefetched to target, skipping');
+      PlaybackLog.progress('✓ Already prefetched to target, skipping');
       return;
     }
     if (_isRunning) {
-      print('[BufferScheduler] ⚠ Prefetch already running, skipping');
+      PlaybackLog.warning('Prefetch already running, skipping');
       return;
     }
 
@@ -212,17 +213,17 @@ class BufferScheduler {
 
     try {
       var i = _prefetchedThroughIndex + 1;
-      print('[BufferScheduler] Starting from index $i');
+      PlaybackLog.progress('Starting from index $i');
 
       while (i <= targetIndex && i < queue.length) {
         if (!shouldContinue() || _contextKey != startContext) {
-          print('[BufferScheduler] ⚠ Context changed or should stop, aborting prefetch');
+          PlaybackLog.warning('Context changed or should stop, aborting prefetch');
           return;
         }
 
         final track = queue[i];
         final wordCount = track.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
-        print('[BufferScheduler] [$i/${queue.length}] Prefetching: "${track.text.substring(0, track.text.length.clamp(0, 50))}..." ($wordCount words)');
+        PlaybackLog.debug('[$i/${queue.length}] Prefetching: "${track.text.substring(0, track.text.length.clamp(0, 50))}..." ($wordCount words)');
         
         final cacheKey = CacheKeyGenerator.generate(
           voiceId: voiceId,
@@ -232,7 +233,7 @@ class BufferScheduler {
 
         // Skip if already cached
         if (await cache.isReady(cacheKey)) {
-          print('[BufferScheduler] ✓ [$i] Already cached: $cacheKey');
+          PlaybackLog.debug('✓ [$i] Already cached: $cacheKey');
           onSynthesisComplete?.call(i);  // Notify UI
           _prefetchedThroughIndex = i;
           cached++;
@@ -241,7 +242,7 @@ class BufferScheduler {
         }
 
         // Synthesize
-        print('[BufferScheduler] 🔄 [$i] Synthesizing (not in cache)...');
+        PlaybackLog.debug('🔄 [$i] Synthesizing (not in cache)...');
         onSynthesisStarted?.call(i);  // Notify UI
         final synthStart = DateTime.now();
         try {
@@ -251,14 +252,14 @@ class BufferScheduler {
             playbackRate: playbackRate,
           );
           final synthDuration = DateTime.now().difference(synthStart);
-          print('[BufferScheduler] ✓ [$i] Synthesized in ${synthDuration.inMilliseconds}ms');
+          PlaybackLog.debug('✓ [$i] Synthesized in ${synthDuration.inMilliseconds}ms');
           onSynthesisComplete?.call(i);  // Notify UI
           _prefetchedThroughIndex = i;
           synthesized++;
         } catch (e, stackTrace) {
           final synthDuration = DateTime.now().difference(synthStart);
-          print('[BufferScheduler] ❌ [$i] Synthesis failed after ${synthDuration.inMilliseconds}ms: $e');
-          print('[BufferScheduler] Stack trace: $stackTrace');
+          PlaybackLog.error('[$i] Synthesis failed after ${synthDuration.inMilliseconds}ms: $e');
+          PlaybackLog.error('Stack trace: $stackTrace');
           failed++;
           // Continue trying next tracks
         }
@@ -267,12 +268,12 @@ class BufferScheduler {
       }
       
       final totalDuration = DateTime.now().difference(startTime);
-      print('[BufferScheduler] ━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      print('[BufferScheduler] PREFETCH COMPLETE');
-      print('[BufferScheduler] Total time: ${totalDuration.inMilliseconds}ms');
-      print('[BufferScheduler] Synthesized: $synthesized, Cached: $cached, Failed: $failed');
-      print('[BufferScheduler] Final prefetched index: $_prefetchedThroughIndex');
-      print('[BufferScheduler] ━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      PlaybackLog.progress('PREFETCH COMPLETE');
+      PlaybackLog.progress('Total time: ${totalDuration.inMilliseconds}ms');
+      PlaybackLog.progress('Synthesized: $synthesized, Cached: $cached, Failed: $failed');
+      PlaybackLog.progress('Final prefetched index: $_prefetchedThroughIndex');
+      PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     } finally {
       _isRunning = false;
     }

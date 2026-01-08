@@ -10,6 +10,7 @@ import 'package:playback/playback.dart';
 import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
+import '../../utils/app_logger.dart';
 import '../theme/app_colors.dart';
 import '../widgets/optimization_prompt_dialog.dart';
 import 'package:core_domain/core_domain.dart';
@@ -95,28 +96,28 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
 
   Future<void> _initializePlayback() async {
     if (_initialized) {
-      print('[PlaybackScreen] Already initialized, skipping');
+      PlaybackLogger.debug('[PlaybackScreen] Already initialized, skipping');
       return;
     }
 
-    print('[PlaybackScreen] Initializing playback for book ${widget.bookId}...');
+    PlaybackLogger.info('[PlaybackScreen] Initializing playback for book ${widget.bookId}...');
 
     // Wait for library to be available
     final libraryAsync = ref.read(libraryProvider);
     LibraryState? library;
     
     if (libraryAsync.hasValue) {
-      print('[PlaybackScreen] Library already loaded');
+      PlaybackLogger.debug('[PlaybackScreen] Library already loaded');
       library = libraryAsync.value;
     } else if (libraryAsync.isLoading) {
-      print('[PlaybackScreen] Waiting for library to load...');
+      PlaybackLogger.debug('[PlaybackScreen] Waiting for library to load...');
       // Wait for library to load
       library = await ref.read(libraryProvider.future);
-      print('[PlaybackScreen] Library loaded');
+      PlaybackLogger.debug('[PlaybackScreen] Library loaded');
     }
     
     if (library == null) {
-      print('[PlaybackScreen] ERROR: Library is null');
+      PlaybackLogger.error('[PlaybackScreen] ERROR: Library is null');
       return;
     }
     
@@ -124,17 +125,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
 
     final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
     if (book == null) {
-      print('[PlaybackScreen] ERROR: Book ${widget.bookId} not found in library');
+      PlaybackLogger.error('[PlaybackScreen] ERROR: Book ${widget.bookId} not found in library');
       return;
     }
 
-    print('[PlaybackScreen] Book found: "${book.title}" by ${book.author}');
-    print('[PlaybackScreen] Book has ${book.chapters.length} chapters');
+    PlaybackLogger.info('[PlaybackScreen] Book found: "${book.title}" by ${book.author}');
+    PlaybackLogger.info('[PlaybackScreen] Book has ${book.chapters.length} chapters');
 
     final chapterIndex = book.progress.chapterIndex.clamp(0, book.chapters.length - 1);
     final segmentIndex = book.progress.segmentIndex;
 
-    print('[PlaybackScreen] Saved progress: chapter $chapterIndex, segment $segmentIndex');
+    PlaybackLogger.debug('[PlaybackScreen] Saved progress: chapter $chapterIndex, segment $segmentIndex');
 
     _currentChapterIndex = chapterIndex;
 
@@ -145,18 +146,18 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     }
 
     // CRITICAL: Wait for playback controller to be ready before calling loadChapter
-    print('[PlaybackScreen] Waiting for playback controller to initialize...');
+    PlaybackLogger.info('[PlaybackScreen] Waiting for playback controller to initialize...');
     try {
       await ref.read(playbackControllerProvider.future);
-      print('[PlaybackScreen] Playback controller is ready');
+      PlaybackLogger.info('[PlaybackScreen] Playback controller is ready');
     } catch (e, st) {
-      print('[PlaybackScreen] ERROR: Failed to initialize playback controller: $e');
-      print('[PlaybackScreen] Stack trace: $st');
+      PlaybackLogger.error('[PlaybackScreen] ERROR: Failed to initialize playback controller: $e');
+      PlaybackLogger.error('[PlaybackScreen] Stack trace: $st');
       return;
     }
 
     final notifier = ref.read(playbackControllerProvider.notifier);
-    print('[PlaybackScreen] Calling loadChapter...');
+    PlaybackLogger.debug('[PlaybackScreen] Calling loadChapter...');
     
     try {
       await notifier.loadChapter(
@@ -165,10 +166,10 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
         startSegmentIndex: segmentIndex,
         autoPlay: false,
       );
-      print('[PlaybackScreen] loadChapter completed successfully');
+      PlaybackLogger.info('[PlaybackScreen] loadChapter completed successfully');
     } catch (e, st) {
-      print('[PlaybackScreen] ERROR in loadChapter: $e');
-      print('[PlaybackScreen] Stack trace: $st');
+      PlaybackLogger.error('[PlaybackScreen] ERROR in loadChapter: $e');
+      PlaybackLogger.error('[PlaybackScreen] Stack trace: $st');
     }
   }
 
@@ -904,7 +905,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                                     ? 'Off' 
                                     : _sleepTimerMinutes == 60 
                                         ? '1 hour'
-                                        : '${_sleepTimerMinutes} min',
+                                        : '$_sleepTimerMinutes min',
                                 style: TextStyle(fontSize: 13, color: colors.text),
                               ),
                               const SizedBox(width: 4),

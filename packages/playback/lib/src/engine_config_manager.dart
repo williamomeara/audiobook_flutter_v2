@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'engine_config.dart';
+import 'playback_log.dart';
 
 /// Manages engine configurations with persistence.
 ///
@@ -51,7 +52,7 @@ class DeviceEngineConfigManager {
       DateTime.now().toIso8601String(),
     );
     
-    print('[ConfigManager] Saved config for ${config.engineId}: ${config.deviceTier}');
+    PlaybackLog.info('Saved config for ${config.engineId}: ${config.deviceTier}');
   }
 
   /// Load configuration for an engine.
@@ -76,7 +77,7 @@ class DeviceEngineConfigManager {
       _cache[engineId] = config;
       return config;
     } catch (e) {
-      print('[ConfigManager] Failed to parse config for $engineId: $e');
+      PlaybackLog.error('Failed to parse config for $engineId: $e');
       return null;
     }
   }
@@ -138,7 +139,7 @@ class DeviceEngineConfigManager {
     await _prefs?.remove('$_keyPrefix$engineId');
     await _prefs?.remove('$_tunedPrefix$engineId');
     
-    print('[ConfigManager] Deleted config for $engineId');
+    PlaybackLog.info('Deleted config for $engineId');
   }
 
   /// Delete all configurations.
@@ -154,7 +155,7 @@ class DeviceEngineConfigManager {
       }
     }
     
-    print('[ConfigManager] Deleted all engine configs');
+    PlaybackLog.info('Deleted all engine configs');
   }
 
   /// Get all saved engine IDs.
