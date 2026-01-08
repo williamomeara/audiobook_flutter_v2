@@ -15,6 +15,7 @@ dependencies:
   crypto: ^3.0.7
   opus_dart: ^3.0.1
   opus_flutter: ^3.0.3
+  logging: ^1.2.0
 
 dev_dependencies:
   test: ^1.25.0

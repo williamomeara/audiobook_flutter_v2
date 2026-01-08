@@ -77,7 +77,7 @@ class SettingsScreen extends ConsumerWidget {
                           trailing: Switch(
                             value: settings.darkMode,
                             onChanged: ref.read(settingsProvider.notifier).setDarkMode,
-                            activeColor: colors.primary,
+                            activeThumbColor: colors.primary,
                           ),
                         ),
                         const Divider(height: 1),
@@ -87,7 +87,7 @@ class SettingsScreen extends ConsumerWidget {
                           trailing: Switch(
                             value: settings.showBookCoverBackground,
                             onChanged: ref.read(settingsProvider.notifier).setShowBookCoverBackground,
-                            activeColor: colors.primary,
+                            activeThumbColor: colors.primary,
                           ),
                         ),
                       ],
@@ -132,7 +132,7 @@ class SettingsScreen extends ConsumerWidget {
                           trailing: Switch(
                             value: settings.smartSynthesisEnabled,
                             onChanged: ref.read(settingsProvider.notifier).setSmartSynthesisEnabled,
-                            activeColor: colors.primary,
+                            activeThumbColor: colors.primary,
                           ),
                         ),
                         const Divider(height: 1),
@@ -142,7 +142,7 @@ class SettingsScreen extends ConsumerWidget {
                           trailing: Switch(
                             value: settings.autoAdvanceChapters,
                             onChanged: ref.read(settingsProvider.notifier).setAutoAdvanceChapters,
-                            activeColor: colors.primary,
+                            activeThumbColor: colors.primary,
                           ),
                         ),
                         const Divider(height: 1),

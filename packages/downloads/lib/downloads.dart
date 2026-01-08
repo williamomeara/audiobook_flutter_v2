@@ -1,5 +1,4 @@
-/// Download manager for voice assets and cores.
-library downloads;
+// Download management for voice assets and cores.
 
 export 'src/asset_spec.dart';
 export 'src/download_state.dart';

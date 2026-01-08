@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'package:logging/logging.dart';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:archive/archive.dart';
-import 'package:logging/logging.dart';
 
 import 'asset_spec.dart';
 import 'download_state.dart';

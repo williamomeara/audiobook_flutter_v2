@@ -1,3 +1,4 @@
+// ignore_for_file: depend_on_referenced_packages
 
 import 'package:test/test.dart';
 import 'package:core_domain/core_domain.dart';

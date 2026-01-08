@@ -1,8 +1,4 @@
-/// Core domain models and utilities for the audiobook app.
-///
-/// This package contains pure Dart types and functions with no Flutter
-/// dependencies, making it highly testable and reusable.
-library core_domain;
+// Core domain models and utilities for the audiobook app.
 
 // Models
 export 'src/models/book.dart';

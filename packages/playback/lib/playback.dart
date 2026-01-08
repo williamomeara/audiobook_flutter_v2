@@ -1,5 +1,4 @@
-/// Playback controller with buffering and prefetch for audiobook TTS.
-library playback;
+// Playback management for audiobook app.
 
 export 'src/playback_config.dart';
 export 'src/playback_state.dart';
