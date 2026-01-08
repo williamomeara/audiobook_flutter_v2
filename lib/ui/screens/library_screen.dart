@@ -480,34 +480,103 @@ class _BookCard extends StatelessWidget {
       onLongPress: () {
         showModalBottomSheet(
           context: context,
-          backgroundColor: colors.card,
-          builder: (context) => SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: Icon(
-                    book.isFavorite ? Icons.favorite : Icons.favorite_border,
-                    color: book.isFavorite ? colors.primary : colors.text,
-                  ),
-                  title: Text(
-                    book.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
-                    style: TextStyle(color: colors.text),
-                  ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    onToggleFavorite();
-                  },
+          backgroundColor: Colors.transparent,
+          builder: (context) => ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            child: Container(
+              decoration: BoxDecoration(
+                color: colors.card,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Drag handle
+                    Container(
+                      margin: const EdgeInsets.only(top: 12),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colors.textTertiary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Book Options',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: colors.text,
+                        ),
+                      ),
+                    ),
+                    // Favorite option
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        onToggleFavorite();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                        child: Row(
+                          children: [
+                            Icon(
+                              book.isFavorite ? Icons.favorite : Icons.favorite_border,
+                              color: book.isFavorite ? colors.primary : colors.text,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Text(
+                                book.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: colors.text,
+                                ),
+                              ),
+                            ),
+                            if (book.isFavorite)
+                              Icon(Icons.check_circle, color: colors.primary, size: 20),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // Delete option
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        onDelete();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline,
+                              color: colors.danger,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Text(
+                                'Remove from Library',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: colors.danger,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                 ),
-                ListTile(
-                  leading: Icon(Icons.delete_forever, color: colors.danger),
-                  title: Text('Remove from library', style: TextStyle(color: colors.text)),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    onDelete();
-                  },
-                ),
-              ],
+              ),
             ),
           ),
         );
