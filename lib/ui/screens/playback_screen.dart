@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' as java;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -551,7 +552,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
         textColor = colors.textTertiary.withValues(alpha: 0.5); // slate-700 for not downloaded
       }
       
-      // Add the segment text with a trailing space
+      // Add the segment text with a trailing space and tap handler
+      final segmentIndex = index; // Capture for closure
       spans.add(TextSpan(
         text: '${item.text} ',
         style: TextStyle(
@@ -560,6 +562,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
           color: textColor,
           fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
         ),
+        recognizer: TapGestureRecognizer()..onTap = () => _seekToSegment(segmentIndex),
       ));
       
       // Add synthesizing indicator if not ready
@@ -633,6 +636,16 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   
   void _resetAutoScroll() {
     setState(() => _autoScrollEnabled = true);
+  }
+  
+  Future<void> _seekToSegment(int index) async {
+    final notifier = ref.read(playbackControllerProvider.notifier);
+    final playbackState = ref.read(playbackStateProvider);
+    
+    if (index >= 0 && index < playbackState.queue.length) {
+      await notifier.seekToTrack(index, play: true);
+      setState(() => _autoScrollEnabled = true);
+    }
   }
 
   Widget _buildPlaybackControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
