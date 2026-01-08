@@ -13,6 +13,8 @@ dependencies:
     path: ../platform_android_tts
   path_provider: ^2.1.5
   crypto: ^3.0.7
+  opus_dart: ^3.0.1
+  opus_flutter: ^3.0.3
 
 dev_dependencies:
   test: ^1.25.0

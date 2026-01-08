@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 
 import 'package:core_domain/core_domain.dart';
 import 'package:logging/logging.dart';
@@ -9,6 +8,7 @@ import 'audio_output.dart';
 import 'buffer_scheduler.dart';
 import 'playback_config.dart';
 import 'playback_state.dart';
+import 'resource_monitor.dart';
 
 /// Callback for state changes.
 typedef StateCallback = void Function(PlaybackState state);
@@ -57,6 +57,10 @@ abstract interface class PlaybackController {
   Future<void> dispose();
 }
 
+/// Callback for segment synthesis state changes.
+/// Parameters: (bookId, chapterIndex, segmentIndex)
+typedef SegmentSynthesisCallback = void Function(String bookId, int chapterIndex, int segmentIndex);
+
 /// Implementation of PlaybackController with synthesis and buffering.
 class AudiobookPlaybackController implements PlaybackController {
   final Logger _logger = Logger('AudiobookPlaybackController');
@@ -67,8 +71,17 @@ class AudiobookPlaybackController implements PlaybackController {
     required this.voiceIdResolver,
     AudioOutput? audioOutput,
     StateCallback? onStateChange,
+    SmartSynthesisManager? smartSynthesisManager,
+    ResourceMonitor? resourceMonitor,
+    SegmentSynthesisCallback? onSegmentSynthesisStarted,
+    SegmentSynthesisCallback? onSegmentSynthesisComplete,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
-        _onStateChange = onStateChange {
+        _onStateChange = onStateChange,
+        _smartSynthesisManager = smartSynthesisManager,
+        _resourceMonitor = resourceMonitor,
+        _onSegmentSynthesisStarted = onSegmentSynthesisStarted,
+        _onSegmentSynthesisComplete = onSegmentSynthesisComplete,
+        _scheduler = BufferScheduler(resourceMonitor: resourceMonitor) {
     _setupEventListeners();
   }
 
@@ -87,8 +100,20 @@ class AudiobookPlaybackController implements PlaybackController {
   /// State change callback.
   final StateCallback? _onStateChange;
 
+  /// Smart synthesis manager for pre-synthesis strategies.
+  final SmartSynthesisManager? _smartSynthesisManager;
+
+  /// Resource monitor for battery-aware prefetch (Phase 2).
+  final ResourceMonitor? _resourceMonitor;
+
+  /// Callback for segment synthesis started (for UI feedback).
+  final SegmentSynthesisCallback? _onSegmentSynthesisStarted;
+
+  /// Callback for segment synthesis complete (for UI feedback).
+  final SegmentSynthesisCallback? _onSegmentSynthesisComplete;
+
   /// Buffer scheduler for prefetch.
-  final _scheduler = BufferScheduler();
+  final BufferScheduler _scheduler;
 
   /// State stream controller.
   final _stateController = StreamController<PlaybackState>.broadcast();
@@ -185,6 +210,71 @@ class AudiobookPlaybackController implements PlaybackController {
     final startTrack = tracks[startIndex.clamp(0, tracks.length - 1)];
     _logger.info('Starting at track ${startIndex.clamp(0, tracks.length - 1)}: "${startTrack.text.substring(0, startTrack.text.length.clamp(0, 50))}..."');
 
+    // Pre-synthesize first segment(s) using SmartSynthesisManager if available
+    if (_smartSynthesisManager != null && autoPlay) {
+      final voiceId = voiceIdResolver(null);
+      
+      _updateState(PlaybackState(
+        queue: tracks,
+        currentTrack: startTrack,
+        bookId: bookId,
+        isPlaying: false,
+        isBuffering: true,
+        playbackRate: _state.playbackRate,
+      ));
+
+      _logger.info('🎤 Starting smart pre-synthesis for voice: $voiceId');
+      
+      // Get context for synthesis callbacks
+      final chapterIndex = tracks.isNotEmpty ? tracks.first.chapterIndex : 0;
+      
+      try {
+        final result = await _smartSynthesisManager!.prepareForPlayback(
+          engine: engine,
+          cache: cache,
+          tracks: tracks,
+          voiceId: voiceId,
+          playbackRate: _state.playbackRate,
+          startIndex: startIndex,
+        );
+
+        if (!_isCurrentOp(opId)) {
+          _logger.warning('Pre-synthesis completed but operation was cancelled');
+          return;
+        }
+
+        if (result.hasErrors) {
+          _logger.warning('Pre-synthesis completed with errors: ${result.errors}');
+        } else {
+          _logger.info('✅ Pre-synthesis complete: ${result.segmentsPrepared} segments in ${result.totalTimeMs}ms');
+          
+          // Mark pre-synthesized segments as ready for UI feedback
+          for (var i = startIndex; i < startIndex + result.segmentsPrepared && i < tracks.length; i++) {
+            _onSegmentSynthesisComplete?.call(bookId, chapterIndex, i);
+          }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // PHASE 2: Start immediate extended prefetch after pre-synthesis
+        // This synthesizes additional segments in background before playback
+        // starts, ensuring smooth playback for the first 1-2 minutes.
+        // ════════════════════════════════════════════════════════════════
+        if (PlaybackConfig.immediatePrefetchOnLoad && 
+            (_resourceMonitor?.canPrefetch ?? true)) {
+          _logger.info('🚀 [Phase 2] Starting immediate extended prefetch on chapter load');
+          _startImmediatePrefetch(
+            tracks: tracks,
+            startIndex: startIndex,
+            voiceId: voiceId,
+            opId: opId,
+          );
+        }
+      } catch (e, stackTrace) {
+        _logger.severe('Pre-synthesis failed', e, stackTrace);
+        // Continue anyway - will synthesize on demand
+      }
+    }
+
     _updateState(PlaybackState(
       queue: tracks,
       currentTrack: startTrack,
@@ -197,11 +287,85 @@ class AudiobookPlaybackController implements PlaybackController {
     _logger.info('State updated with ${tracks.length} tracks in queue');
 
     if (autoPlay) {
-      _logger.info('Auto-play enabled, starting synthesis...');
+      _logger.info('Auto-play enabled, starting playback...');
       await _speakCurrent(opId: opId);
     } else {
       _logger.info('Auto-play disabled, chapter loaded and ready');
     }
+  }
+
+  /// Phase 2: Start immediate prefetch in background after pre-synthesis.
+  /// This synthesizes extended window (10-15 segments) to ensure smooth playback.
+  void _startImmediatePrefetch({
+    required List<AudioTrack> tracks,
+    required int startIndex,
+    required String voiceId,
+    required int opId,
+  }) {
+    // Fire and forget - don't await, run in background
+    unawaited(_runImmediatePrefetch(
+      tracks: tracks,
+      startIndex: startIndex,
+      voiceId: voiceId,
+      opId: opId,
+    ));
+  }
+
+  /// Phase 2: Run the immediate prefetch loop.
+  Future<void> _runImmediatePrefetch({
+    required List<AudioTrack> tracks,
+    required int startIndex,
+    required String voiceId,
+    required int opId,
+  }) async {
+    // Get resource-aware prefetch limits
+    final maxTracks = _resourceMonitor?.maxPrefetchTracks ?? 
+                      PlaybackConfig.maxPrefetchTracks;
+    final endIndex = (startIndex + maxTracks).clamp(0, tracks.length - 1);
+    
+    _logger.info('[Phase 2] Immediate prefetch: segments ${startIndex + 1} to $endIndex');
+    
+    // Get context for synthesis callbacks
+    final bookId = _state.bookId ?? '';
+    final chapterIndex = tracks.isNotEmpty ? tracks.first.chapterIndex : 0;
+    
+    // Skip first segment (already pre-synthesized), start from second
+    for (var i = startIndex + 1; i <= endIndex; i++) {
+      // Check if operation is still valid
+      if (!_isCurrentOp(opId) || _disposed) {
+        _logger.info('[Phase 2] Immediate prefetch cancelled (operation changed)');
+        return;
+      }
+      
+      final track = tracks[i];
+      final cacheKey = CacheKeyGenerator.generate(
+        voiceId: voiceId,
+        text: track.text,
+        playbackRate: CacheKeyGenerator.getSynthesisRate(_state.playbackRate),
+      );
+      
+      // Skip if already cached
+      if (await cache.isReady(cacheKey)) {
+        _onSegmentSynthesisComplete?.call(bookId, chapterIndex, i);
+        continue;
+      }
+      
+      _onSegmentSynthesisStarted?.call(bookId, chapterIndex, i);
+      try {
+        await engine.synthesizeToWavFile(
+          voiceId: voiceId,
+          text: track.text,
+          playbackRate: _state.playbackRate,
+        );
+        _onSegmentSynthesisComplete?.call(bookId, chapterIndex, i);
+        _logger.info('[Phase 2] ✓ Prefetched segment $i');
+      } catch (e) {
+        _logger.warning('[Phase 2] Failed to prefetch segment $i: $e');
+        // Continue with other segments
+      }
+    }
+    
+    _logger.info('[Phase 2] Immediate prefetch complete');
   }
 
   @override
@@ -463,6 +627,12 @@ class AudiobookPlaybackController implements PlaybackController {
     if (targetIdx <= _scheduler.prefetchedThroughIndex) return;
 
     final opId = _opId;
+    
+    // Get context for synthesis callbacks
+    final bookId = _state.bookId ?? '';
+    final chapterIndex = _state.queue.isNotEmpty 
+        ? _state.queue.first.chapterIndex 
+        : 0;
 
     unawaited(_scheduler.runPrefetch(
       engine: engine,
@@ -472,6 +642,12 @@ class AudiobookPlaybackController implements PlaybackController {
       playbackRate: _state.playbackRate,
       targetIndex: targetIdx,
       shouldContinue: () => _isCurrentOp(opId) && _playIntent && !_disposed,
+      onSynthesisStarted: _onSegmentSynthesisStarted != null
+          ? (segmentIndex) => _onSegmentSynthesisStarted!(bookId, chapterIndex, segmentIndex)
+          : null,
+      onSynthesisComplete: _onSegmentSynthesisComplete != null
+          ? (segmentIndex) => _onSegmentSynthesisComplete!(bookId, chapterIndex, segmentIndex)
+          : null,
     ));
   }
 }

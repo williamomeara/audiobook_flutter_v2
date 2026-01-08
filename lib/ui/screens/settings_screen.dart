@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:playback/playback.dart';
+import 'package:tts_engines/tts_engines.dart';
 
 import '../../app/granular_download_manager.dart';
+import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
+import '../../app/tts_providers.dart';
 import '../theme/app_colors.dart';
 import 'package:core_domain/core_domain.dart';
 
@@ -112,6 +116,16 @@ class SettingsScreen extends ConsumerWidget {
                       title: 'Playback',
                       children: [
                         _SettingsRow(
+                          label: 'Smart synthesis',
+                          subLabel: 'Pre-synthesize audio for instant playback',
+                          trailing: Switch(
+                            value: settings.smartSynthesisEnabled,
+                            onChanged: ref.read(settingsProvider.notifier).setSmartSynthesisEnabled,
+                            activeColor: colors.primary,
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
                           label: 'Auto-advance chapters',
                           subLabel: 'Automatically move to next chapter',
                           trailing: Switch(
@@ -156,6 +170,24 @@ class SettingsScreen extends ConsumerWidget {
                             ],
                           ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Engine Optimization section (Phase 4: Auto-tuning)
+                    _SectionCard(
+                      title: 'Engine Optimization',
+                      children: [
+                        _EngineOptimizationRow(colors: colors),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Storage section (Phase 3: Cache management)
+                    _SectionCard(
+                      title: 'Storage',
+                      children: [
+                        _CacheStorageRow(colors: colors),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -284,25 +316,7 @@ class SettingsScreen extends ConsumerWidget {
                         //   description: 'Uses your device\'s built-in voice',
                         //   voiceId: VoiceIds.device,
                         // ),
-                        if (readyKokoroVoices.isNotEmpty) ...[
-                          const Divider(),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            child: Text(
-                              'Kokoro Voices',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: colors.textSecondary,
-                              ),
-                            ),
-                          ),
-                          for (final voiceId in readyKokoroVoices)
-                            _VoiceOption(
-                              name: _voiceDisplayName(voiceId),
-                              voiceId: voiceId,
-                            ),
-                        ],
+                        // Piper voices first (fastest engine)
                         if (readyPiperVoices.isNotEmpty) ...[
                           const Divider(),
                           Padding(
@@ -322,6 +336,7 @@ class SettingsScreen extends ConsumerWidget {
                               voiceId: voiceId,
                             ),
                         ],
+                        // Supertonic voices second
                         if (readySupertonicVoices.isNotEmpty) ...[
                           const Divider(),
                           Padding(
@@ -336,6 +351,48 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                           ),
                           for (final voiceId in readySupertonicVoices)
+                            _VoiceOption(
+                              name: _voiceDisplayName(voiceId),
+                              voiceId: voiceId,
+                            ),
+                        ],
+                        // Kokoro voices last (slowest, requires flagship device)
+                        if (readyKokoroVoices.isNotEmpty) ...[
+                          const Divider(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Kokoro Voices',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: colors.textSecondary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(Icons.warning_amber_rounded,
+                                        size: 14, color: Colors.orange.shade700),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        'High quality but slow. Requires a modern flagship device.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.orange.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          for (final voiceId in readyKokoroVoices)
                             _VoiceOption(
                               name: _voiceDisplayName(voiceId),
                               voiceId: voiceId,
@@ -497,3 +554,454 @@ class _VoiceOption extends ConsumerWidget {
     );
   }
 }
+
+/// Engine optimization settings row with device profiling.
+class _EngineOptimizationRow extends ConsumerStatefulWidget {
+  const _EngineOptimizationRow({required this.colors});
+
+  final AppThemeColors colors;
+
+  @override
+  ConsumerState<_EngineOptimizationRow> createState() => _EngineOptimizationRowState();
+}
+
+class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> {
+  bool _isOptimizing = false;
+  String? _lastResult;
+  int _progress = 0;
+  int _total = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(settingsProvider);
+    final voiceId = settings.selectedVoice;
+    final configManager = ref.watch(engineConfigManagerProvider);
+
+    // Get engine type from voice - profiling is per-engine, not per-voice
+    final engineType = VoiceIds.engineFor(voiceId);
+    final engineId = engineType.name;
+    final engineDisplayName = _getEngineDisplayName(engineType);
+    
+    return FutureBuilder<DeviceEngineConfig?>(
+      future: configManager.loadConfig(engineId),
+      builder: (context, snapshot) {
+        final config = snapshot.data;
+        final hasBeenOptimized = config?.tunedAt != null;
+        
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Optimize: $engineDisplayName',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: widget.colors.text,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _getStatusText(hasBeenOptimized, config, engineDisplayName),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: widget.colors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_isOptimizing)
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: _total > 0 ? _progress / _total : null,
+                        color: widget.colors.primary,
+                      ),
+                    )
+                  else
+                    TextButton(
+                      onPressed: () => _runOptimization(voiceId),
+                      child: Text(
+                        hasBeenOptimized ? 'Re-optimize' : 'Optimize',
+                        style: TextStyle(color: widget.colors.primary),
+                      ),
+                    ),
+                ],
+              ),
+              if (_lastResult != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: widget.colors.backgroundSecondary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle, color: widget.colors.primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _lastResult!,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: widget.colors.text,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (hasBeenOptimized && config != null) ...[
+                const SizedBox(height: 12),
+                _buildConfigDetails(config),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _getEngineDisplayName(EngineType engineType) {
+    switch (engineType) {
+      case EngineType.piper:
+        return 'Piper';
+      case EngineType.kokoro:
+        return 'Kokoro';
+      case EngineType.supertonic:
+        return 'Supertonic';
+      case EngineType.device:
+        return 'Device TTS';
+    }
+  }
+
+  String _getStatusText(bool hasBeenOptimized, DeviceEngineConfig? config, String engineName) {
+    if (_isOptimizing) {
+      return 'Running optimization test ($_progress/$_total)...';
+    }
+    if (!hasBeenOptimized) {
+      return 'Optimize $engineName engine for your device';
+    }
+    final tunedAt = config?.tunedAt;
+    if (tunedAt != null) {
+      final daysAgo = DateTime.now().difference(tunedAt).inDays;
+      final tierName = _getTierDisplayName(config!.deviceTier);
+      if (daysAgo == 0) {
+        return 'Optimized today • $tierName performance';
+      }
+      return 'Optimized $daysAgo days ago • $tierName performance';
+    }
+    return 'Optimized for $engineName';
+  }
+
+  String _getTierDisplayName(DevicePerformanceTier tier) {
+    switch (tier) {
+      case DevicePerformanceTier.flagship:
+        return 'Excellent';
+      case DevicePerformanceTier.midRange:
+        return 'Good';
+      case DevicePerformanceTier.budget:
+        return 'Moderate';
+      case DevicePerformanceTier.legacy:
+        return 'Limited';
+    }
+  }
+
+  Widget _buildConfigDetails(DeviceEngineConfig config) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      children: [
+        _buildChip('RTF: ${config.measuredRTF.toStringAsFixed(2)}x'),
+        _buildChip('Prefetch: ${config.prefetchWindowSize} segments'),
+        if (config.prefetchConcurrency > 1)
+          _buildChip('Parallel: ${config.prefetchConcurrency}x'),
+      ],
+    );
+  }
+
+  Widget _buildChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: widget.colors.backgroundSecondary,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: widget.colors.border),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          color: widget.colors.textSecondary,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runOptimization(String voiceId) async {
+    setState(() {
+      _isOptimizing = true;
+      _lastResult = null;
+      _progress = 0;
+      _total = 0;
+    });
+
+    try {
+      final engine = await ref.read(ttsRoutingEngineProvider.future);
+      final profiler = ref.read(deviceProfilerProvider);
+      final configManager = ref.read(engineConfigManagerProvider);
+      final playbackRate = ref.read(settingsProvider).defaultPlaybackRate;
+
+      final profile = await profiler.profileEngine(
+        engine: engine,
+        voiceId: voiceId,
+        playbackRate: playbackRate,
+        onProgress: (current, total) {
+          setState(() {
+            _progress = current;
+            _total = total;
+          });
+        },
+      );
+
+      final config = profiler.createConfigFromProfile(profile);
+      await configManager.saveConfig(config);
+
+      setState(() {
+        _lastResult = 'Detected ${config.deviceTier.name.toUpperCase()} device '
+            '(RTF: ${profile.rtf.toStringAsFixed(2)}x)';
+      });
+    } catch (e) {
+      setState(() {
+        _lastResult = null;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Optimization failed: $e')),
+        );
+      }
+    } finally {
+      setState(() {
+        _isOptimizing = false;
+      });
+    }
+  }
+}
+
+/// Cache storage settings with quota slider and usage display.
+class _CacheStorageRow extends ConsumerStatefulWidget {
+  const _CacheStorageRow({required this.colors});
+
+  final AppThemeColors colors;
+
+  @override
+  ConsumerState<_CacheStorageRow> createState() => _CacheStorageRowState();
+}
+
+class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(settingsProvider);
+    final cacheStats = ref.watch(cacheUsageStatsProvider);
+    
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Quota slider
+          Text(
+            'Audio cache limit',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: widget.colors.text,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Maximum storage for synthesized audio',
+            style: TextStyle(
+              fontSize: 13,
+              color: widget.colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Slider(
+            value: settings.cacheQuotaGB,
+            min: 0.5,
+            max: 10.0,
+            divisions: 19, // 0.5 GB steps
+            label: '${settings.cacheQuotaGB.toStringAsFixed(1)} GB',
+            onChanged: (value) {
+              ref.read(settingsProvider.notifier).setCacheQuotaGB(value);
+              _updateCacheQuota(value);
+            },
+            activeColor: widget.colors.primary,
+          ),
+          Center(
+            child: Text(
+              '${settings.cacheQuotaGB.toStringAsFixed(1)} GB',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: widget.colors.text,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Usage display
+          cacheStats.when(
+            data: (stats) => _buildUsageDisplay(stats),
+            loading: () => const Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            error: (e, _) => Text(
+              'Failed to load cache stats',
+              style: TextStyle(color: widget.colors.textSecondary, fontSize: 13),
+            ),
+          ),
+          const SizedBox(height: 12),
+          
+          // Clear cache button
+          TextButton.icon(
+            onPressed: () => _showClearCacheDialog(),
+            icon: Icon(Icons.delete_outline, color: Colors.red.shade400, size: 18),
+            label: Text(
+              'Clear Audio Cache',
+              style: TextStyle(color: Colors.red.shade400),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUsageDisplay(CacheUsageStats stats) {
+    final usagePercent = stats.usagePercent;
+    final isWarning = usagePercent > 90;
+    final barColor = isWarning ? Colors.orange : widget.colors.primary;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Used: ${stats.totalSizeFormatted}',
+              style: TextStyle(
+                fontSize: 13,
+                color: widget.colors.text,
+              ),
+            ),
+            Text(
+              'of ${stats.quotaSizeFormatted}',
+              style: TextStyle(
+                fontSize: 13,
+                color: widget.colors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: usagePercent / 100,
+            minHeight: 8,
+            backgroundColor: widget.colors.border,
+            valueColor: AlwaysStoppedAnimation<Color>(barColor),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '${stats.entryCount} cached segments',
+          style: TextStyle(
+            fontSize: 12,
+            color: widget.colors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _updateCacheQuota(double quotaGB) async {
+    try {
+      final manager = await ref.read(intelligentCacheManagerProvider.future);
+      await manager.setQuotaSettings(CacheQuotaSettings.fromGB(quotaGB));
+      // Refresh stats
+      ref.invalidate(cacheUsageStatsProvider);
+    } catch (e) {
+      // Ignore errors during quota update
+    }
+  }
+
+  Future<void> _showClearCacheDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear Audio Cache?'),
+        content: const Text(
+          'This will delete all cached audio files. '
+          'Audio will need to be synthesized again when playing books.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              'Clear',
+              style: TextStyle(color: Colors.red.shade400),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _clearCache();
+    }
+  }
+
+  Future<void> _clearCache() async {
+    try {
+      final manager = await ref.read(intelligentCacheManagerProvider.future);
+      await manager.clear();
+      ref.invalidate(cacheUsageStatsProvider);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Audio cache cleared')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to clear cache: $e')),
+        );
+      }
+    }
+  }
+}
+
