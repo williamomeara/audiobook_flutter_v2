@@ -9,8 +9,8 @@ import 'engine_config.dart';
 /// on the current device, which is used to determine optimal prefetch settings.
 class DevicePerformanceProfiler {
   DevicePerformanceProfiler({
-    this.sampleSegmentCount = 10,
-    this.warmupSegmentCount = 2,
+    this.sampleSegmentCount = 3,
+    this.warmupSegmentCount = 1,
   });
 
   /// Number of segments to synthesize for profiling.
@@ -44,19 +44,30 @@ class DevicePerformanceProfiler {
     }).toList();
   }
 
+  /// Get engine ID from voice ID.
+  /// 
+  /// Profiles are stored per-engine (piper, kokoro, supertonic) not per-voice,
+  /// since all voices of an engine have similar performance characteristics.
+  static String engineIdFromVoice(String voiceId) {
+    final engine = VoiceIds.engineFor(voiceId);
+    return engine.name; // Returns 'piper', 'kokoro', 'supertonic', 'device'
+  }
+
   /// Run performance profiling for an engine.
   ///
   /// This synthesizes several test segments and measures synthesis time
   /// vs audio duration to calculate RTF.
   /// 
   /// Note: Uses randomized text with timestamp to avoid cache hits.
+  /// Note: Profile is stored per-engine, not per-voice.
   Future<DeviceProfile> profileEngine({
     required RoutingEngine engine,
     required String voiceId,
     required double playbackRate,
     void Function(int current, int total)? onProgress,
   }) async {
-    print('[Profiler] Starting device profiling for $voiceId');
+    final engineId = engineIdFromVoice(voiceId);
+    print('[Profiler] Starting device profiling for engine: $engineId (voice: $voiceId)');
     print('[Profiler] Warmup: $warmupSegmentCount, Samples: $sampleSegmentCount');
     
     // Generate unique test texts to avoid cache hits
@@ -118,7 +129,7 @@ class DevicePerformanceProfiler {
     final rtf = avgAudioMs > 0 ? avgSynthMs / avgAudioMs : 1.0;
 
     final profile = DeviceProfile(
-      engineId: voiceId,
+      engineId: engineId,
       avgSynthesisMs: avgSynthMs,
       avgAudioDurationMs: avgAudioMs,
       rtf: rtf,
@@ -128,7 +139,7 @@ class DevicePerformanceProfiler {
 
     print('[Profiler] ═══════════════════════════════');
     print('[Profiler] PROFILING COMPLETE');
-    print('[Profiler] Engine: $voiceId');
+    print('[Profiler] Engine: $engineId');
     print('[Profiler] RTF: ${rtf.toStringAsFixed(3)}');
     print('[Profiler] Tier: ${profile.tier}');
     print('[Profiler] Avg Synthesis: ${avgSynthMs}ms');

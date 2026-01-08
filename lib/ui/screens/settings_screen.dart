@@ -542,11 +542,13 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
     final voiceId = settings.selectedVoice;
     final configManager = ref.watch(engineConfigManagerProvider);
 
-    // Get human-readable voice name
-    final voiceName = VoiceIds.getDisplayName(voiceId);
+    // Get engine type from voice - profiling is per-engine, not per-voice
+    final engineType = VoiceIds.engineFor(voiceId);
+    final engineId = engineType.name;
+    final engineDisplayName = _getEngineDisplayName(engineType);
     
     return FutureBuilder<DeviceEngineConfig?>(
-      future: configManager.loadConfig(voiceId),
+      future: configManager.loadConfig(engineId),
       builder: (context, snapshot) {
         final config = snapshot.data;
         final hasBeenOptimized = config?.tunedAt != null;
@@ -563,7 +565,7 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Optimize: $voiceName',
+                          'Optimize: $engineDisplayName',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
@@ -572,7 +574,7 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _getStatusText(hasBeenOptimized, config),
+                          _getStatusText(hasBeenOptimized, config, engineDisplayName),
                           style: TextStyle(
                             fontSize: 13,
                             color: widget.colors.textSecondary,
@@ -637,12 +639,25 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
     );
   }
 
-  String _getStatusText(bool hasBeenOptimized, DeviceEngineConfig? config) {
+  String _getEngineDisplayName(EngineType engineType) {
+    switch (engineType) {
+      case EngineType.piper:
+        return 'Piper';
+      case EngineType.kokoro:
+        return 'Kokoro';
+      case EngineType.supertonic:
+        return 'Supertonic';
+      case EngineType.device:
+        return 'Device TTS';
+    }
+  }
+
+  String _getStatusText(bool hasBeenOptimized, DeviceEngineConfig? config, String engineName) {
     if (_isOptimizing) {
       return 'Running optimization test ($_progress/$_total)...';
     }
     if (!hasBeenOptimized) {
-      return 'Optimize current voice for your device';
+      return 'Optimize $engineName engine for your device';
     }
     final tunedAt = config?.tunedAt;
     if (tunedAt != null) {
@@ -653,7 +668,7 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
       }
       return 'Optimized $daysAgo days ago • $tierName performance';
     }
-    return 'Optimized for this voice';
+    return 'Optimized for $engineName';
   }
 
   String _getTierDisplayName(DevicePerformanceTier tier) {
