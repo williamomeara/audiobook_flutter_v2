@@ -1,0 +1,99 @@
+name: Package Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'packages/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'packages/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-packages:
+    name: Test Packages
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - core_domain
+          - tts_engines
+          - platform_android_tts
+          # downloads and playback packages have empty test directories
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Get root dependencies
+        run: flutter pub get
+
+      - name: Get package dependencies
+        working-directory: packages/${{ matrix.package }}
+        run: flutter pub get
+
+      - name: Run package tests
+        working-directory: packages/${{ matrix.package }}
+        run: flutter test --coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: packages/${{ matrix.package }}/coverage/lcov.info
+          flags: ${{ matrix.package }}
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  verify-packages:
+    name: Verify Package Structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Verify core_domain
+        working-directory: packages/core_domain
+        run: |
+          flutter pub get
+          flutter analyze
+
+      - name: Verify downloads
+        working-directory: packages/downloads
+        run: |
+          flutter pub get
+          flutter analyze
+
+      - name: Verify playback
+        working-directory: packages/playback
+        run: |
+          flutter pub get
+          flutter analyze
+
+      - name: Verify tts_engines
+        working-directory: packages/tts_engines
+        run: |
+          flutter pub get
+          flutter analyze
+
+      - name: Verify platform_android_tts
+        working-directory: packages/platform_android_tts
+        run: |
+          flutter pub get
+          flutter analyze
