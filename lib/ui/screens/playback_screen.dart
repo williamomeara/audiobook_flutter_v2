@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -29,6 +31,14 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   final ItemPositionsListener _itemPositionsListener = ItemPositionsListener.create();
   bool _autoScrollEnabled = true;
   int _lastScrolledIndex = -1;
+  
+  // View mode: true = cover view, false = text view
+  bool _showCover = false;
+  
+  // Sleep timer state
+  int? _sleepTimerMinutes; // null = off
+  int? _sleepTimeRemainingSeconds;
+  Timer? _sleepTimer;
 
   @override
   void initState() {
@@ -37,6 +47,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       _initializePlayback();
       _setupAutoScrollListener();
     });
+  }
+  
+  @override
+  void dispose() {
+    _sleepTimer?.cancel();
+    super.dispose();
   }
 
   /// Set up listener for auto-scrolling based on playback state changes.
@@ -170,14 +186,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     }
   }
 
-  Future<void> _nextSegment() async {
-    await ref.read(playbackControllerProvider.notifier).nextTrack();
-  }
-
-  Future<void> _previousSegment() async {
-    await ref.read(playbackControllerProvider.notifier).previousTrack();
-  }
-
   Future<void> _nextChapter() async {
     final library = ref.read(libraryProvider).value;
     if (library == null) return;
@@ -223,6 +231,60 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   Future<void> _setPlaybackRate(double rate) async {
     await ref.read(playbackControllerProvider.notifier).setPlaybackRate(rate);
   }
+  
+  void _increaseSpeed() {
+    final currentRate = ref.read(playbackStateProvider).playbackRate;
+    final newRate = (currentRate + 0.25).clamp(0.5, 2.0);
+    _setPlaybackRate(newRate);
+  }
+  
+  void _decreaseSpeed() {
+    final currentRate = ref.read(playbackStateProvider).playbackRate;
+    final newRate = (currentRate - 0.25).clamp(0.5, 2.0);
+    _setPlaybackRate(newRate);
+  }
+  
+  void _setSleepTimer(int? minutes) {
+    _sleepTimer?.cancel();
+    
+    if (minutes == null) {
+      setState(() {
+        _sleepTimerMinutes = null;
+        _sleepTimeRemainingSeconds = null;
+      });
+      return;
+    }
+    
+    setState(() {
+      _sleepTimerMinutes = minutes;
+      _sleepTimeRemainingSeconds = minutes * 60;
+    });
+    
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      setState(() {
+        if (_sleepTimeRemainingSeconds != null && _sleepTimeRemainingSeconds! > 0) {
+          _sleepTimeRemainingSeconds = _sleepTimeRemainingSeconds! - 1;
+        } else {
+          // Timer expired - pause playback
+          ref.read(playbackControllerProvider.notifier).pause();
+          _sleepTimerMinutes = null;
+          _sleepTimeRemainingSeconds = null;
+          timer.cancel();
+        }
+      });
+    });
+  }
+  
+  String _formatSleepTime(int seconds) {
+    final minutes = seconds ~/ 60;
+    final secs = seconds % 60;
+    return '$minutes:${secs.toString().padLeft(2, '0')}';
+  }
 
   void _saveProgressAndPop() {
     final playbackState = ref.read(playbackStateProvider);
@@ -251,70 +313,74 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
 
     return Scaffold(
       backgroundColor: colors.background,
-      floatingActionButton: !_autoScrollEnabled
-          ? FloatingActionButton.small(
-              onPressed: _jumpToCurrentSegment,
-              backgroundColor: colors.primary,
-              child: Icon(Icons.my_location, color: colors.primaryForeground),
-            )
-          : null,
-      body: libraryAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, st) => Center(
-          child: Text('Error loading book', style: TextStyle(color: colors.danger)),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [
+              colors.backgroundSecondary,
+              colors.background,
+            ],
+          ),
         ),
-        data: (library) {
-          final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
-          if (book == null) {
-            return Center(
-              child: Text('Book not found', style: TextStyle(color: colors.textSecondary)),
-            );
-          }
+        child: libraryAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, st) => Center(
+            child: Text('Error loading book', style: TextStyle(color: colors.danger)),
+          ),
+          data: (library) {
+            final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
+            if (book == null) {
+              return Center(
+                child: Text('Book not found', style: TextStyle(color: colors.textSecondary)),
+              );
+            }
 
-          final chapterIdx = currentChapterIndex.clamp(0, book.chapters.length - 1);
-          final chapter = book.chapters[chapterIdx];
-          final currentTrack = playbackState.currentTrack;
-          final queue = playbackState.queue;
-          final queueLength = queue.length;
-          
-          // Show loading state if queue hasn't been loaded yet
-          final isLoading = queueLength == 0;
-          
-          final currentIndex = isLoading 
-              ? 0 
-              : playbackState.currentIndex.clamp(0, queueLength - 1);
+            final chapterIdx = currentChapterIndex.clamp(0, book.chapters.length - 1);
+            final chapter = book.chapters[chapterIdx];
+            final currentTrack = playbackState.currentTrack;
+            final queue = playbackState.queue;
+            final queueLength = queue.length;
+            
+            // Show loading state if queue hasn't been loaded yet
+            final isLoading = queueLength == 0;
+            
+            final currentIndex = isLoading 
+                ? 0 
+                : playbackState.currentIndex.clamp(0, queueLength - 1);
 
-          return SafeArea(
-            child: Column(
-              children: [
-                _buildHeader(colors, book, chapter),
-                if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
-                if (isLoading)
-                  Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(color: colors.primary),
-                          const SizedBox(height: 16),
-                          Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
-                        ],
+            return SafeArea(
+              child: Column(
+                children: [
+                  _buildHeader(colors, book, chapter),
+                  if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
+                  if (isLoading)
+                    Expanded(
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(color: colors.primary),
+                            const SizedBox(height: 16),
+                            Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
+                          ],
+                        ),
                       ),
+                    )
+                  else ...[
+                    Expanded(
+                      child: _showCover
+                          ? _buildCoverView(colors, book)
+                          : _buildTextDisplay(colors, queue, currentTrack, currentIndex),
                     ),
-                  )
-                else ...[
-                  _buildTextDisplay(colors, queue, currentTrack),
-                  _buildProgress(colors, currentIndex, queueLength, chapterIdx, book.chapters.length),
-                  const SizedBox(height: 16),
-                  _buildRateSelector(colors, playbackState.playbackRate),
-                  const SizedBox(height: 16),
-                  _buildControls(colors, playbackState),
-                  const SizedBox(height: 32),
+                    _buildPlaybackControls(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
+                  ],
                 ],
-              ],
-            ),
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -323,41 +389,49 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: colors.headerBackground,
         border: Border(bottom: BorderSide(color: colors.border, width: 1)),
       ),
       child: Row(
         children: [
           InkWell(
             onTap: _saveProgressAndPop,
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: colors.backgroundSecondary,
-                borderRadius: BorderRadius.circular(20),
-              ),
               child: Icon(Icons.chevron_left, color: colors.text),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   book.title,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colors.text),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: colors.text),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
                   chapter.title,
-                  style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                  style: TextStyle(fontSize: 13, color: colors.textSecondary),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
+            ),
+          ),
+          // Toggle view button
+          InkWell(
+            onTap: () => setState(() => _showCover = !_showCover),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Icon(
+                _showCover ? Icons.menu_book : Icons.image,
+                color: colors.text,
+                size: 20,
+              ),
             ),
           ),
         ],
@@ -368,7 +442,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   Widget _buildErrorBanner(AppThemeColors colors, String error) {
     return Container(
       padding: const EdgeInsets.all(12),
-      color: colors.danger.withOpacity(0.1),
+      color: colors.danger.withValues(alpha: 0.1),
       child: Row(
         children: [
           Icon(Icons.error_outline, color: colors.danger, size: 20),
@@ -378,13 +452,93 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       ),
     );
   }
-
-  Widget _buildTextDisplay(AppThemeColors colors, List<AudioTrack> queue, AudioTrack? currentTrack) {
-    if (queue.isEmpty) {
-      return Expanded(
-        child: Center(
-          child: Text('No content', style: TextStyle(color: colors.textTertiary)),
+  
+  Widget _buildCoverView(AppThemeColors colors, Book book) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Book cover placeholder
+            Container(
+              width: 240,
+              height: 360,
+              decoration: BoxDecoration(
+                color: colors.card,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: book.coverImagePath != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.asset(
+                        book.coverImagePath!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _buildCoverPlaceholder(colors, book),
+                      ),
+                    )
+                  : _buildCoverPlaceholder(colors, book),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              book.title,
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: colors.text),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'By ${book.author}',
+              style: TextStyle(fontSize: 14, color: colors.textSecondary),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+  
+  Widget _buildCoverPlaceholder(AppThemeColors colors, Book book) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [colors.primary.withValues(alpha: 0.3), colors.primary.withValues(alpha: 0.1)],
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.book, size: 64, color: colors.primary),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                book.title,
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colors.text),
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextDisplay(AppThemeColors colors, List<AudioTrack> queue, AudioTrack? currentTrack, int currentIndex) {
+    if (queue.isEmpty) {
+      return Center(
+        child: Text('No content', style: TextStyle(color: colors.textTertiary)),
       );
     }
     
@@ -393,67 +547,109 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
     final segmentReadiness = segmentReadinessAsync.value ?? {};
     
-    return Expanded(
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (notification) {
-          // Disable auto-scroll when user scrolls manually
-          if (notification is UserScrollNotification) {
-            setState(() => _autoScrollEnabled = false);
-          }
-          return false;
-        },
-        child: ScrollablePositionedList.builder(
-          itemScrollController: _itemScrollController,
-          itemPositionsListener: _itemPositionsListener,
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-          itemCount: queue.length,
-          itemBuilder: (context, index) {
-            final item = queue[index];
-            final isActive = currentTrack?.id == item.id;
-            
-            // Get segment readiness opacity (1.0 = ready, 0.4 = not queued)
-            final readiness = segmentReadiness[index];
-            final segmentOpacity = readiness?.opacity ?? 0.4;
-            
-            // Active segment is always fully visible
-            final effectiveOpacity = isActive ? 1.0 : segmentOpacity;
-            
-            final textColor = isActive 
-                ? colors.text 
-                : colors.textSecondary.withOpacity(effectiveOpacity);
-            final fontWeight = isActive ? FontWeight.w600 : FontWeight.normal;
-            final backgroundColor = isActive 
-                ? colors.primary.withValues(alpha: 0.14)
-                : null;
-            
-            return AnimatedOpacity(
-              opacity: effectiveOpacity,
-              duration: const Duration(milliseconds: 300),
-              child: InkWell(
+    return Stack(
+      children: [
+        NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            // Disable auto-scroll when user scrolls manually
+            if (notification is UserScrollNotification) {
+              setState(() => _autoScrollEnabled = false);
+            }
+            return false;
+          },
+          child: ScrollablePositionedList.builder(
+            itemScrollController: _itemScrollController,
+            itemPositionsListener: _itemPositionsListener,
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
+            itemCount: queue.length,
+            itemBuilder: (context, index) {
+              final item = queue[index];
+              final isActive = index == currentIndex;
+              final isPast = index < currentIndex;
+              
+              // Get segment readiness (1.0 = ready, lower = not ready)
+              final readiness = segmentReadiness[index];
+              final isReady = readiness?.opacity == 1.0;
+              
+              // Text styling based on state (matching Figma design)
+              Color textColor;
+              if (isActive) {
+                textColor = colors.textHighlight; // amber-400 for current
+              } else if (isPast) {
+                textColor = colors.textPast; // slate-500 for past
+              } else if (isReady) {
+                textColor = colors.textSecondary; // slate-300 for ready future
+              } else {
+                textColor = colors.textTertiary.withValues(alpha: 0.5); // slate-700 for not downloaded
+              }
+              
+              return GestureDetector(
                 onTap: () => _seekToSegment(index),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                  decoration: backgroundColor != null
-                      ? BoxDecoration(
-                          color: backgroundColor,
-                          borderRadius: BorderRadius.circular(8),
-                        )
-                      : null,
-                  child: Text(
-                    item.text,
-                    style: TextStyle(
-                      fontSize: 16,
-                      height: 1.6,
-                      color: textColor,
-                      fontWeight: fontWeight,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: RichText(
+                    text: TextSpan(
+                      text: item.text,
+                      style: TextStyle(
+                        fontSize: 17,
+                        height: 1.7,
+                        color: textColor,
+                        fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
+                      ),
+                      children: [
+                        const TextSpan(text: ' '),
+                        if (!isReady && !isPast && !isActive)
+                          TextSpan(
+                            text: '(synthesizing...)',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: colors.textTertiary.withValues(alpha: 0.7),
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
-      ),
+        
+        // Jump to current button (bottom right)
+        if (!_autoScrollEnabled)
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: Material(
+              color: colors.primary,
+              borderRadius: BorderRadius.circular(24),
+              elevation: 4,
+              child: InkWell(
+                onTap: _jumpToCurrentSegment,
+                borderRadius: BorderRadius.circular(24),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.my_location, size: 18, color: colors.primaryForeground),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Jump to current',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: colors.primaryForeground,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
   
@@ -487,84 +683,202 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     }
   }
 
-  Widget _buildProgress(AppThemeColors colors, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: [
-          LinearProgressIndicator(
-            value: queueLength > 0 ? (currentIndex + 1) / queueLength : 0,
-            backgroundColor: colors.border,
-            color: colors.primary,
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Segment ${currentIndex + 1} of $queueLength', style: TextStyle(fontSize: 12, color: colors.textSecondary)),
-              Text('Chapter ${chapterIdx + 1} of $chapterCount', style: TextStyle(fontSize: 12, color: colors.textSecondary)),
-            ],
-          ),
-        ],
+  Widget _buildPlaybackControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: colors.border, width: 1)),
+        color: colors.background.withValues(alpha: 0.8),
       ),
-    );
-  }
-
-  Widget _buildRateSelector(AppThemeColors colors, double currentRate) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (final rate in [0.75, 1.0, 1.25, 1.5, 2.0])
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: GestureDetector(
-                onTap: () => _setPlaybackRate(rate),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: currentRate == rate ? colors.primary : colors.card,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: colors.border),
-                  ),
-                  child: Text(
-                    '${rate}x',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: currentRate == rate ? colors.primaryForeground : colors.text,
+          // Progress bar
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+            child: Row(
+              children: [
+                Text(
+                  '${currentIndex + 1}',
+                  style: TextStyle(fontSize: 13, color: colors.textSecondary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: queueLength > 0 ? (currentIndex + 1) / queueLength : 0,
+                      backgroundColor: colors.controlBackground,
+                      color: colors.primary,
+                      minHeight: 4,
                     ),
                   ),
                 ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildControls(AppThemeColors colors, PlaybackState playbackState) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          IconButton(onPressed: _previousChapter, icon: Icon(Icons.skip_previous, size: 32, color: colors.text)),
-          IconButton(onPressed: _previousSegment, icon: Icon(Icons.fast_rewind, size: 32, color: colors.text)),
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(color: colors.primary, shape: BoxShape.circle),
-            child: IconButton(
-              onPressed: _togglePlay,
-              icon: playbackState.isBuffering
-                  ? SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: colors.primaryForeground))
-                  : Icon(playbackState.isPlaying ? Icons.pause : Icons.play_arrow, size: 32, color: colors.primaryForeground),
+                const SizedBox(width: 12),
+                Text(
+                  '$queueLength',
+                  style: TextStyle(fontSize: 13, color: colors.textSecondary),
+                ),
+              ],
             ),
           ),
-          IconButton(onPressed: _nextSegment, icon: Icon(Icons.fast_forward, size: 32, color: colors.text)),
-          IconButton(onPressed: _nextChapter, icon: Icon(Icons.skip_next, size: 32, color: colors.text)),
+          
+          // Speed and Sleep Timer controls
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Speed control
+                Row(
+                  children: [
+                    Icon(Icons.speed, size: 16, color: colors.textSecondary),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: _decreaseSpeed,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(Icons.chevron_left, size: 18, color: colors.textSecondary),
+                      ),
+                    ),
+                    Container(
+                      width: 48,
+                      alignment: Alignment.center,
+                      child: Text(
+                        '${playbackState.playbackRate}x',
+                        style: TextStyle(fontSize: 13, color: colors.text, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: _increaseSpeed,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(Icons.chevron_right, size: 18, color: colors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+                
+                // Sleep timer
+                Row(
+                  children: [
+                    Icon(Icons.timer_outlined, size: 16, color: colors.textSecondary),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: colors.controlBackground,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: colors.border),
+                      ),
+                      child: DropdownButton<int?>(
+                        value: _sleepTimerMinutes,
+                        hint: Text('Off', style: TextStyle(fontSize: 13, color: colors.text)),
+                        underline: const SizedBox(),
+                        isDense: true,
+                        dropdownColor: colors.card,
+                        style: TextStyle(fontSize: 13, color: colors.text),
+                        items: [
+                          DropdownMenuItem(value: null, child: Text('Off', style: TextStyle(color: colors.text))),
+                          DropdownMenuItem(value: 5, child: Text('5 min', style: TextStyle(color: colors.text))),
+                          DropdownMenuItem(value: 10, child: Text('10 min', style: TextStyle(color: colors.text))),
+                          DropdownMenuItem(value: 15, child: Text('15 min', style: TextStyle(color: colors.text))),
+                          DropdownMenuItem(value: 30, child: Text('30 min', style: TextStyle(color: colors.text))),
+                          DropdownMenuItem(value: 60, child: Text('1 hour', style: TextStyle(color: colors.text))),
+                        ],
+                        onChanged: (value) => _setSleepTimer(value),
+                      ),
+                    ),
+                    if (_sleepTimeRemainingSeconds != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        _formatSleepTime(_sleepTimeRemainingSeconds!),
+                        style: TextStyle(fontSize: 12, color: colors.textHighlight, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          
+          // Main controls
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Previous chapter
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: chapterIdx > 0 ? _previousChapter : null,
+                    borderRadius: BorderRadius.circular(24),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Icon(
+                        Icons.skip_previous,
+                        size: 28,
+                        color: chapterIdx > 0 ? colors.text : colors.textTertiary,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(width: 16),
+                
+                // Play/Pause button
+                Material(
+                  color: colors.primary,
+                  shape: const CircleBorder(),
+                  elevation: 2,
+                  child: InkWell(
+                    onTap: _togglePlay,
+                    customBorder: const CircleBorder(),
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      alignment: Alignment.center,
+                      child: playbackState.isBuffering
+                          ? SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: colors.primaryForeground,
+                              ),
+                            )
+                          : Icon(
+                              playbackState.isPlaying ? Icons.pause : Icons.play_arrow,
+                              size: 32,
+                              color: colors.primaryForeground,
+                            ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(width: 16),
+                
+                // Next chapter
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _nextChapter,
+                    borderRadius: BorderRadius.circular(24),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Icon(
+                        Icons.skip_next,
+                        size: 28,
+                        color: colors.text,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
