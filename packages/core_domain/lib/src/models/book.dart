@@ -66,6 +66,7 @@ class Book {
     this.gutenbergId,
     this.coverImagePath,
     this.voiceId,
+    this.isFavorite = false,
   });
 
   /// Unique identifier for this book.
@@ -98,6 +99,29 @@ class Book {
   /// Current reading progress.
   final BookProgress progress;
 
+  /// Whether this book is marked as a favorite.
+  final bool isFavorite;
+
+  /// Calculate overall progress percentage (0-100).
+  int get progressPercent {
+    if (chapters.isEmpty) return 0;
+    final totalSegments = chapters.fold<int>(0, (sum, ch) {
+      // Estimate segments based on content length (roughly 500 chars per segment)
+      return sum + ((ch.content.length / 500).ceil().clamp(1, 100));
+    });
+    if (totalSegments == 0) return 0;
+    
+    // Sum segments before current chapter
+    var completedSegments = 0;
+    for (var i = 0; i < progress.chapterIndex && i < chapters.length; i++) {
+      completedSegments += (chapters[i].content.length / 500).ceil().clamp(1, 100);
+    }
+    // Add current segment progress
+    completedSegments += progress.segmentIndex;
+    
+    return ((completedSegments / totalSegments) * 100).round().clamp(0, 100);
+  }
+
   Book copyWith({
     String? id,
     String? title,
@@ -109,6 +133,7 @@ class Book {
     String? voiceId,
     List<Chapter>? chapters,
     BookProgress? progress,
+    bool? isFavorite,
   }) {
     return Book(
       id: id ?? this.id,
@@ -121,6 +146,7 @@ class Book {
       voiceId: voiceId ?? this.voiceId,
       chapters: chapters ?? this.chapters,
       progress: progress ?? this.progress,
+      isFavorite: isFavorite ?? this.isFavorite,
     );
   }
 
@@ -135,6 +161,7 @@ class Book {
         'voiceId': voiceId,
         'chapters': chapters.map((c) => c.toJson()).toList(growable: false),
         'progress': progress.toJson(),
+        'isFavorite': isFavorite,
       };
 
   factory Book.fromJson(Map<String, dynamic> json) {
@@ -153,6 +180,7 @@ class Book {
       progress: BookProgress.fromJson(
         (json['progress'] as Map?)?.cast<String, dynamic>() ?? const {},
       ),
+      isFavorite: (json['isFavorite'] as bool?) ?? false,
     );
   }
 

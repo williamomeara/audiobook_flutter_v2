@@ -75,282 +75,322 @@ class _FreeBooksScreenState extends ConsumerState<FreeBooksScreen> {
       backgroundColor: colors.background,
       body: SafeArea(
         bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: Column(
                 children: [
-                  IconButton(
-                    onPressed: () => context.pop(),
-                    icon: Icon(Icons.chevron_left, color: colors.text),
+                  Row(
+                    children: [
+                      _CircleButton(
+                        icon: Icons.arrow_back,
+                        onTap: () => context.pop(),
+                      ),
+                      const SizedBox(width: 16),
+                      Text(
+                        'Free books',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w500,
+                          color: colors.text,
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
-                    'Free books',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: colors.text,
+                  const SizedBox(height: 20),
+
+                  // Search bar
+                  Container(
+                    decoration: BoxDecoration(
+                      color: colors.card,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: Row(
+                      children: [
+                        Icon(Icons.search, size: 20, color: colors.textTertiary),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            onChanged: _onSearchChanged,
+                            decoration: InputDecoration(
+                              isDense: true,
+                              border: InputBorder.none,
+                              hintText: 'Search Project Gutenberg...',
+                              hintStyle: TextStyle(color: colors.textTertiary),
+                              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            style: TextStyle(color: colors.text, fontSize: 16),
+                          ),
+                        ),
+                        if (_searchController.text.trim().isNotEmpty)
+                          IconButton(
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearchChanged('');
+                              setState(() {});
+                            },
+                            icon: Icon(Icons.close, color: colors.textTertiary, size: 20),
+                            tooltip: 'Clear search',
+                          ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 48),
+                  const SizedBox(height: 16),
+
+                  if (error != null && error.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(error, style: TextStyle(color: colors.danger)),
+                    ),
+
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      showingSearch ? 'Search results' : 'Top 100 (popular)',
+                      style: TextStyle(
+                        color: colors.textTertiary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                 ],
               ),
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: colors.card,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: colors.border, width: 1),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.search, size: 20, color: colors.textTertiary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _searchController,
-                        onChanged: _onSearchChanged,
-                        decoration: InputDecoration(
-                          isDense: true,
-                          border: InputBorder.none,
-                          hintText: 'Search Project Gutenberg…',
-                          hintStyle: TextStyle(color: colors.textTertiary),
-                        ),
-                        style: TextStyle(color: colors.text, fontSize: 16),
-                      ),
-                    ),
-                    if (_searchController.text.trim().isNotEmpty)
-                      IconButton(
-                        onPressed: () {
-                          _searchController.clear();
-                          _onSearchChanged('');
-                          setState(() {});
-                        },
-                        icon: Icon(Icons.close, color: colors.textTertiary),
-                        tooltip: 'Clear search',
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (error != null && error.isNotEmpty) ...[
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(error, style: TextStyle(color: colors.danger)),
-                ),
-                const SizedBox(height: 8),
-              ],
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  showingSearch ? 'Search results' : 'Top 100 (popular)',
-                  style: TextStyle(
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: isLoading && items.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
-                    : items.isEmpty
-                        ? Center(
-                            child: Opacity(
-                              opacity: 0.6,
-                              child: Text(
-                                showingSearch ? 'No results.' : 'Loading free books…',
-                                style: TextStyle(color: colors.textSecondary),
-                              ),
+            ),
+
+            // Books list
+            Expanded(
+              child: isLoading && items.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : items.isEmpty
+                      ? Center(
+                          child: Opacity(
+                            opacity: 0.6,
+                            child: Text(
+                              showingSearch ? 'No results.' : 'Loading free books…',
+                              style: TextStyle(color: colors.textSecondary),
                             ),
-                          )
-                        : ListView.builder(
-                            controller: _scrollController,
-                            itemCount:
-                                items.length + (showingSearch && browseState.searchNext != null ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (showingSearch && index == items.length) {
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  child: Center(
-                                    child: TextButton(
-                                      onPressed: browseState.isSearchLoading
-                                          ? null
-                                          : () => ref
-                                              .read(freeBooksProvider.notifier)
-                                              .loadMoreSearchResults(),
-                                      child: Text(
-                                        browseState.isSearchLoading ? 'Loading…' : 'Load more',
-                                        style: TextStyle(
-                                          color: colors.primary,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          itemCount:
+                              items.length + (showingSearch && browseState.searchNext != null ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (showingSearch && index == items.length) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                child: Center(
+                                  child: TextButton(
+                                    onPressed: browseState.isSearchLoading
+                                        ? null
+                                        : () => ref
+                                            .read(freeBooksProvider.notifier)
+                                            .loadMoreSearchResults(),
+                                    child: Text(
+                                      browseState.isSearchLoading ? 'Loading…' : 'Load more',
+                                      style: TextStyle(
+                                        color: colors.primary,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ),
-                                );
-                              }
-
-                              final book = items[index];
-                              final entry = importState.entryFor(book.id);
-                              String? importedBookId;
-                              if (library != null) {
-                                for (final b in library.books) {
-                                  if (b.gutenbergId == book.id) {
-                                    importedBookId = b.id;
-                                    break;
-                                  }
-                                }
-                              }
-                              final isImported =
-                                  importedBookId != null || entry.phase == GutenbergImportPhase.done;
-
-                              final coverUrl = book.coverImageUrl;
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: colors.card,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: colors.border, width: 1),
-                                ),
-                                child: Row(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(6),
-                                      child: coverUrl == null || coverUrl.isEmpty
-                                          ? Container(
-                                              width: 64,
-                                              height: 96,
-                                              color: colors.border,
-                                              child: Icon(Icons.book, color: colors.textTertiary),
-                                            )
-                                          : Image.network(
-                                              coverUrl,
-                                              width: 64,
-                                              height: 96,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (c, e, s) => Container(
-                                                width: 64,
-                                                height: 96,
-                                                color: colors.border,
-                                                child: Icon(Icons.book, color: colors.textTertiary),
-                                              ),
-                                            ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            book.title,
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w600,
-                                              color: colors.text,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            book.authorsDisplay,
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              color: colors.textSecondary,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'Gutenberg #${book.id}',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: colors.textTertiary,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-                                          Row(
-                                            children: [
-                                              if (entry.phase == GutenbergImportPhase.downloading)
-                                                Expanded(
-                                                  child: ClipRRect(
-                                                    borderRadius: BorderRadius.circular(999),
-                                                    child: LinearProgressIndicator(
-                                                      value: entry.progress,
-                                                      minHeight: 6,
-                                                      backgroundColor: colors.border,
-                                                      valueColor:
-                                                          AlwaysStoppedAnimation<Color>(colors.primary),
-                                                    ),
-                                                  ),
-                                                )
-                                              else
-                                                const Expanded(child: SizedBox.shrink()),
-                                              const SizedBox(width: 12),
-                                              TextButton(
-                                                onPressed: entry.isBusy
-                                                    ? null
-                                                    : () async {
-                                                        if (isImported && importedBookId != null) {
-                                                          if (!context.mounted) return;
-                                                          context.push('/book/$importedBookId');
-                                                          return;
-                                                        }
-
-                                                        final result = await ref
-                                                            .read(gutenbergImportProvider.notifier)
-                                                            .importBook(book);
-                                                        if (!context.mounted) return;
-                                                        ScaffoldMessenger.of(context).showSnackBar(
-                                                          SnackBar(content: Text(result.message)),
-                                                        );
-                                                        if (result.ok && result.bookId != null) {
-                                                          context.push('/book/${result.bookId}');
-                                                        }
-                                                      },
-                                                child: Text(
-                                                  entry.isBusy
-                                                      ? (entry.phase == GutenbergImportPhase.importing
-                                                          ? 'Importing…'
-                                                          : 'Downloading…')
-                                                      : (isImported ? 'Open' : 'Import'),
-                                                  style: TextStyle(
-                                                    color: entry.isBusy
-                                                        ? colors.textTertiary
-                                                        : colors.primary,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          if (entry.phase == GutenbergImportPhase.failed &&
-                                              entry.message != null &&
-                                              entry.message!.isNotEmpty) ...[
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              entry.message!,
-                                              style: TextStyle(
-                                                color: colors.danger,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ],
                                 ),
                               );
-                            },
-                          ),
-              ),
-            ],
-          ),
+                            }
+
+                            final book = items[index];
+                            final entry = importState.entryFor(book.id);
+                            String? importedBookId;
+                            if (library != null) {
+                              for (final b in library.books) {
+                                if (b.gutenbergId == book.id) {
+                                  importedBookId = b.id;
+                                  break;
+                                }
+                              }
+                            }
+                            final isImported =
+                                importedBookId != null || entry.phase == GutenbergImportPhase.done;
+
+                            final coverUrl = book.coverImageUrl;
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: colors.card,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: coverUrl == null || coverUrl.isEmpty
+                                        ? Container(
+                                            width: 80,
+                                            height: 112,
+                                            color: colors.border,
+                                            child: Icon(Icons.book, color: colors.textTertiary),
+                                          )
+                                        : Image.network(
+                                            coverUrl,
+                                            width: 80,
+                                            height: 112,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (c, e, s) => Container(
+                                              width: 80,
+                                              height: 112,
+                                              color: colors.border,
+                                              child: Icon(Icons.book, color: colors.textTertiary),
+                                            ),
+                                          ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          book.title,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w500,
+                                            color: colors.text,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          book.authorsDisplay,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: colors.textTertiary,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Gutenberg #${book.id}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: colors.textTertiary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Column(
+                                    children: [
+                                      if (entry.phase == GutenbergImportPhase.downloading)
+                                        SizedBox(
+                                          width: 60,
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(4),
+                                            child: LinearProgressIndicator(
+                                              value: entry.progress,
+                                              minHeight: 4,
+                                              backgroundColor: colors.border,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(colors.primary),
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        TextButton(
+                                          onPressed: entry.isBusy
+                                              ? null
+                                              : () async {
+                                                  if (isImported && importedBookId != null) {
+                                                    if (!context.mounted) return;
+                                                    context.push('/book/$importedBookId');
+                                                    return;
+                                                  }
+
+                                                  final result = await ref
+                                                      .read(gutenbergImportProvider.notifier)
+                                                      .importBook(book);
+                                                  if (!context.mounted) return;
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(content: Text(result.message)),
+                                                  );
+                                                  if (result.ok && result.bookId != null) {
+                                                    context.push('/book/${result.bookId}');
+                                                  }
+                                                },
+                                          child: Text(
+                                            entry.isBusy
+                                                ? (entry.phase == GutenbergImportPhase.importing
+                                                    ? 'Importing…'
+                                                    : 'Downloading…')
+                                                : (isImported ? 'Open' : 'Import'),
+                                            style: TextStyle(
+                                              color: entry.isBusy
+                                                  ? colors.textTertiary
+                                                  : colors.primary,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      if (entry.phase == GutenbergImportPhase.failed &&
+                                          entry.message != null &&
+                                          entry.message!.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 4),
+                                          child: Text(
+                                            entry.message!,
+                                            style: TextStyle(
+                                              color: colors.danger,
+                                              fontSize: 10,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _CircleButton extends StatelessWidget {
+  const _CircleButton({
+    required this.icon,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: colors.card,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: 20, color: colors.text),
       ),
     );
   }
