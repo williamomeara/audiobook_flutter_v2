@@ -84,12 +84,12 @@
 
 ## ⏳ Pending Tasks
 
-### First-Run Optimization Prompt
-| Task | Status | Notes |
-|------|--------|-------|
-| Create OptimizationPromptDialog widget | ⏳ | Started but not completed |
-| Show prompt on first use of unoptimized engine | ⏳ | Needs integration |
-| Add "Skip" / "Optimize Now" buttons | ⏳ | Part of dialog |
+### First-Run Optimization Prompt ✅ COMPLETED
+| Task | Status | Commit |
+|------|--------|--------|
+| Create OptimizationPromptDialog widget | ✅ | 445e61b |
+| Show prompt on first use of unoptimized engine | ✅ | 445e61b |
+| Add "Skip" / "Optimize Now" buttons | ✅ | 445e61b |
 
 ### Native Opus Integration
 | Task | Status | Notes |
@@ -145,14 +145,14 @@
 | Phase 1 (First-Segment) | 5 | 0 | 0 |
 | Phase 2 (Resource-Aware) | 4 | 0 | 0 |
 | Phase 3 (Cache) | 8 | 1 | 0 |
-| Phase 4 (Auto-Tuning) | 9 | 2 | 0 |
+| Phase 4 (Auto-Tuning) | 12 | 0 | 0 |
 | Phase 5 (Segment UI) | 5 | 0 | 0 |
 | UI/UX Improvements | 3 | 0 | 0 |
 | Documentation | 11 | 0 | 0 |
 | Testing & Validation | 0 | 4 | 0 |
 | Polish & Deployment | 0 | 3 | 0 |
 | Kokoro Optimization | 0 | 0 | 6 |
-| **TOTAL** | **45** | **10** | **6** |
+| **TOTAL** | **48** | **8** | **6** |
 
 ---
 
