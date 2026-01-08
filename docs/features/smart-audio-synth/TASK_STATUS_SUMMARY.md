@@ -182,7 +182,36 @@
 | Week 4 | Auto-Tuning System | ✅ Complete |
 | Week 5 | Intelligent Cache Management | ✅ Complete |
 | Week 6 | Segment Readiness UI + Cache Polish | ✅ Complete |
-| Week 7 | Testing & Validation | ⏳ Pending |
-| Week 8 | Polish & Deployment | ⏳ Pending |
+| Week 7 | Testing & Validation | ✅ Complete |
+| Week 8 | Polish & Deployment | ✅ Complete |
 
-**Current Position**: End of Week 6 - Core features complete, entering testing phase.
+**Current Position**: Feature branch complete - ready for merge.
+
+---
+
+## 🔮 Future Work (Post-Merge)
+
+The following items are low priority enhancements that can be addressed in future iterations:
+
+### Predictive Pre-Synthesis
+| Task | Priority | Notes |
+|------|----------|-------|
+| Next-chapter prediction | Low | Predict user will read next chapter |
+| Seek hotspot pre-synthesis | Low | Pre-synth common seek positions |
+| Multi-chapter sliding window | Low | Keep 2-3 chapters synthesized |
+
+### Kokoro Optimization
+**Project Location**: `docs/features/kokoro-optimization/`
+
+Kokoro has RTF 2.76x (slower than real-time). A dedicated 4-6 week project is needed for:
+- ONNX Runtime tuning
+- Quantization testing
+- GPU/NPU acceleration
+- Native implementation
+
+### Additional Enhancements
+| Task | Priority | Notes |
+|------|----------|-------|
+| Analytics instrumentation | Medium | Track buffering events, RTF metrics |
+| Advanced cache insights UI | Low | Per-book, per-voice breakdown |
+| Device testing on more devices | Medium | Expand test matrix |
