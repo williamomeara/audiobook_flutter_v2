@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:playback/playback.dart';
 
 import '../../app/granular_download_manager.dart';
+import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
+import '../../app/tts_providers.dart';
 import '../theme/app_colors.dart';
 import 'package:core_domain/core_domain.dart';
 
@@ -166,6 +169,15 @@ class SettingsScreen extends ConsumerWidget {
                             ],
                           ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Engine Optimization section (Phase 4: Auto-tuning)
+                    _SectionCard(
+                      title: 'Engine Optimization',
+                      children: [
+                        _EngineOptimizationRow(colors: colors),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -507,3 +519,217 @@ class _VoiceOption extends ConsumerWidget {
     );
   }
 }
+
+/// Engine optimization settings row with device profiling.
+class _EngineOptimizationRow extends ConsumerStatefulWidget {
+  const _EngineOptimizationRow({required this.colors});
+
+  final AppThemeColors colors;
+
+  @override
+  ConsumerState<_EngineOptimizationRow> createState() => _EngineOptimizationRowState();
+}
+
+class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> {
+  bool _isOptimizing = false;
+  String? _lastResult;
+  int _progress = 0;
+  int _total = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(settingsProvider);
+    final voiceId = settings.selectedVoice;
+    final configManager = ref.watch(engineConfigManagerProvider);
+
+    return FutureBuilder<DeviceEngineConfig?>(
+      future: configManager.loadConfig(voiceId),
+      builder: (context, snapshot) {
+        final config = snapshot.data;
+        final hasBeenOptimized = config?.tunedAt != null;
+        
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Device optimization',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: widget.colors.text,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _getStatusText(hasBeenOptimized, config),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: widget.colors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_isOptimizing)
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: _total > 0 ? _progress / _total : null,
+                        color: widget.colors.primary,
+                      ),
+                    )
+                  else
+                    TextButton(
+                      onPressed: () => _runOptimization(voiceId),
+                      child: Text(
+                        hasBeenOptimized ? 'Re-optimize' : 'Optimize',
+                        style: TextStyle(color: widget.colors.primary),
+                      ),
+                    ),
+                ],
+              ),
+              if (_lastResult != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: widget.colors.backgroundSecondary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle, color: widget.colors.primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _lastResult!,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: widget.colors.text,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (hasBeenOptimized && config != null) ...[
+                const SizedBox(height: 12),
+                _buildConfigDetails(config),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _getStatusText(bool hasBeenOptimized, DeviceEngineConfig? config) {
+    if (_isOptimizing) {
+      return 'Running optimization test ($_progress/$_total)...';
+    }
+    if (!hasBeenOptimized) {
+      return 'Run a quick test to optimize playback for your device';
+    }
+    final tunedAt = config?.tunedAt;
+    if (tunedAt != null) {
+      final daysAgo = DateTime.now().difference(tunedAt).inDays;
+      if (daysAgo == 0) {
+        return 'Optimized today • ${config!.deviceTier.name.toUpperCase()} device';
+      }
+      return 'Optimized $daysAgo days ago • ${config!.deviceTier.name.toUpperCase()} device';
+    }
+    return 'Optimized for your device';
+  }
+
+  Widget _buildConfigDetails(DeviceEngineConfig config) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      children: [
+        _buildChip('RTF: ${config.measuredRTF.toStringAsFixed(2)}x'),
+        _buildChip('Prefetch: ${config.prefetchWindowSize} segments'),
+        if (config.prefetchConcurrency > 1)
+          _buildChip('Parallel: ${config.prefetchConcurrency}x'),
+      ],
+    );
+  }
+
+  Widget _buildChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: widget.colors.backgroundSecondary,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: widget.colors.border),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          color: widget.colors.textSecondary,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runOptimization(String voiceId) async {
+    setState(() {
+      _isOptimizing = true;
+      _lastResult = null;
+      _progress = 0;
+      _total = 0;
+    });
+
+    try {
+      final engine = await ref.read(ttsRoutingEngineProvider.future);
+      final profiler = ref.read(deviceProfilerProvider);
+      final configManager = ref.read(engineConfigManagerProvider);
+      final playbackRate = ref.read(settingsProvider).defaultPlaybackRate;
+
+      final profile = await profiler.profileEngine(
+        engine: engine,
+        voiceId: voiceId,
+        playbackRate: playbackRate,
+        onProgress: (current, total) {
+          setState(() {
+            _progress = current;
+            _total = total;
+          });
+        },
+      );
+
+      final config = profiler.createConfigFromProfile(profile);
+      await configManager.saveConfig(config);
+
+      setState(() {
+        _lastResult = 'Detected ${config.deviceTier.name.toUpperCase()} device '
+            '(RTF: ${profile.rtf.toStringAsFixed(2)}x)';
+      });
+    } catch (e) {
+      setState(() {
+        _lastResult = null;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Optimization failed: $e')),
+        );
+      }
+    } finally {
+      setState(() {
+        _isOptimizing = false;
+      });
+    }
+  }
+}
+
