@@ -5,6 +5,7 @@ import 'package:platform_android_tts/platform_android_tts.dart';
 
 import 'app_paths.dart';
 import 'granular_download_manager.dart';
+import 'playback_providers.dart';
 
 /// Provider for TTS Native API (Pigeon-generated).
 final ttsNativeApiProvider = Provider<TtsNativeApi>((ref) {
@@ -68,7 +69,7 @@ final supertonicAdapterProvider = FutureProvider<SupertonicAdapter?>((ref) async
 
 /// Provider for the routing engine with all adapters.
 final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
-  final cache = await ref.read(_ttsAudioCacheProvider.future);
+  final cache = await ref.read(intelligentCacheManagerProvider.future);
   final kokoro = await ref.read(kokoroAdapterProvider.future);
   final piper = await ref.read(piperAdapterProvider.future);
   final supertonic = await ref.read(supertonicAdapterProvider.future);
@@ -79,12 +80,6 @@ final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
     piperEngine: piper,
     supertonicEngine: supertonic,
   );
-});
-
-/// Private provider for the audio cache (used internally by TTS).
-final _ttsAudioCacheProvider = FutureProvider<AudioCache>((ref) async {
-  final paths = await ref.read(appPathsProvider.future);
-  return FileAudioCache(cacheDir: paths.audioCacheDir);
 });
 
 /// Get the engine ID for a voice.

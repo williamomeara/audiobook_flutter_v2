@@ -12,6 +12,7 @@ class SettingsState {
     this.defaultPlaybackRate = 1.0,
     this.smartSynthesisEnabled = true,
     this.cacheQuotaGB = 2.0,
+    this.showBookCoverBackground = true,
   });
 
   /// Whether dark mode is enabled.
@@ -32,6 +33,9 @@ class SettingsState {
   /// Audio cache quota in GB (0.5 to 10.0).
   final double cacheQuotaGB;
 
+  /// Whether to show book cover as faded background in playback screen.
+  final bool showBookCoverBackground;
+
   SettingsState copyWith({
     bool? darkMode,
     String? selectedVoice,
@@ -39,6 +43,7 @@ class SettingsState {
     double? defaultPlaybackRate,
     bool? smartSynthesisEnabled,
     double? cacheQuotaGB,
+    bool? showBookCoverBackground,
   }) {
     return SettingsState(
       darkMode: darkMode ?? this.darkMode,
@@ -47,6 +52,7 @@ class SettingsState {
       defaultPlaybackRate: defaultPlaybackRate ?? this.defaultPlaybackRate,
       smartSynthesisEnabled: smartSynthesisEnabled ?? this.smartSynthesisEnabled,
       cacheQuotaGB: cacheQuotaGB ?? this.cacheQuotaGB,
+      showBookCoverBackground: showBookCoverBackground ?? this.showBookCoverBackground,
     );
   }
 }
@@ -59,6 +65,7 @@ class SettingsController extends Notifier<SettingsState> {
   static const _keyPlaybackRate = 'default_playback_rate';
   static const _keySmartSynthesis = 'smart_synthesis_enabled';
   static const _keyCacheQuotaGB = 'cache_quota_gb';
+  static const _keyShowBookCoverBackground = 'show_book_cover_background';
 
   @override
   SettingsState build() {
@@ -78,6 +85,7 @@ class SettingsController extends Notifier<SettingsState> {
       defaultPlaybackRate: _prefs?.getDouble(_keyPlaybackRate) ?? 1.0,
       smartSynthesisEnabled: _prefs?.getBool(_keySmartSynthesis) ?? true,
       cacheQuotaGB: _prefs?.getDouble(_keyCacheQuotaGB) ?? 2.0,
+      showBookCoverBackground: _prefs?.getBool(_keyShowBookCoverBackground) ?? true,
     );
   }
 
@@ -109,6 +117,11 @@ class SettingsController extends Notifier<SettingsState> {
   Future<void> setCacheQuotaGB(double quotaGB) async {
     state = state.copyWith(cacheQuotaGB: quotaGB);
     await _prefs?.setDouble(_keyCacheQuotaGB, quotaGB);
+  }
+
+  Future<void> setShowBookCoverBackground(bool value) async {
+    state = state.copyWith(showBookCoverBackground: value);
+    await _prefs?.setBool(_keyShowBookCoverBackground, value);
   }
 }
 

@@ -24,11 +24,23 @@ class AppPalette {
   static const indigo800 = Color(0xFF3730A3);
   static const indigo900 = Color(0xFF312E81);
 
+  // Slate palette (from Figma design)
+  static const slate300 = Color(0xFFCBD5E1);
+  static const slate400 = Color(0xFF94A3B8);
+  static const slate500 = Color(0xFF64748B);
+  static const slate600 = Color(0xFF475569);
+  static const slate700 = Color(0xFF334155);
+  static const slate800 = Color(0xFF1E293B);
+  static const slate900 = Color(0xFF0F172A);
+
+  // Amber palette (accent color from Figma design)
+  static const amber400 = Color(0xFFFBBF24);
+  static const amber500 = Color(0xFFF59E0B);
+  static const amber600 = Color(0xFFD97706);
+
   static const white = Color(0xFFFFFFFF);
   static const black = Color(0xFF000000);
   static const red = Color(0xFFEF4444);
-  static const amber500 = Color(0xFFF59E0B);
-  static const amber600 = Color(0xFFD97706);
 }
 
 @immutable
@@ -41,6 +53,8 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     required this.textTertiary,
     required this.primary,
     required this.primaryForeground,
+    required this.accent,
+    required this.accentForeground,
     required this.card,
     required this.border,
     required this.inputBackground,
@@ -51,6 +65,9 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     required this.voiceBadgeBackground,
     required this.voiceBadgeText,
     required this.chapterItemBg,
+    required this.textHighlight,
+    required this.textPast,
+    required this.controlBackground,
   });
 
   final Color background;
@@ -60,6 +77,8 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   final Color textTertiary;
   final Color primary;
   final Color primaryForeground;
+  final Color accent;
+  final Color accentForeground;
   final Color card;
   final Color border;
   final Color inputBackground;
@@ -71,6 +90,9 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   final Color voiceBadgeBackground;
   final Color voiceBadgeText;
   final Color chapterItemBg;
+  final Color textHighlight;
+  final Color textPast;
+  final Color controlBackground;
 
   static const light = AppThemeColors(
     background: AppPalette.white,
@@ -80,6 +102,8 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     textTertiary: AppPalette.neutral400,
     primary: AppPalette.indigo500,
     primaryForeground: AppPalette.white,
+    accent: AppPalette.amber500,
+    accentForeground: AppPalette.neutral900,
     card: AppPalette.white,
     border: AppPalette.neutral200,
     inputBackground: AppPalette.neutral100,
@@ -90,26 +114,34 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     voiceBadgeBackground: AppPalette.indigo100,
     voiceBadgeText: AppPalette.indigo700,
     chapterItemBg: AppPalette.neutral50,
+    textHighlight: AppPalette.amber500,
+    textPast: AppPalette.neutral400,
+    controlBackground: AppPalette.neutral100,
   );
 
   static const dark = AppThemeColors(
-    background: AppPalette.neutral950,
-    backgroundSecondary: AppPalette.neutral900,
-    text: AppPalette.neutral50,
-    textSecondary: AppPalette.neutral400,
-    textTertiary: AppPalette.neutral600,
-    primary: AppPalette.indigo500,
-    primaryForeground: AppPalette.white,
-    card: AppPalette.neutral900,
-    border: AppPalette.neutral800,
-    inputBackground: AppPalette.neutral800,
+    background: AppPalette.slate900,
+    backgroundSecondary: AppPalette.slate800,
+    text: AppPalette.white,
+    textSecondary: AppPalette.slate400,
+    textTertiary: AppPalette.slate600,
+    primary: AppPalette.amber500,
+    primaryForeground: AppPalette.slate900,
+    accent: AppPalette.amber500,
+    accentForeground: AppPalette.slate900,
+    card: AppPalette.slate800,
+    border: AppPalette.slate700,
+    inputBackground: AppPalette.slate700,
     danger: AppPalette.red,
     warning: AppPalette.amber500,
-    headerBackground: AppPalette.neutral950,
-    tabBarBackground: AppPalette.neutral950,
-    voiceBadgeBackground: Color(0x336366F1),
-    voiceBadgeText: AppPalette.indigo300,
-    chapterItemBg: AppPalette.neutral900,
+    headerBackground: AppPalette.slate900,
+    tabBarBackground: AppPalette.slate900,
+    voiceBadgeBackground: Color(0x33F59E0B),
+    voiceBadgeText: AppPalette.amber400,
+    chapterItemBg: AppPalette.slate800,
+    textHighlight: AppPalette.amber400,
+    textPast: AppPalette.slate500,
+    controlBackground: AppPalette.slate700,
   );
 
   @override
@@ -121,6 +153,8 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     Color? textTertiary,
     Color? primary,
     Color? primaryForeground,
+    Color? accent,
+    Color? accentForeground,
     Color? card,
     Color? border,
     Color? inputBackground,
@@ -131,6 +165,9 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     Color? voiceBadgeBackground,
     Color? voiceBadgeText,
     Color? chapterItemBg,
+    Color? textHighlight,
+    Color? textPast,
+    Color? controlBackground,
   }) {
     return AppThemeColors(
       background: background ?? this.background,
@@ -140,6 +177,8 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
       textTertiary: textTertiary ?? this.textTertiary,
       primary: primary ?? this.primary,
       primaryForeground: primaryForeground ?? this.primaryForeground,
+      accent: accent ?? this.accent,
+      accentForeground: accentForeground ?? this.accentForeground,
       card: card ?? this.card,
       border: border ?? this.border,
       inputBackground: inputBackground ?? this.inputBackground,
@@ -150,6 +189,9 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
       voiceBadgeBackground: voiceBadgeBackground ?? this.voiceBadgeBackground,
       voiceBadgeText: voiceBadgeText ?? this.voiceBadgeText,
       chapterItemBg: chapterItemBg ?? this.chapterItemBg,
+      textHighlight: textHighlight ?? this.textHighlight,
+      textPast: textPast ?? this.textPast,
+      controlBackground: controlBackground ?? this.controlBackground,
     );
   }
 
@@ -164,6 +206,8 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
       textTertiary: Color.lerp(textTertiary, other.textTertiary, t)!,
       primary: Color.lerp(primary, other.primary, t)!,
       primaryForeground: Color.lerp(primaryForeground, other.primaryForeground, t)!,
+      accent: Color.lerp(accent, other.accent, t)!,
+      accentForeground: Color.lerp(accentForeground, other.accentForeground, t)!,
       card: Color.lerp(card, other.card, t)!,
       border: Color.lerp(border, other.border, t)!,
       inputBackground: Color.lerp(inputBackground, other.inputBackground, t)!,
@@ -174,6 +218,9 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
       voiceBadgeBackground: Color.lerp(voiceBadgeBackground, other.voiceBadgeBackground, t)!,
       voiceBadgeText: Color.lerp(voiceBadgeText, other.voiceBadgeText, t)!,
       chapterItemBg: Color.lerp(chapterItemBg, other.chapterItemBg, t)!,
+      textHighlight: Color.lerp(textHighlight, other.textHighlight, t)!,
+      textPast: Color.lerp(textPast, other.textPast, t)!,
+      controlBackground: Color.lerp(controlBackground, other.controlBackground, t)!,
     );
   }
 }

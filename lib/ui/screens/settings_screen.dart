@@ -8,6 +8,7 @@ import '../../app/granular_download_manager.dart';
 import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
 import '../../app/tts_providers.dart';
+import '../../app/voice_preview_service.dart';
 import '../theme/app_colors.dart';
 import 'package:core_domain/core_domain.dart';
 
@@ -76,6 +77,16 @@ class SettingsScreen extends ConsumerWidget {
                           trailing: Switch(
                             value: settings.darkMode,
                             onChanged: ref.read(settingsProvider.notifier).setDarkMode,
+                            activeColor: colors.primary,
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          label: 'Book cover background',
+                          subLabel: 'Show cover art behind text in playback',
+                          trailing: Switch(
+                            value: settings.showBookCoverBackground,
+                            onChanged: ref.read(settingsProvider.notifier).setShowBookCoverBackground,
                             activeColor: colors.primary,
                           ),
                         ),
@@ -258,55 +269,68 @@ class SettingsScreen extends ConsumerWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.7,
         minChildSize: 0.5,
         maxChildSize: 0.9,
         expand: false,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: colors.background,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Consumer(
-            builder: (context, ref, _) {
-              final downloadState = ref.watch(granularDownloadManagerProvider);
-              
-              // Get ready voice IDs
-              final readyVoiceIds = downloadState.maybeWhen(
-                data: (state) => state.readyVoices.map((v) => v.voiceId).toSet(),
-                orElse: () => <String>{},
-              );
-              
-              // Filter voices by engine to only include downloaded ones
-              final readyKokoroVoices = VoiceIds.kokoroVoices
-                  .where((id) => readyVoiceIds.contains(id))
-                  .toList();
-              final readyPiperVoices = VoiceIds.piperVoices
-                  .where((id) => readyVoiceIds.contains(id))
-                  .toList();
-              final readySupertonicVoices = VoiceIds.supertonicVoices
-                  .where((id) => readyVoiceIds.contains(id))
-                  .toList();
-              
-              final hasNoDownloadedVoices = readyKokoroVoices.isEmpty &&
-                  readyPiperVoices.isEmpty &&
-                  readySupertonicVoices.isEmpty;
-              
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      'Select Voice',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: colors.text,
+        builder: (context, scrollController) => ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          child: Container(
+            decoration: BoxDecoration(
+              color: colors.card,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Consumer(
+              builder: (context, ref, _) {
+                final downloadState = ref.watch(granularDownloadManagerProvider);
+                
+                // Get ready voice IDs
+                final readyVoiceIds = downloadState.maybeWhen(
+                  data: (state) => state.readyVoices.map((v) => v.voiceId).toSet(),
+                  orElse: () => <String>{},
+                );
+                
+                // Filter voices by engine to only include downloaded ones
+                final readyKokoroVoices = VoiceIds.kokoroVoices
+                    .where((id) => readyVoiceIds.contains(id))
+                    .toList();
+                final readyPiperVoices = VoiceIds.piperVoices
+                    .where((id) => readyVoiceIds.contains(id))
+                    .toList();
+                final readySupertonicVoices = VoiceIds.supertonicVoices
+                    .where((id) => readyVoiceIds.contains(id))
+                    .toList();
+                
+                final hasNoDownloadedVoices = readyKokoroVoices.isEmpty &&
+                    readyPiperVoices.isEmpty &&
+                    readySupertonicVoices.isEmpty;
+                
+                return Column(
+                  children: [
+                    // Drag handle
+                    Container(
+                      margin: const EdgeInsets.only(top: 12),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colors.textTertiary,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                  ),
-                  Expanded(
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Select Voice',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: colors.text,
+                        ),
+                      ),
+                    ),
+                    Expanded(
                     child: ListView(
                       controller: scrollController,
                       children: [
@@ -424,6 +448,7 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
         ),
+        ),
       ),
     );
   }
@@ -522,7 +547,7 @@ class _SettingsRow extends StatelessWidget {
   }
 }
 
-class _VoiceOption extends ConsumerWidget {
+class _VoiceOption extends ConsumerStatefulWidget {
   const _VoiceOption({
     required this.name,
     required this.voiceId,
@@ -534,23 +559,97 @@ class _VoiceOption extends ConsumerWidget {
   final String? description;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_VoiceOption> createState() => _VoiceOptionState();
+}
+
+class _VoiceOptionState extends ConsumerState<_VoiceOption> {
+  bool _hasPreview = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkPreviewAvailability();
+  }
+
+  Future<void> _checkPreviewAvailability() async {
+    final hasPreview = await ref.read(voicePreviewProvider.notifier).hasPreview(widget.voiceId);
+    if (mounted) {
+      setState(() => _hasPreview = hasPreview);
+    }
+  }
+
+  Future<void> _togglePreview() async {
+    final notifier = ref.read(voicePreviewProvider.notifier);
+    final currentlyPlaying = ref.read(voicePreviewProvider);
+    
+    if (currentlyPlaying == widget.voiceId) {
+      await notifier.stop();
+    } else {
+      await notifier.playPreview(widget.voiceId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colors = context.appColors;
     final settings = ref.watch(settingsProvider);
-    final isSelected = settings.selectedVoice == voiceId;
+    final isSelected = settings.selectedVoice == widget.voiceId;
     
-    return ListTile(
-      title: Text(name, style: TextStyle(color: colors.text)),
-      subtitle: description != null
-          ? Text(description!, style: TextStyle(color: colors.textSecondary))
-          : null,
-      trailing: isSelected
-          ? Icon(Icons.check_circle, color: colors.primary)
-          : null,
+    // Watch the currently playing preview to reactively update UI
+    final currentlyPlaying = ref.watch(voicePreviewProvider);
+    final isPlaying = currentlyPlaying == widget.voiceId;
+    
+    return InkWell(
       onTap: () {
-        ref.read(settingsProvider.notifier).setSelectedVoice(voiceId);
+        // Stop any playing preview before selecting
+        ref.read(voicePreviewProvider.notifier).stop();
+        ref.read(settingsProvider.notifier).setSelectedVoice(widget.voiceId);
         Navigator.of(context).pop();
       },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            // Preview button - wrapped in GestureDetector to prevent tap propagation
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _hasPreview ? _togglePreview : null,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Icon(
+                  isPlaying ? Icons.stop_circle : Icons.play_circle_outline,
+                  size: 28,
+                  color: isPlaying 
+                      ? colors.primary 
+                      : (_hasPreview ? colors.textSecondary : colors.textTertiary),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Voice name and description
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(widget.name, style: TextStyle(color: colors.text, fontSize: 16)),
+                  if (widget.description != null)
+                    Text(
+                      widget.description!,
+                      style: TextStyle(color: colors.textSecondary, fontSize: 14),
+                    ),
+                ],
+              ),
+            ),
+            // Selection checkmark
+            if (isSelected)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Icon(Icons.check_circle, color: colors.primary),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

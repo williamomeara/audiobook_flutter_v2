@@ -351,7 +351,41 @@ class IntelligentCacheManager implements AudioCache {
         accessCount: entry.accessCount + 1,
       );
       // Don't save immediately - batch saves for performance
+    } else {
+      // Auto-register entry if not in metadata (supports legacy files)
+      final file = File('${_cacheDir.path}/$filename');
+      if (await file.exists()) {
+        final stat = await file.stat();
+        _metadata[filename] = CacheEntryMetadata(
+          key: filename,
+          sizeBytes: stat.size,
+          createdAt: stat.changed,
+          lastAccessed: DateTime.now(),
+          accessCount: 1,
+          bookId: 'unknown',
+          voiceId: key.voiceId,
+          segmentIndex: 0,
+          chapterIndex: 0,
+          engineType: _engineTypeForVoice(key.voiceId),
+          audioDurationMs: _estimateDurationFromSize(stat.size),
+        );
+        await _saveMetadata();
+      }
     }
+  }
+
+  /// Estimate engine type from voice ID.
+  String _engineTypeForVoice(String voiceId) {
+    if (voiceId.startsWith('kokoro')) return 'kokoro';
+    if (voiceId.startsWith('piper')) return 'piper';
+    if (voiceId.startsWith('supertonic')) return 'supertonic';
+    return 'unknown';
+  }
+
+  /// Estimate duration from file size (WAV at 22050Hz mono 16-bit ≈ 44100 bytes/sec).
+  int _estimateDurationFromSize(int bytes) {
+    // Subtract WAV header (44 bytes), divide by bytes per second
+    return ((bytes - 44) / 44100 * 1000).round().clamp(0, 3600000);
   }
 
   @override
@@ -469,17 +503,17 @@ class IntelligentCacheManager implements AudioCache {
   Future<void> _syncWithFileSystem() async {
     if (!await _cacheDir.exists()) return;
 
-    final existingFiles = <String>{};
+    final existingFiles = <String, File>{};
     await for (final entity in _cacheDir.list()) {
       if (entity is File) {
-        existingFiles.add(entity.uri.pathSegments.last);
+        existingFiles[entity.uri.pathSegments.last] = entity;
       }
     }
 
     // Remove metadata for files that no longer exist
     final toRemove = <String>[];
     for (final key in _metadata.keys) {
-      if (!existingFiles.contains(key)) {
+      if (!existingFiles.containsKey(key)) {
         toRemove.add(key);
       }
     }
@@ -493,8 +527,88 @@ class IntelligentCacheManager implements AudioCache {
         '🔄 Removed ${toRemove.length} stale metadata entries',
         name: 'IntelligentCacheManager',
       );
+    }
+
+    // Auto-register orphan files (files without metadata entries)
+    // This supports upgrading from FileAudioCache to IntelligentCacheManager
+    int orphansRegistered = 0;
+    for (final entry in existingFiles.entries) {
+      final filename = entry.key;
+      final file = entry.value;
+      
+      // Skip metadata file itself
+      if (filename.endsWith('.json')) continue;
+      
+      if (!_metadata.containsKey(filename)) {
+        try {
+          final stat = await file.stat();
+          // Parse voice ID from filename (format: voiceId_hash.wav)
+          final voiceId = _parseVoiceIdFromFilename(filename);
+          
+          _metadata[filename] = CacheEntryMetadata(
+            key: filename,
+            sizeBytes: stat.size,
+            createdAt: stat.changed,
+            lastAccessed: stat.accessed,
+            accessCount: 1,
+            bookId: 'unknown',
+            voiceId: voiceId,
+            segmentIndex: 0,
+            chapterIndex: 0,
+            engineType: _engineTypeForVoice(voiceId),
+            audioDurationMs: _estimateDurationFromSize(stat.size),
+          );
+          orphansRegistered++;
+        } catch (e) {
+          developer.log(
+            '⚠️ Failed to register orphan file: $filename - $e',
+            name: 'IntelligentCacheManager',
+          );
+        }
+      }
+    }
+
+    if (orphansRegistered > 0) {
+      developer.log(
+        '📦 Auto-registered $orphansRegistered orphan cache files',
+        name: 'IntelligentCacheManager',
+      );
+    }
+
+    if (toRemove.isNotEmpty || orphansRegistered > 0) {
       await _saveMetadata();
     }
+  }
+
+  /// Parse voice ID from cache filename.
+  String _parseVoiceIdFromFilename(String filename) {
+    // Filename format: voiceId_hash.wav
+    // Voice IDs can contain underscores, so we need to handle that
+    final withoutExtension = filename.replaceAll('.wav', '');
+    final parts = withoutExtension.split('_');
+    
+    // Try to detect common voice ID patterns
+    if (parts.isNotEmpty) {
+      // Kokoro: kokoro_af, kokoro_af_bella, etc.
+      if (parts[0] == 'kokoro' && parts.length >= 2) {
+        // Find where the hash starts (last part that looks like a hash)
+        for (int i = parts.length - 1; i >= 2; i--) {
+          if (parts[i].length >= 10) {
+            return parts.sublist(0, i).join('_');
+          }
+        }
+        return parts.sublist(0, parts.length - 1).join('_');
+      }
+      // Supertonic: supertonic_m1, supertonic_f2, etc.
+      if (parts[0] == 'supertonic' && parts.length >= 2) {
+        return '${parts[0]}_${parts[1]}';
+      }
+      // Piper: piper_en_US-lessac-medium, etc.
+      if (parts[0] == 'piper' && parts.length >= 2) {
+        return parts.sublist(0, parts.length - 1).join('_').replaceAll('_', ':');
+      }
+    }
+    return 'unknown';
   }
 
   /// Dispose resources.

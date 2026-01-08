@@ -33,6 +33,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
   bool _isPlaying = false;
   bool _isReimporting = false;
   bool _isBenchmarking = false;
+  bool _isGeneratingPreviews = false;
   String? _lastError;
   String? _lastAudioPath;
   int? _lastDurationMs;
@@ -40,6 +41,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
   Duration _synthesisTime = Duration.zero;
   String? _reimportMessage;
   String? _benchmarkResults;
+  String? _previewGenerationMessage;
 
   @override
   void dispose() {
@@ -103,6 +105,10 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
                   children: [
                     // Current Voice Info
                     _buildInfoCard(colors, settings, downloadState),
+                    const SizedBox(height: 20),
+
+                    // Voice Preview Generator (for app bundled previews)
+                    _buildPreviewGeneratorCard(colors, downloadState),
                     const SizedBox(height: 20),
 
                     // Dev Tools Section
@@ -207,6 +213,178 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
     if (VoiceIds.isPiper(voiceId)) return 'Piper';
     if (VoiceIds.isSupertonic(voiceId)) return 'Supertonic';
     return 'Unknown';
+  }
+
+  Widget _buildPreviewGeneratorCard(AppThemeColors colors, AsyncValue downloadState) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.record_voice_over, color: colors.primary, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Voice Preview Generator',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: colors.text,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Generate preview audio samples for all downloaded voices.\n'
+            'Files are saved to the app\'s external storage.',
+            style: TextStyle(
+              fontSize: 13,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _isGeneratingPreviews ? null : _generateVoicePreviews,
+              icon: _isGeneratingPreviews
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.play_arrow),
+              label: Text(_isGeneratingPreviews ? 'Generating...' : 'Generate Voice Previews'),
+            ),
+          ),
+          if (_previewGenerationMessage != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colors.backgroundSecondary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _previewGenerationMessage!,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  color: _previewGenerationMessage!.contains('Error') 
+                      ? colors.danger 
+                      : colors.text,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _generateVoicePreviews() async {
+    setState(() {
+      _isGeneratingPreviews = true;
+      _previewGenerationMessage = 'Starting preview generation...';
+    });
+
+    const previewText = 'Hello, this is a preview of my voice. '
+        'I hope you enjoy listening to me read your audiobooks.';
+
+    try {
+      final downloadState = ref.read(granularDownloadManagerProvider);
+      final routingEngine = await ref.read(ttsRoutingEngineProvider.future);
+      
+      // Get list of ready voices
+      final readyVoices = downloadState.maybeWhen(
+        data: (state) => state.readyVoices,
+        orElse: () => <dynamic>[],
+      );
+
+      if (readyVoices.isEmpty) {
+        setState(() {
+          _previewGenerationMessage = 'No downloaded voices found. Please download some voices first.';
+          _isGeneratingPreviews = false;
+        });
+        return;
+      }
+
+      // Get external storage path for saving previews
+      final directory = await Directory('/storage/emulated/0/Download/voice_previews');
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+
+      print('[PreviewGen] Saving previews to: ${directory.path}');
+      print('[PreviewGen] Found ${readyVoices.length} ready voices');
+
+      int generated = 0;
+      int failed = 0;
+      final List<String> successPaths = [];
+
+      for (final voice in readyVoices) {
+        final voiceId = voice.voiceId as String;
+        
+        setState(() {
+          _previewGenerationMessage = 'Generating preview for $voiceId... (${generated + failed + 1}/${readyVoices.length})';
+        });
+
+        try {
+          print('[PreviewGen] Synthesizing preview for: $voiceId');
+          
+          final result = await routingEngine.synthesizeToWavFile(
+            voiceId: voiceId,
+            text: previewText,
+            playbackRate: 1.0,
+          );
+
+          // Copy to external storage with proper naming
+          final safeId = voiceId.replaceAll(':', '_');
+          final destPath = '${directory.path}/$safeId.wav';
+          await result.file.copy(destPath);
+
+          print('[PreviewGen] ✓ Generated: $destPath');
+          successPaths.add(safeId);
+          generated++;
+        } catch (e) {
+          print('[PreviewGen] ✗ Failed for $voiceId: $e');
+          failed++;
+        }
+      }
+
+      setState(() {
+        _previewGenerationMessage = '''
+✓ Preview Generation Complete!
+
+Generated: $generated
+Failed: $failed
+
+Output Directory:
+${directory.path}
+
+Generated Files:
+${successPaths.map((p) => '• $p.wav').join('\n')}
+
+Copy these files to assets/voice_previews/ in your project.
+''';
+      });
+
+      print('[PreviewGen] Complete! Generated: $generated, Failed: $failed');
+    } catch (e) {
+      print('[PreviewGen] Error: $e');
+      setState(() {
+        _previewGenerationMessage = 'Error: $e';
+      });
+    } finally {
+      setState(() => _isGeneratingPreviews = false);
+    }
   }
 
   Widget _buildDevToolsCard(AppThemeColors colors) {

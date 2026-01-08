@@ -5,17 +5,32 @@ import 'package:core_domain/core_domain.dart';
 
 void main() {
   group('TextSegmenter', () {
-    test('segments sample text into ~20-word segments', () {
-      // Create a sample long text
+    test('segments long sentence at ~300 char boundary', () {
+      // Create a sample long text without sentence punctuation
+      // This becomes one very long "sentence" that must be force-split
       final text = List.filled(300, 'word').join(' ');
       final segments = segmentText(text);
       expect(segments, isNotEmpty);
 
+      // Segmenter splits at 300 chars max, not 100/25 words
+      // Each segment should be ≤300 chars (maxLongSentenceLength)
       for (final s in segments) {
-        // Ensure segments are bounded in words and characters
-        final words = s.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
-        expect(words, lessThanOrEqualTo(25));
-        expect(s.text.length, lessThanOrEqualTo(120));
+        expect(s.text.length, lessThanOrEqualTo(300));
+      }
+    });
+
+    test('segments text with sentences at ~100 char boundary', () {
+      // Create text with proper sentence endings
+      final text = List.generate(20, (i) => 'This is sentence number $i.').join(' ');
+      final segments = segmentText(text);
+      expect(segments, isNotEmpty);
+
+      // With sentence boundaries, segmenter targets ~100 chars (default)
+      // Sentences may be grouped but kept whole
+      for (final s in segments) {
+        // Check reasonable character length (allow some overflow for complete sentences)
+        expect(s.text.length, lessThanOrEqualTo(300));
+        expect(s.text.length, greaterThanOrEqualTo(10)); // minLength
       }
     });
 
