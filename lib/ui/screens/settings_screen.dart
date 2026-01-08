@@ -306,25 +306,7 @@ class SettingsScreen extends ConsumerWidget {
                         //   description: 'Uses your device\'s built-in voice',
                         //   voiceId: VoiceIds.device,
                         // ),
-                        if (readyKokoroVoices.isNotEmpty) ...[
-                          const Divider(),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            child: Text(
-                              'Kokoro Voices',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: colors.textSecondary,
-                              ),
-                            ),
-                          ),
-                          for (final voiceId in readyKokoroVoices)
-                            _VoiceOption(
-                              name: _voiceDisplayName(voiceId),
-                              voiceId: voiceId,
-                            ),
-                        ],
+                        // Piper voices first (fastest engine)
                         if (readyPiperVoices.isNotEmpty) ...[
                           const Divider(),
                           Padding(
@@ -344,6 +326,7 @@ class SettingsScreen extends ConsumerWidget {
                               voiceId: voiceId,
                             ),
                         ],
+                        // Supertonic voices second
                         if (readySupertonicVoices.isNotEmpty) ...[
                           const Divider(),
                           Padding(
@@ -358,6 +341,48 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                           ),
                           for (final voiceId in readySupertonicVoices)
+                            _VoiceOption(
+                              name: _voiceDisplayName(voiceId),
+                              voiceId: voiceId,
+                            ),
+                        ],
+                        // Kokoro voices last (slowest, requires flagship device)
+                        if (readyKokoroVoices.isNotEmpty) ...[
+                          const Divider(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Kokoro Voices',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: colors.textSecondary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(Icons.warning_amber_rounded,
+                                        size: 14, color: Colors.orange.shade700),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        'High quality but slow. Requires a modern flagship device.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.orange.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          for (final voiceId in readyKokoroVoices)
                             _VoiceOption(
                               name: _voiceDisplayName(voiceId),
                               voiceId: voiceId,
