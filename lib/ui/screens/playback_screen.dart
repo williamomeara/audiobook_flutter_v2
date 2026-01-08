@@ -291,6 +291,81 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     return '$minutes:${secs.toString().padLeft(2, '0')}';
   }
 
+  void _showSleepTimerPicker(BuildContext context, AppThemeColors colors) {
+    final options = <int?>[null, 5, 10, 15, 30, 60];
+    final labels = ['Off', '5 min', '10 min', '15 min', '30 min', '1 hour'];
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        child: Container(
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.textTertiary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Sleep Timer',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: colors.text,
+                  ),
+                ),
+              ),
+              ...List.generate(options.length, (i) {
+                final value = options[i];
+                final isSelected = _sleepTimerMinutes == value;
+                return InkWell(
+                  onTap: () {
+                    _setSleepTimer(value);
+                    Navigator.pop(context);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            labels[i],
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: isSelected ? colors.primary : colors.text,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                        if (isSelected)
+                          Icon(Icons.check_circle, color: colors.primary, size: 20),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _saveProgressAndPop() {
     final playbackState = ref.read(playbackStateProvider);
     final currentChapterIndex = _currentChapterIndex;
@@ -377,7 +452,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                     Expanded(
                       child: _showCover
                           ? _buildCoverView(colors, book)
-                          : _buildTextDisplay(colors, queue, currentTrack, currentIndex),
+                          : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
                     ),
                     _buildPlaybackControls(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
                   ],
@@ -549,12 +624,16 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     );
   }
 
-  Widget _buildTextDisplay(AppThemeColors colors, List<AudioTrack> queue, AudioTrack? currentTrack, int currentIndex) {
+  Widget _buildTextDisplay(AppThemeColors colors, List<AudioTrack> queue, AudioTrack? currentTrack, int currentIndex, Book book) {
     if (queue.isEmpty) {
       return Center(
         child: Text('No content', style: TextStyle(color: colors.textTertiary)),
       );
     }
+    
+    // Get setting for book cover background
+    final settings = ref.watch(settingsProvider);
+    final showCoverBackground = settings.showBookCoverBackground && book.coverImagePath != null;
     
     // Watch segment readiness stream for opacity-based visualization
     final readinessKey = '${widget.bookId}:$_currentChapterIndex';
@@ -628,6 +707,19 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     
     return Stack(
       children: [
+        // Faded book cover background
+        if (showCoverBackground)
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.04, // Very subtle, barely visible
+              child: Image.file(
+                java.File(book.coverImagePath!),
+                fit: BoxFit.cover,
+                colorBlendMode: BlendMode.saturation,
+                color: Colors.grey, // Desaturate the image
+              ),
+            ),
+          ),
         NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             // Disable auto-scroll when user finishes scrolling manually (not programmatic)
@@ -792,29 +884,34 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                   children: [
                     Icon(Icons.timer_outlined, size: 16, color: colors.textSecondary),
                     const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: colors.controlBackground,
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _showSleepTimerPicker(context, colors),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: colors.border),
-                      ),
-                      child: DropdownButton<int?>(
-                        value: _sleepTimerMinutes,
-                        hint: Text('Off', style: TextStyle(fontSize: 13, color: colors.text)),
-                        underline: const SizedBox(),
-                        isDense: true,
-                        dropdownColor: colors.card,
-                        style: TextStyle(fontSize: 13, color: colors.text),
-                        items: [
-                          DropdownMenuItem(value: null, child: Text('Off', style: TextStyle(color: colors.text))),
-                          DropdownMenuItem(value: 5, child: Text('5 min', style: TextStyle(color: colors.text))),
-                          DropdownMenuItem(value: 10, child: Text('10 min', style: TextStyle(color: colors.text))),
-                          DropdownMenuItem(value: 15, child: Text('15 min', style: TextStyle(color: colors.text))),
-                          DropdownMenuItem(value: 30, child: Text('30 min', style: TextStyle(color: colors.text))),
-                          DropdownMenuItem(value: 60, child: Text('1 hour', style: TextStyle(color: colors.text))),
-                        ],
-                        onChanged: (value) => _setSleepTimer(value),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: colors.controlBackground,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: colors.border),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _sleepTimerMinutes == null 
+                                    ? 'Off' 
+                                    : _sleepTimerMinutes == 60 
+                                        ? '1 hour'
+                                        : '${_sleepTimerMinutes} min',
+                                style: TextStyle(fontSize: 13, color: colors.text),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.arrow_drop_down, size: 16, color: colors.textSecondary),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                     if (_sleepTimeRemainingSeconds != null) ...[
