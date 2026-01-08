@@ -215,6 +215,18 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     await _saveLibrary(updated);
   }
 
+  Future<void> toggleFavorite(String bookId) async {
+    final current = state.value ?? const LibraryState();
+    final updated = current.books.map((b) {
+      if (b.id == bookId) {
+        return b.copyWith(isFavorite: !b.isFavorite);
+      }
+      return b;
+    }).toList();
+    state = AsyncValue.data(current.copyWith(books: updated));
+    await _saveLibrary(updated);
+  }
+
   Book? getBook(String bookId) {
     return state.value?.books.where((b) => b.id == bookId).firstOrNull;
   }

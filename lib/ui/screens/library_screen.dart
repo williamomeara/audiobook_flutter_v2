@@ -9,6 +9,9 @@ import '../../app/library_controller.dart';
 import '../theme/app_colors.dart';
 import 'package:core_domain/core_domain.dart';
 
+enum LibraryTab { all, favorites }
+enum SortOption { recent, title, progress }
+
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
@@ -19,6 +22,9 @@ class LibraryScreen extends ConsumerStatefulWidget {
 class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   final _searchController = TextEditingController();
   bool _isImporting = false;
+  LibraryTab _activeTab = LibraryTab.all;
+  SortOption _sortBy = SortOption.recent;
+  bool _showFilters = false;
 
   @override
   void dispose() {
@@ -71,182 +77,431 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     }
   }
 
+  List<Book> _filterAndSortBooks(List<Book> books) {
+    final query = _searchController.text.trim().toLowerCase();
+    
+    var filtered = books.where((book) {
+      final matchesSearch = query.isEmpty ||
+          book.title.toLowerCase().contains(query) ||
+          book.author.toLowerCase().contains(query);
+      final matchesTab = _activeTab == LibraryTab.all || 
+          (_activeTab == LibraryTab.favorites && book.isFavorite);
+      return matchesSearch && matchesTab;
+    }).toList();
+
+    switch (_sortBy) {
+      case SortOption.recent:
+        filtered.sort((a, b) => b.addedAt.compareTo(a.addedAt));
+        break;
+      case SortOption.title:
+        filtered.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        break;
+      case SortOption.progress:
+        filtered.sort((a, b) => b.progressPercent.compareTo(a.progressPercent));
+        break;
+    }
+
+    return filtered;
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final libraryAsync = ref.watch(libraryProvider);
-    final query = _searchController.text.trim().toLowerCase();
 
     return Scaffold(
       backgroundColor: colors.background,
       body: SafeArea(
         bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: libraryAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, st) => Center(
-              child: Text('Failed to load library', style: TextStyle(color: colors.danger)),
-            ),
-            data: (library) {
-              var books = library.books;
-              if (query.isNotEmpty) {
-                books = books.where((b) =>
-                    b.title.toLowerCase().contains(query) ||
-                    b.author.toLowerCase().contains(query)).toList();
-              }
+        child: libraryAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, st) => Center(
+            child: Text('Failed to load library', style: TextStyle(color: colors.danger)),
+          ),
+          data: (library) {
+            final books = _filterAndSortBooks(library.books);
 
-              return Column(
-                children: [
-                  // Header
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            return Column(
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: Column(
                     children: [
-                      IconButton(
-                        onPressed: () => context.push('/settings'),
-                        icon: Icon(Icons.settings_outlined, color: colors.text),
-                      ),
-                      Text(
-                        'Library',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: colors.text,
-                        ),
-                      ),
                       Row(
                         children: [
-                          TextButton(
-                            onPressed: () => context.push('/free-books'),
-                            child: Text(
-                              'Free',
-                              style: TextStyle(
-                                color: colors.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          // Settings button
+                          _CircleButton(
+                            icon: Icons.settings_outlined,
+                            onTap: () => context.push('/settings'),
+                          ),
+                          const SizedBox(width: 16),
+                          Text(
+                            'Library',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w500,
+                              color: colors.text,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          TextButton(
-                            onPressed: _isImporting ? null : _handleImport,
-                            child: _isImporting
-                                ? SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: colors.primary,
-                                    ),
-                                  )
-                                : Text(
-                                    'Import',
-                                    style: TextStyle(
-                                      color: colors.primary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+                          const Spacer(),
+                          // Filter button
+                          _PillButton(
+                            icon: Icons.tune,
+                            label: 'Filter',
+                            isActive: _showFilters,
+                            onTap: () => setState(() => _showFilters = !_showFilters),
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Search
-                  Container(
-                    decoration: BoxDecoration(
-                      color: colors.card,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: colors.border, width: 1),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Row(
-                      children: [
-                        Icon(Icons.search, size: 20, color: colors.textTertiary),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            onChanged: (_) => setState(() {}),
-                            decoration: InputDecoration(
-                              isDense: true,
-                              border: InputBorder.none,
-                              hintText: 'Search library...',
-                              hintStyle: TextStyle(color: colors.textTertiary),
+                      const SizedBox(height: 20),
+
+                      // Tabs and action buttons row
+                      Row(
+                        children: [
+                          // Tabs
+                          _TabButton(
+                            label: 'All',
+                            isActive: _activeTab == LibraryTab.all,
+                            onTap: () => setState(() => _activeTab = LibraryTab.all),
+                          ),
+                          const SizedBox(width: 16),
+                          _TabButton(
+                            label: 'Favorites',
+                            isActive: _activeTab == LibraryTab.favorites,
+                            onTap: () => setState(() => _activeTab = LibraryTab.favorites),
+                          ),
+                          const Spacer(),
+                          // Action buttons
+                          _ActionButton(
+                            label: 'Free Books',
+                            onTap: () => context.push('/free-books'),
+                          ),
+                          const SizedBox(width: 8),
+                          _ActionButton(
+                            label: 'Import',
+                            isLoading: _isImporting,
+                            onTap: _isImporting ? null : _handleImport,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Search bar
+                      Container(
+                        decoration: BoxDecoration(
+                          color: colors.card,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.search, size: 20, color: colors.textTertiary),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextField(
+                                controller: _searchController,
+                                onChanged: (_) => setState(() {}),
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                  hintText: 'Search library...',
+                                  hintStyle: TextStyle(color: colors.textTertiary),
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                style: TextStyle(color: colors.text, fontSize: 16),
+                              ),
                             ),
-                            style: TextStyle(color: colors.text, fontSize: 16),
+                          ],
+                        ),
+                      ),
+
+                      // Sort options (collapsible)
+                      if (_showFilters) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: colors.card,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Sort by',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: colors.textTertiary,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                children: SortOption.values.map((option) {
+                                  final isSelected = _sortBy == option;
+                                  return GestureDetector(
+                                    onTap: () => setState(() => _sortBy = option),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isSelected ? colors.primary : colors.background,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        option.name[0].toUpperCase() + option.name.substring(1),
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: isSelected ? colors.primaryForeground : colors.textTertiary,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
+                      const SizedBox(height: 16),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  
-                  // Book list
-                  Expanded(
-                    child: books.isEmpty
-                        ? Center(
-                            child: Opacity(
-                              opacity: 0.5,
-                              child: Text(
-                                query.isNotEmpty
-                                    ? 'No books match your search.'
-                                    : 'No books yet. Import one!',
-                                style: TextStyle(color: colors.textSecondary),
-                              ),
+                ),
+
+                // Book list
+                Expanded(
+                  child: books.isEmpty
+                      ? Center(
+                          child: Opacity(
+                            opacity: 0.5,
+                            child: Text(
+                              _searchController.text.isNotEmpty
+                                  ? 'No books match your search.'
+                                  : _activeTab == LibraryTab.favorites
+                                      ? 'No favorite books yet.'
+                                      : 'No books yet. Import one!',
+                              style: TextStyle(color: colors.textSecondary),
                             ),
-                          )
-                        : ListView.builder(
-                            itemCount: books.length,
-                            itemBuilder: (context, index) {
-                              final book = books[index];
-                              return _BookListItem(
-                                book: book,
-                                onTap: () => context.push('/book/${book.id}'),
-                                onDelete: () async {
-                                  await ref.read(libraryProvider.notifier).removeBook(book.id);
-                                },
-                              );
-                            },
                           ),
-                  ),
-                ],
-              );
-            },
-          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          itemCount: books.length,
+                          itemBuilder: (context, index) {
+                            final book = books[index];
+                            return _BookCard(
+                              book: book,
+                              onTap: () => context.push('/book/${book.id}'),
+                              onToggleFavorite: () => ref.read(libraryProvider.notifier).toggleFavorite(book.id),
+                              onDelete: () => ref.read(libraryProvider.notifier).removeBook(book.id),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 }
 
-class _BookListItem extends StatelessWidget {
-  const _BookListItem({
+class _CircleButton extends StatelessWidget {
+  const _CircleButton({
+    required this.icon,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: colors.card,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: 20, color: colors.text),
+      ),
+    );
+  }
+}
+
+class _PillButton extends StatelessWidget {
+  const _PillButton({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? colors.primary : colors.card,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isActive ? colors.primaryForeground : colors.text,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                color: isActive ? colors.primaryForeground : colors.text,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TabButton extends StatelessWidget {
+  const _TabButton({
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 14,
+          color: isActive ? colors.primary : colors.textTertiary,
+          fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.label,
+    required this.onTap,
+    this.isLoading = false,
+  });
+
+  final String label;
+  final VoidCallback? onTap;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: colors.card,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: isLoading
+            ? SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: colors.primary,
+                ),
+              )
+            : Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: colors.textTertiary,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+class _BookCard extends StatelessWidget {
+  const _BookCard({
     required this.book,
     required this.onTap,
+    required this.onToggleFavorite,
     required this.onDelete,
   });
 
   final Book book;
   final VoidCallback onTap;
+  final VoidCallback onToggleFavorite;
   final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final coverPath = book.coverImagePath;
+    final progress = book.progressPercent;
+    final hasProgress = progress > 0;
 
     return GestureDetector(
       onLongPress: () {
         showModalBottomSheet(
           context: context,
+          backgroundColor: colors.card,
           builder: (context) => SafeArea(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
+                  leading: Icon(
+                    book.isFavorite ? Icons.favorite : Icons.favorite_border,
+                    color: book.isFavorite ? colors.primary : colors.text,
+                  ),
+                  title: Text(
+                    book.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+                    style: TextStyle(color: colors.text),
+                  ),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onToggleFavorite();
+                  },
+                ),
+                ListTile(
                   leading: Icon(Icons.delete_forever, color: colors.danger),
-                  title: const Text('Remove from library'),
+                  title: Text('Remove from library', style: TextStyle(color: colors.text)),
                   onTap: () {
                     Navigator.of(context).pop();
                     onDelete();
@@ -257,70 +512,157 @@ class _BookListItem extends StatelessWidget {
           ),
         );
       },
-      child: InkWell(
+      child: GestureDetector(
         onTap: onTap,
         child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
+          margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: colors.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: colors.border, width: 1),
+            borderRadius: BorderRadius.circular(16),
           ),
           child: Row(
             children: [
-              // Cover
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: coverPath != null && File(coverPath).existsSync()
-                    ? Image.file(
-                        File(coverPath),
-                        width: 64,
-                        height: 96,
-                        fit: BoxFit.cover,
-                      )
-                    : Container(
-                        width: 64,
-                        height: 96,
-                        color: colors.border,
-                        child: Icon(Icons.book, color: colors.textTertiary),
+              // Cover with progress bar
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: coverPath != null && File(coverPath).existsSync()
+                        ? Image.file(
+                            File(coverPath),
+                            width: 80,
+                            height: 112,
+                            fit: BoxFit.cover,
+                          )
+                        : Container(
+                            width: 80,
+                            height: 112,
+                            color: colors.border,
+                            child: Icon(Icons.book, color: colors.textTertiary),
+                          ),
+                  ),
+                  // Progress bar at bottom of cover
+                  if (hasProgress)
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: colors.border,
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(8),
+                            bottomRight: Radius.circular(8),
+                          ),
+                        ),
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: progress / 100,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: colors.primary,
+                              borderRadius: const BorderRadius.only(
+                                bottomLeft: Radius.circular(8),
+                                bottomRight: Radius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
+                    ),
+                ],
               ),
-              const SizedBox(width: 12),
-              
-              // Info
+              const SizedBox(width: 16),
+
+              // Book info
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      book.title,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: colors.text,
-                      ),
+                    // Title and favorite icon
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            book.title,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: colors.text,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (book.isFavorite) ...[
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.favorite,
+                            size: 16,
+                            color: colors.primary,
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
                       book.author,
                       style: TextStyle(
                         fontSize: 14,
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${book.chapters.length} Chapters',
-                      style: TextStyle(
-                        fontSize: 12,
                         color: colors.textTertiary,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 8),
+                    // Chapter count and progress
+                    Row(
+                      children: [
+                        Text(
+                          '${book.chapters.length} Chapters',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.textTertiary,
+                          ),
+                        ),
+                        if (hasProgress) ...[
+                          Text(
+                            ' • ',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textTertiary,
+                            ),
+                          ),
+                          Text(
+                            '$progress% Complete',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textTertiary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    // Continue listening indicator
+                    if (hasProgress) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Continue Listening • Chapter ${book.progress.chapterIndex + 1}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colors.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              
+
+              // Chevron
               Icon(Icons.chevron_right, color: colors.textTertiary),
             ],
           ),
