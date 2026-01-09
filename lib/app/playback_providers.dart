@@ -7,8 +7,10 @@ import 'package:playback/playback.dart';
 import 'package:tts_engines/tts_engines.dart';
 
 import 'app_paths.dart';
+import 'audio_service_handler.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
+import '../main.dart' show audioHandler;
 import '../utils/app_logger.dart';
 
 /// Global segment readiness tracker singleton.
@@ -201,6 +203,12 @@ final engineConfigManagerProvider = Provider<DeviceEngineConfigManager>((ref) {
 /// Profiles device performance to determine optimal synthesis settings.
 final deviceProfilerProvider = Provider<DevicePerformanceProfiler>((ref) {
   return DevicePerformanceProfiler();
+});
+
+/// Provider for the audio service handler (system media controls).
+/// Provides access to the global audio handler initialized in main.dart.
+final audioServiceHandlerProvider = Provider<AudioServiceHandler>((ref) {
+  return audioHandler;
 });
 
 /// Provider for the playback controller.

@@ -1,8 +1,10 @@
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logging/logging.dart';
 
+import 'app/audio_service_handler.dart';
 import 'app/settings_controller.dart';
 import 'utils/app_logger.dart';
 import 'ui/theme/app_theme.dart';
@@ -14,7 +16,13 @@ import 'ui/screens/free_books_screen.dart';
 import 'ui/screens/download_manager_screen.dart';
 import 'ui/screens/developer_screen.dart';
 
-void main() {
+/// Global audio handler instance for system media controls.
+/// Initialized once in main() and shared across the app.
+late AudioServiceHandler audioHandler;
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
   // Setup logging
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
@@ -26,6 +34,20 @@ void main() {
       AppLogger.info('StackTrace: ${record.stackTrace}');
     }
   });
+
+  // Initialize audio service for system media controls.
+  // This enables lock screen controls, notification shade, and
+  // Bluetooth/headphone button handling.
+  audioHandler = await AudioService.init(
+    builder: () => AudioServiceHandler(),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'com.williamomeara.audiobook.channel.audio',
+      androidNotificationChannelName: 'Audiobook Playback',
+      androidNotificationOngoing: true,
+      androidStopForegroundOnPause: true,
+      androidNotificationIcon: 'drawable/ic_notification',
+    ),
+  );
 
   runApp(const ProviderScope(child: AudiobookApp()));
 }
