@@ -23,6 +23,20 @@ ThemeData buildLightTheme() {
       onError: colors.primaryForeground,
       outline: colors.border,
     ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return colors.text; // Dark color when on
+        }
+        return colors.textSecondary;
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return colors.text.withValues(alpha: 0.3);
+        }
+        return colors.border;
+      }),
+    ),
     textTheme: const TextTheme(),
   );
 }
@@ -47,6 +61,20 @@ ThemeData buildDarkTheme() {
       error: colors.danger,
       onError: colors.primaryForeground,
       outline: colors.border,
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return colors.text; // Light color when on
+        }
+        return colors.textSecondary;
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return colors.text.withValues(alpha: 0.3);
+        }
+        return colors.border;
+      }),
     ),
   );
 }
