@@ -60,6 +60,9 @@ class Voice {
 class VoiceIds {
   VoiceIds._();
 
+  /// No voice selected - prompts user to download a voice.
+  static const none = 'none';
+  
   static const device = 'device';
 
   // Supertonic voices (M = Male, F = Female)

@@ -180,8 +180,48 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     if (state.isPlaying) {
       await notifier.pause();
     } else {
+      // Check if a voice is selected
+      final voiceId = ref.read(settingsProvider).selectedVoice;
+      if (voiceId == VoiceIds.none) {
+        if (mounted) {
+          _showNoVoiceDialog();
+        }
+        return;
+      }
       await notifier.play();
     }
+  }
+  
+  void _showNoVoiceDialog() {
+    final colors = Theme.of(context).extension<AppThemeColors>()!;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: colors.card,
+        title: Text(
+          'No Voice Selected',
+          style: TextStyle(color: colors.text),
+        ),
+        content: Text(
+          'Please download a voice from the settings menu before playing audiobooks.',
+          style: TextStyle(color: colors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel', style: TextStyle(color: colors.textSecondary)),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              context.push('/settings/downloads');
+            },
+            child: const Text('Download Voices'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _nextSegment() async {
