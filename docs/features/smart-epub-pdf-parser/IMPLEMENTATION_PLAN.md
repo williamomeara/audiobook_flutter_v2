@@ -17,6 +17,74 @@ When extracting text from EPUB and PDF files for TTS synthesis, several issues c
 7. **Special Punctuation**: Bullet points, fractions, mathematical symbols
 8. **HTML Entities**: Unescaped or partially decoded entities
 
+---
+
+## Learnings from Professional Implementations (GitHub Research)
+
+### Standard Ebooks Tools (`standardebooks/tools`)
+https://github.com/standardebooks/tools
+
+The gold standard for EPUB production. Key learnings:
+
+1. **Position enum for landmarks**: Uses `Position.FRONT`, `Position.BODY`, `Position.BACK` enum
+2. **BookDivision enum**: Classifies content as `CHAPTER`, `PART`, `VOLUME`, `SUBCHAPTER`, etc.
+3. **EPUB3 landmarks parsing**: Reads `epub:type` from `<section>` and `<body>` elements
+4. **Landmark filtering logic**:
+   - Frontmatter: Don't include in landmarks
+   - Bodymatter: Only include FIRST item as "Start Reading"
+   - Backmatter: Only include specific types (endnotes, bibliography, glossary, index)
+
+**Code pattern** (from `se_epub_generate_toc.py`):
+```python
+def get_place(node):
+    epub_type = node.get_attr("epub:type")
+    if "backmatter" in epub_type: return Position.BACK
+    elif "frontmatter" in epub_type: return Position.FRONT
+    elif "bodymatter" in epub_type: return Position.BODY
+    else: return Position.NONE
+```
+
+### zlibrary-mcp (`loganrooks/zlibrary-mcp`)
+RAG processing for ebooks. Key learnings:
+
+1. **Two-tier skip patterns**:
+   - `FRONT_MATTER_SKIP_TWO`: Keywords that skip current line + next line
+   - `FRONT_MATTER_SKIP_ONE`: Keywords that skip single line
+
+2. **Comprehensive skip keywords**:
+```python
+FRONT_MATTER_SKIP_TWO = ["dedication", "copyright notice"]
+FRONT_MATTER_SKIP_ONE = [
+    "copyright", "isbn", "published by", "acknowledgments",
+    "cambridge university press", "stanford university press",
+    "library of congress", "cataloging in publication",
+    "all rights reserved", "printed in", "reprinted",
+    "first published", "permissions", "without permission"
+]
+```
+
+3. **Main content detection**:
+```python
+MAIN_CONTENT_START_KEYWORDS = ["introduction", "preface", "chapter 1", "part i"]
+```
+
+4. **Title-based skip patterns** for TOC:
+```python
+front_matter_titles = {
+    'title page', 'copyright page', 'copyright',
+    'contents', 'table of contents'
+}
+```
+
+### Pandoc (`jgm/pandoc`)
+The reference document converter. Key learnings:
+
+1. Uses EPUB3 structural semantics (`epub:type`) for navigation
+2. Landmarks system for accessibility
+3. Proper handling of `halftitlepage`, `titlepage`, `bodymatter`
+
+---
+
 ## Research Findings
 
 ### Common Special Characters Found in Sample Books
