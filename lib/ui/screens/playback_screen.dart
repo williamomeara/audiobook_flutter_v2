@@ -3,6 +3,7 @@ import 'dart:io' as java;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:playback/playback.dart';
@@ -44,6 +45,40 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   int? _sleepTimerMinutes; // null = off
   int? _sleepTimeRemainingSeconds;
   Timer? _sleepTimer;
+  
+  // Fullscreen mode for landscape
+  bool _wasLandscape = false;
+  
+  // Orientation detection
+  bool _isLandscape(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    return size.width > size.height;
+  }
+  
+  void _updateSystemUI(bool isLandscape) {
+    if (isLandscape && !_wasLandscape) {
+      // Entering landscape - enable immersive mode
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.immersiveSticky,
+        overlays: [],
+      );
+      _wasLandscape = true;
+    } else if (!isLandscape && _wasLandscape) {
+      // Returning to portrait - restore normal UI
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.edgeToEdge,
+        overlays: SystemUiOverlay.values,
+      );
+      _wasLandscape = false;
+    }
+  }
+  
+  void _restoreSystemUI() {
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.edgeToEdge,
+      overlays: SystemUiOverlay.values,
+    );
+  }
 
   @override
   void initState() {
@@ -89,6 +124,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   
   @override
   void dispose() {
+    _restoreSystemUI();
     _sleepTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
@@ -471,6 +507,69 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                 ? 0 
                 : playbackState.currentIndex.clamp(0, queueLength - 1);
 
+            final isLandscape = _isLandscape(context);
+            
+            // Update system UI based on orientation
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _updateSystemUI(isLandscape);
+            });
+            
+            if (isLandscape) {
+              // Landscape layout: controls on right, progress at bottom
+              return SafeArea(
+                child: Stack(
+                  children: [
+                    // Main content area (padded for controls)
+                    Positioned.fill(
+                      right: 100, // Space for vertical controls
+                      bottom: 52, // Space for bottom bar with chapter controls
+                      child: Column(
+                        children: [
+                          if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
+                          if (isLoading)
+                            Expanded(
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CircularProgressIndicator(color: colors.primary),
+                                    const SizedBox(height: 16),
+                                    Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            Expanded(
+                              child: _showCover
+                                  ? _buildCoverView(colors, book)
+                                  : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
+                            ),
+                        ],
+                      ),
+                    ),
+                    // Right side vertical controls (full height)
+                    if (!isLoading)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        child: _buildLandscapeControls(colors, playbackState, currentIndex, queueLength),
+                      ),
+                    // Bottom bar with chapter controls + progress
+                    if (!isLoading)
+                      Positioned(
+                        left: 0,
+                        right: 100, // Stop before vertical controls
+                        bottom: 0,
+                        child: _buildLandscapeBottomBar(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
+                      ),
+                  ],
+                ),
+              );
+            }
+            
+            // Portrait layout (original)
             return SafeArea(
               child: Column(
                 children: [
@@ -1019,13 +1118,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                     onTap: _togglePlay,
                     customBorder: const CircleBorder(),
                     child: Container(
-                      width: 64,
-                      height: 64,
+                      width: 56,
+                      height: 56,
                       alignment: Alignment.center,
                       child: playbackState.isBuffering
                           ? SizedBox(
-                              width: 24,
-                              height: 24,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: colors.primaryForeground,
@@ -1033,7 +1132,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                             )
                           : Icon(
                               playbackState.isPlaying ? Icons.pause : Icons.play_arrow,
-                              size: 32,
+                              size: 28,
                               color: colors.primaryForeground,
                             ),
                     ),
@@ -1079,6 +1178,261 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Vertical playback controls for landscape mode (right side)
+  Widget _buildLandscapeControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength) {
+    return Container(
+      width: 100,
+      decoration: BoxDecoration(
+        color: colors.background.withValues(alpha: 0.95),
+        border: Border(left: BorderSide(color: colors.border, width: 1)),
+      ),
+      child: Column(
+        children: [
+          // Top section (expandable) - Speed controls + up arrow
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // Speed control
+                Icon(Icons.speed, size: 18, color: colors.textSecondary),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: _decreaseSpeed,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Icon(Icons.remove, size: 18, color: colors.textSecondary),
+                      ),
+                    ),
+                    Text(
+                      '${playbackState.playbackRate}x',
+                      style: TextStyle(fontSize: 13, color: colors.text, fontWeight: FontWeight.w500),
+                    ),
+                    InkWell(
+                      onTap: _increaseSpeed,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Icon(Icons.add, size: 18, color: colors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Previous segment (up arrow)
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: currentIndex > 0 ? _previousSegment : null,
+                    borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(
+                        Icons.keyboard_arrow_up,
+                        size: 28,
+                        color: currentIndex > 0 ? colors.text : colors.textTertiary,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 6),
+              ],
+            ),
+          ),
+          
+          // Center section (fixed) - Play button
+          Material(
+            color: colors.primary,
+            shape: const CircleBorder(),
+            elevation: 2,
+            child: InkWell(
+              onTap: _togglePlay,
+              customBorder: const CircleBorder(),
+              child: Container(
+                width: 56,
+                height: 56,
+                alignment: Alignment.center,
+                child: playbackState.isBuffering
+                    ? SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colors.primaryForeground,
+                        ),
+                      )
+                    : Icon(
+                        playbackState.isPlaying ? Icons.pause : Icons.play_arrow,
+                        size: 28,
+                        color: colors.primaryForeground,
+                      ),
+              ),
+            ),
+          ),
+          
+          // Bottom section (expandable) - down arrow + sleep timer
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                const SizedBox(height: 6),
+                
+                // Next segment (down arrow)
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: currentIndex < queueLength - 1 ? _nextSegment : null,
+                    borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(
+                        Icons.keyboard_arrow_down,
+                        size: 28,
+                        color: currentIndex < queueLength - 1 ? colors.text : colors.textTertiary,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Sleep timer
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => _showSleepTimerPicker(context, colors),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: colors.controlBackground,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: colors.border),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.timer_outlined, size: 14, color: colors.textSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            _sleepTimerMinutes == null 
+                                ? 'Off' 
+                                : _sleepTimerMinutes == 60 
+                                    ? '1hr'
+                                    : '${_sleepTimerMinutes}m',
+                            style: TextStyle(fontSize: 11, color: colors.text),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (_sleepTimeRemainingSeconds != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatSleepTime(_sleepTimeRemainingSeconds!),
+                    style: TextStyle(fontSize: 10, color: colors.textHighlight, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Bottom bar for landscape mode (chapter controls + progress bar)
+  Widget _buildLandscapeBottomBar(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
+    return Container(
+      height: 52,
+      decoration: BoxDecoration(
+        color: colors.background.withValues(alpha: 0.95),
+        border: Border(top: BorderSide(color: colors.border, width: 1)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            // Previous chapter (left side)
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: chapterIdx > 0 ? _previousChapter : null,
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    Icons.skip_previous,
+                    size: 24,
+                    color: chapterIdx > 0 ? colors.text : colors.textTertiary,
+                  ),
+                ),
+              ),
+            ),
+            
+            const SizedBox(width: 8),
+            
+            // Progress bar (center, expanded)
+            Expanded(
+              child: Row(
+                children: [
+                  Text(
+                    '${currentIndex + 1}',
+                    style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: queueLength > 0 ? (currentIndex + 1) / queueLength : 0,
+                        backgroundColor: colors.controlBackground,
+                        color: colors.primary,
+                        minHeight: 4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$queueLength',
+                    style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+            
+            const SizedBox(width: 8),
+            
+            // Next chapter (right side)
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: chapterIdx < chapterCount - 1 ? _nextChapter : null,
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    Icons.skip_next,
+                    size: 24,
+                    color: chapterIdx < chapterCount - 1 ? colors.text : colors.textTertiary,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
