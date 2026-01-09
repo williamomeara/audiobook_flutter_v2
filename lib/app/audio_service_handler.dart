@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -22,14 +23,23 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
 
   /// Initialize player event forwarding.
   void _init() {
-    // Forward player state changes to the media session.
-    // Use RxDart to combine multiple streams into a single playback state.
-    Rx.combineLatest3<PlaybackEvent, bool, Duration, PlaybackState>(
-      _player.playbackEventStream,
-      _player.playingStream,
-      _player.positionStream,
-      (event, playing, position) => _transformEvent(event, playing, position),
-    ).pipe(playbackState);
+    try {
+      // Forward player state changes to the media session.
+      // Use RxDart to combine multiple streams into a single playback state.
+      Rx.combineLatest3<PlaybackEvent, bool, Duration, PlaybackState>(
+        _player.playbackEventStream,
+        _player.playingStream,
+        _player.positionStream,
+        (event, playing, position) => _transformEvent(event, playing, position),
+      ).listen(
+        (state) => playbackState.add(state),
+        onError: (error) {
+          developer.log('AudioServiceHandler: Error in playback state stream: $error');
+        },
+      );
+    } catch (e) {
+      developer.log('AudioServiceHandler: Error during init: $e');
+    }
   }
 
   /// Transform just_audio events to audio_service PlaybackState.

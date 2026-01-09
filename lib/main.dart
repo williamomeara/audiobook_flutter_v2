@@ -38,16 +38,23 @@ Future<void> main() async {
   // Initialize audio service for system media controls.
   // This enables lock screen controls, notification shade, and
   // Bluetooth/headphone button handling.
-  audioHandler = await AudioService.init(
-    builder: () => AudioServiceHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.williamomeara.audiobook.channel.audio',
-      androidNotificationChannelName: 'Audiobook Playback',
-      androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
-      androidNotificationIcon: 'drawable/ic_notification',
-    ),
-  );
+  try {
+    audioHandler = await AudioService.init(
+      builder: () => AudioServiceHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.williamomeara.audiobook.channel.audio',
+        androidNotificationChannelName: 'Audiobook Playback',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+        androidNotificationIcon: 'drawable/ic_notification',
+      ),
+    );
+    AppLogger.info('Audio service initialized successfully');
+  } catch (e) {
+    AppLogger.info('Failed to initialize audio service: $e');
+    // Create a minimal handler even if init fails
+    audioHandler = AudioServiceHandler();
+  }
 
   runApp(const ProviderScope(child: AudiobookApp()));
 }
