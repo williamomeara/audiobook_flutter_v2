@@ -34,26 +34,38 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
   /// Connect an external AudioPlayer to this handler.
   /// This forwards the player's state to the system media controls.
   void connectPlayer(AudioPlayer player) {
+    developer.log('AudioServiceHandler: connectPlayer() called');
+    
     // Disconnect any previous player
     _playerEventSub?.cancel();
     _player = player;
     
     try {
+      developer.log('AudioServiceHandler: Setting up player state forwarding...');
+      
       // Forward player state changes to the media session.
       _playerEventSub = Rx.combineLatest3<PlaybackEvent, bool, Duration, PlaybackState>(
         player.playbackEventStream,
         player.playingStream,
         player.positionStream,
-        (event, playing, position) => _transformEvent(event, playing, position, player),
+        (event, playing, position) {
+          final state = _transformEvent(event, playing, position, player);
+          developer.log('AudioServiceHandler: Player state changed - playing: $playing, processingState: ${state.processingState}, position: $position');
+          return state;
+        },
       ).listen(
-        (state) => playbackState.add(state),
+        (state) {
+          developer.log('AudioServiceHandler: Updating playbackState BehaviorSubject');
+          playbackState.add(state);
+        },
         onError: (error) {
           developer.log('AudioServiceHandler: Error in playback state stream: $error');
         },
       );
-      developer.log('AudioServiceHandler: Player connected');
-    } catch (e) {
+      developer.log('AudioServiceHandler: Player connected successfully');
+    } catch (e, st) {
       developer.log('AudioServiceHandler: Error connecting player: $e');
+      developer.log('AudioServiceHandler: Stack trace: $st');
     }
   }
   
@@ -135,6 +147,13 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     Duration? duration,
     Map<String, dynamic>? extras,
   }) {
+    developer.log('AudioServiceHandler: updateNowPlaying() called');
+    developer.log('AudioServiceHandler:   id: $id');
+    developer.log('AudioServiceHandler:   title: $title');
+    developer.log('AudioServiceHandler:   album: $album');
+    developer.log('AudioServiceHandler:   artist: $artist');
+    developer.log('AudioServiceHandler:   duration: $duration');
+    
     final item = MediaItem(
       id: id,
       title: title,
@@ -146,6 +165,7 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     );
     // Use the base class's mediaItem BehaviorSubject
     mediaItem.add(item);
+    developer.log('AudioServiceHandler: MediaItem added to stream');
     developer.log('AudioServiceHandler: Updated now playing: $title');
   }
 

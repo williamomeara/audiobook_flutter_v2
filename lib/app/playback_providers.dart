@@ -304,26 +304,50 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   
   /// Connect the audio player to the audio service for system media controls.
   Future<void> _connectAudioService() async {
+    PlaybackLogger.info('[PlaybackProvider] _connectAudioService() called');
+    
     final player = _audioOutput?.player;
     if (player == null) {
       PlaybackLogger.info('[PlaybackProvider] No player available for audio service');
       return;
     }
     
+    PlaybackLogger.info('[PlaybackProvider] Player available, connecting to audio service...');
+    
     try {
+      PlaybackLogger.info('[PlaybackProvider] Calling audioServiceHandlerProvider.future...');
       final handler = await ref.read(audioServiceHandlerProvider.future);
+      PlaybackLogger.info('[PlaybackProvider] Got handler: ${handler.runtimeType}');
+      
       handler.connectPlayer(player);
+      PlaybackLogger.info('[PlaybackProvider] Player connected to handler');
       
       // Wire up callbacks so media control buttons trigger our controller
-      handler.onPlayCallback = () => _controller?.play();
-      handler.onPauseCallback = () => _controller?.pause();
-      handler.onStopCallback = () => _controller?.pause();
-      handler.onSkipToNextCallback = () => _controller?.nextTrack();
-      handler.onSkipToPreviousCallback = () => _controller?.previousTrack();
+      handler.onPlayCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onPlayCallback triggered from media controls');
+        _controller?.play();
+      };
+      handler.onPauseCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onPauseCallback triggered from media controls');
+        _controller?.pause();
+      };
+      handler.onStopCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onStopCallback triggered from media controls');
+        _controller?.pause();
+      };
+      handler.onSkipToNextCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onSkipToNextCallback triggered from media controls');
+        _controller?.nextTrack();
+      };
+      handler.onSkipToPreviousCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onSkipToPreviousCallback triggered from media controls');
+        _controller?.previousTrack();
+      };
       
-      PlaybackLogger.info('[PlaybackProvider] Audio service connected');
-    } catch (e) {
+      PlaybackLogger.info('[PlaybackProvider] Audio service callbacks wired up');
+    } catch (e, st) {
       PlaybackLogger.error('[PlaybackProvider] Failed to connect audio service: $e');
+      PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       // Non-fatal - app works without system media controls
     }
   }
@@ -448,8 +472,15 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     required Book book,
     required int chapterIndex,
   }) async {
+    PlaybackLogger.info('[PlaybackProvider] _updateAudioServiceMetadata() called');
+    PlaybackLogger.info('[PlaybackProvider]   Book: ${book.title}');
+    PlaybackLogger.info('[PlaybackProvider]   Chapter: $chapterIndex');
+    
     try {
+      PlaybackLogger.info('[PlaybackProvider] Getting audio service handler...');
       final handler = await ref.read(audioServiceHandlerProvider.future);
+      PlaybackLogger.info('[PlaybackProvider] Got handler, updating now playing...');
+      
       final chapter = book.chapters[chapterIndex];
       
       handler.updateNowPlaying(
@@ -463,8 +494,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         },
       );
       PlaybackLogger.info('[PlaybackProvider] Updated audio service metadata: ${chapter.title}');
-    } catch (e) {
+    } catch (e, st) {
       PlaybackLogger.error('[PlaybackProvider] Failed to update audio service metadata: $e');
+      PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       // Non-fatal - continue playback even if notification fails
     }
   }
