@@ -26,6 +26,12 @@ class PlaybackScreen extends ConsumerStatefulWidget {
 }
 
 class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
+  // Layout constants for landscape mode
+  static const double _landscapeControlsWidth = 100.0;
+  static const double _landscapeBottomBarHeight = 52.0;
+  static const double _playButtonSize = 56.0;
+  static const double _playIconSize = 28.0;
+  
   bool _initialized = false;
   int _currentChapterIndex = 0;
   
@@ -83,6 +89,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   @override
   void initState() {
     super.initState();
+    // Allow all orientations on playback screen
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializePlayback();
       _setupPlaybackListener();
@@ -125,6 +138,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   @override
   void dispose() {
     _restoreSystemUI();
+    // Restore portrait-only orientation when leaving playback screen
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
     _sleepTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
@@ -382,61 +400,73 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
             color: colors.card,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Drag handle
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colors.textTertiary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'Sleep Timer',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: colors.text,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.6,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Drag handle
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.textTertiary,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-              ),
-              ...List.generate(options.length, (i) {
-                final value = options[i];
-                final isSelected = _sleepTimerMinutes == value;
-                return InkWell(
-                  onTap: () {
-                    _setSleepTimer(value);
-                    Navigator.pop(context);
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            labels[i],
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: isSelected ? colors.primary : colors.text,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                        if (isSelected)
-                          Icon(Icons.check_circle, color: colors.primary, size: 20),
-                      ],
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'Sleep Timer',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: colors.text,
                     ),
                   ),
-                );
-              }),
-              const SizedBox(height: 16),
-            ],
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(options.length, (i) {
+                        final value = options[i];
+                        final isSelected = _sleepTimerMinutes == value;
+                        return InkWell(
+                          onTap: () {
+                            _setSleepTimer(value);
+                            Navigator.pop(context);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    labels[i],
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: isSelected ? colors.primary : colors.text,
+                                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                    ),
+                                  ),
+                                ),
+                                if (isSelected)
+                                  Icon(Icons.check_circle, color: colors.primary, size: 20),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         ),
       ),
@@ -521,8 +551,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                   children: [
                     // Main content area (padded for controls)
                     Positioned.fill(
-                      right: 100, // Space for vertical controls
-                      bottom: 52, // Space for bottom bar with chapter controls
+                      right: _landscapeControlsWidth,
+                      bottom: _landscapeBottomBarHeight,
                       child: Column(
                         children: [
                           if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
@@ -548,6 +578,23 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                         ],
                       ),
                     ),
+                    // Back button (top left corner)
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: Material(
+                        color: colors.controlBackground.withValues(alpha: 0.8),
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          onTap: _saveProgressAndPop,
+                          borderRadius: BorderRadius.circular(20),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Icon(Icons.arrow_back, size: 20, color: colors.text),
+                          ),
+                        ),
+                      ),
+                    ),
                     // Right side vertical controls (full height)
                     if (!isLoading)
                       Positioned(
@@ -560,7 +607,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                     if (!isLoading)
                       Positioned(
                         left: 0,
-                        right: 100, // Stop before vertical controls
+                        right: _landscapeControlsWidth,
                         bottom: 0,
                         child: _buildLandscapeBottomBar(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
                       ),
@@ -1110,34 +1157,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                 const SizedBox(width: 12),
                 
                 // Play/Pause button
-                Material(
-                  color: colors.primary,
-                  shape: const CircleBorder(),
-                  elevation: 2,
-                  child: InkWell(
-                    onTap: _togglePlay,
-                    customBorder: const CircleBorder(),
-                    child: Container(
-                      width: 56,
-                      height: 56,
-                      alignment: Alignment.center,
-                      child: playbackState.isBuffering
-                          ? SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: colors.primaryForeground,
-                              ),
-                            )
-                          : Icon(
-                              playbackState.isPlaying ? Icons.pause : Icons.play_arrow,
-                              size: 28,
-                              color: colors.primaryForeground,
-                            ),
-                    ),
-                  ),
-                ),
+                _buildPlayButton(colors, playbackState),
                 
                 const SizedBox(width: 12),
                 
@@ -1182,10 +1202,42 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     );
   }
 
+  /// Reusable play/pause button widget
+  Widget _buildPlayButton(AppThemeColors colors, PlaybackState playbackState) {
+    return Material(
+      color: colors.primary,
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: InkWell(
+        onTap: _togglePlay,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: _playButtonSize,
+          height: _playButtonSize,
+          alignment: Alignment.center,
+          child: playbackState.isBuffering
+              ? SizedBox(
+                  width: _playButtonSize * 0.4,
+                  height: _playButtonSize * 0.4,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: colors.primaryForeground,
+                  ),
+                )
+              : Icon(
+                  playbackState.isPlaying ? Icons.pause : Icons.play_arrow,
+                  size: _playIconSize,
+                  color: colors.primaryForeground,
+                ),
+        ),
+      ),
+    );
+  }
+
   /// Vertical playback controls for landscape mode (right side)
   Widget _buildLandscapeControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength) {
     return Container(
-      width: 100,
+      width: _landscapeControlsWidth,
       decoration: BoxDecoration(
         color: colors.background.withValues(alpha: 0.95),
         border: Border(left: BorderSide(color: colors.border, width: 1)),
@@ -1239,7 +1291,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                       padding: const EdgeInsets.all(6),
                       child: Icon(
                         Icons.keyboard_arrow_up,
-                        size: 28,
+                        size: _playIconSize,
                         color: currentIndex > 0 ? colors.text : colors.textTertiary,
                       ),
                     ),
@@ -1252,34 +1304,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
           ),
           
           // Center section (fixed) - Play button
-          Material(
-            color: colors.primary,
-            shape: const CircleBorder(),
-            elevation: 2,
-            child: InkWell(
-              onTap: _togglePlay,
-              customBorder: const CircleBorder(),
-              child: Container(
-                width: 56,
-                height: 56,
-                alignment: Alignment.center,
-                child: playbackState.isBuffering
-                    ? SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: colors.primaryForeground,
-                        ),
-                      )
-                    : Icon(
-                        playbackState.isPlaying ? Icons.pause : Icons.play_arrow,
-                        size: 28,
-                        color: colors.primaryForeground,
-                      ),
-              ),
-            ),
-          ),
+          _buildPlayButton(colors, playbackState),
           
           // Bottom section (expandable) - down arrow + sleep timer
           Expanded(
@@ -1298,7 +1323,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
                       padding: const EdgeInsets.all(6),
                       child: Icon(
                         Icons.keyboard_arrow_down,
-                        size: 28,
+                        size: _playIconSize,
                         color: currentIndex < queueLength - 1 ? colors.text : colors.textTertiary,
                       ),
                     ),
@@ -1356,7 +1381,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   /// Bottom bar for landscape mode (chapter controls + progress bar)
   Widget _buildLandscapeBottomBar(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
     return Container(
-      height: 52,
+      height: _landscapeBottomBarHeight,
       decoration: BoxDecoration(
         color: colors.background.withValues(alpha: 0.95),
         border: Border(top: BorderSide(color: colors.border, width: 1)),
