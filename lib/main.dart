@@ -17,8 +17,48 @@ import 'ui/screens/download_manager_screen.dart';
 import 'ui/screens/developer_screen.dart';
 
 /// Global audio handler instance for system media controls.
-/// Initialized once in main() and shared across the app.
-late AudioServiceHandler audioHandler;
+/// Initialized lazily to avoid blocking app startup.
+AudioServiceHandler? _audioHandler;
+
+/// Get the audio handler, creating it if needed.
+/// This returns the initialized handler or null if not yet initialized.
+AudioServiceHandler? get audioHandler => _audioHandler;
+
+/// Flag to track if initialization is in progress.
+bool _audioServiceInitializing = false;
+
+/// Initialize the audio service. Safe to call multiple times.
+Future<AudioServiceHandler> initAudioService() async {
+  if (_audioHandler != null) return _audioHandler!;
+  if (_audioServiceInitializing) {
+    // Wait for initialization to complete
+    while (_audioHandler == null && _audioServiceInitializing) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    return _audioHandler ?? AudioServiceHandler();
+  }
+  
+  _audioServiceInitializing = true;
+  try {
+    _audioHandler = await AudioService.init(
+      builder: () => AudioServiceHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.williamomeara.audiobook.channel.audio',
+        androidNotificationChannelName: 'Audiobook Playback',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+        androidNotificationIcon: 'drawable/ic_notification',
+      ),
+    );
+    AppLogger.info('Audio service initialized successfully');
+  } catch (e) {
+    AppLogger.info('Failed to initialize audio service: $e');
+    // Create a minimal handler even if init fails
+    _audioHandler = AudioServiceHandler();
+  }
+  _audioServiceInitializing = false;
+  return _audioHandler!;
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,26 +75,9 @@ Future<void> main() async {
     }
   });
 
-  // Initialize audio service for system media controls.
-  // This enables lock screen controls, notification shade, and
-  // Bluetooth/headphone button handling.
-  try {
-    audioHandler = await AudioService.init(
-      builder: () => AudioServiceHandler(),
-      config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.williamomeara.audiobook.channel.audio',
-        androidNotificationChannelName: 'Audiobook Playback',
-        androidNotificationOngoing: true,
-        androidStopForegroundOnPause: true,
-        androidNotificationIcon: 'drawable/ic_notification',
-      ),
-    );
-    AppLogger.info('Audio service initialized successfully');
-  } catch (e) {
-    AppLogger.info('Failed to initialize audio service: $e');
-    // Create a minimal handler even if init fails
-    audioHandler = AudioServiceHandler();
-  }
+  // Don't block app startup - initialize audio service lazily.
+  // The service will be initialized when first needed (e.g., playback starts).
+  // This avoids the VRI redraw loop issue on some devices.
 
   runApp(const ProviderScope(child: AudiobookApp()));
 }

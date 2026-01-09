@@ -10,7 +10,7 @@ import 'app_paths.dart';
 import 'audio_service_handler.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
-import '../main.dart' show audioHandler;
+import '../main.dart' show initAudioService;
 import '../utils/app_logger.dart';
 
 /// Global segment readiness tracker singleton.
@@ -206,9 +206,9 @@ final deviceProfilerProvider = Provider<DevicePerformanceProfiler>((ref) {
 });
 
 /// Provider for the audio service handler (system media controls).
-/// Provides access to the global audio handler initialized in main.dart.
-final audioServiceHandlerProvider = Provider<AudioServiceHandler>((ref) {
-  return audioHandler;
+/// Uses lazy initialization to avoid blocking app startup.
+final audioServiceHandlerProvider = FutureProvider<AudioServiceHandler>((ref) async {
+  return await initAudioService();
 });
 
 /// Provider for the playback controller.
