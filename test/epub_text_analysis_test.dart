@@ -21,8 +21,9 @@ void main() async {
   
   await outputDir.create(recursive: true);
   
+  // Recursively find all EPUB files including subdirectories
   final epubFiles = await epubDir
-      .list()
+      .list(recursive: true)
       .where((f) => f.path.endsWith('.epub'))
       .cast<File>()
       .toList();
@@ -301,6 +302,33 @@ Map<String, dynamic> findIssues(List<Map<String, dynamic>> chapters) {
     }
   }
   
+  // Check for repeated prefixes across chapters (like PG headers)
+  if (chapters.length >= 5) {
+    final chapterTexts = chapters.map((ch) {
+      final first = (ch['first100Words'] as Map)['cleaned'] as String;
+      return first;
+    }).toList();
+    
+    final repeatedPrefix = BoilerplateRemover.detectRepeatedPrefix(chapterTexts);
+    if (repeatedPrefix != null) {
+      issues['repeatedPrefix'] = repeatedPrefix.length > 50 
+          ? '${repeatedPrefix.substring(0, 50)}...' 
+          : repeatedPrefix;
+    }
+    
+    final chapterLastTexts = chapters.map((ch) {
+      final last = (ch['last100Words'] as Map)['cleaned'] as String;
+      return last;
+    }).toList();
+    
+    final repeatedSuffix = BoilerplateRemover.detectRepeatedSuffix(chapterLastTexts);
+    if (repeatedSuffix != null) {
+      issues['repeatedSuffix'] = repeatedSuffix.length > 50 
+          ? '${repeatedSuffix.substring(0, 50)}...' 
+          : repeatedSuffix;
+    }
+  }
+  
   return issues;
 }
 
@@ -339,6 +367,8 @@ void printIssueSummary(Map<String, dynamic> allResults) {
   var booksWithFrontMatter = 0;
   var booksWithBackMatter = 0;
   var booksWithGutenberg = 0;
+  var booksWithRepeatedPrefix = 0;
+  var booksWithRepeatedSuffix = 0;
   
   for (final entry in allResults.entries) {
     if (entry.value is! Map || entry.value['error'] != null) continue;
@@ -349,12 +379,16 @@ void printIssueSummary(Map<String, dynamic> allResults) {
     if (issues['possibleFrontMatter'] != null) booksWithFrontMatter++;
     if (issues['possibleBackMatter'] != null) booksWithBackMatter++;
     if (issues['projectGutenbergBoilerplate'] == true) booksWithGutenberg++;
+    if (issues['repeatedPrefix'] != null) booksWithRepeatedPrefix++;
+    if (issues['repeatedSuffix'] != null) booksWithRepeatedSuffix++;
   }
   
   print('Books with remaining special characters: $booksWithSpecialChars');
   print('Books with possible front matter: $booksWithFrontMatter');
   print('Books with possible back matter: $booksWithBackMatter');
   print('Books with Project Gutenberg boilerplate: $booksWithGutenberg');
+  print('Books with repeated prefix headers: $booksWithRepeatedPrefix');
+  print('Books with repeated suffix footers: $booksWithRepeatedSuffix');
   
   // Print detailed issues
   print('\n--- DETAILED ISSUES ---\n');
