@@ -25,7 +25,7 @@ class PlaybackScreen extends ConsumerStatefulWidget {
   ConsumerState<PlaybackScreen> createState() => _PlaybackScreenState();
 }
 
-class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTickerProviderStateMixin {
+class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // Layout constants for landscape mode
   static const double _landscapeControlsWidth = 100.0;
   static const double _landscapeBottomBarHeight = 52.0;
@@ -55,7 +55,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   // Orientation transition animation
   late AnimationController _orientationAnimController;
   late Animation<double> _fadeAnimation;
-  bool? _lastOrientation; // Track orientation for transition
+  bool _showOverlay = false; // Show overlay during orientation change
+  Size? _lastWindowSize; // Track window size to detect orientation change early
   
   // Fullscreen mode for landscape
   bool _wasLandscape = false;
@@ -64,6 +65,35 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   bool _isLandscape(BuildContext context) {
     final size = MediaQuery.of(context).size;
     return size.width > size.height;
+  }
+  
+  @override
+  void didChangeMetrics() {
+    // Called when screen metrics change (before build)
+    final window = WidgetsBinding.instance.platformDispatcher.views.first;
+    final newSize = window.physicalSize;
+    
+    if (_lastWindowSize != null) {
+      // Check if orientation changed (width/height swapped)
+      final wasLandscape = _lastWindowSize!.width > _lastWindowSize!.height;
+      final isNowLandscape = newSize.width > newSize.height;
+      
+      if (wasLandscape != isNowLandscape && mounted) {
+        // Orientation is changing - show overlay immediately
+        setState(() {
+          _showOverlay = true;
+        });
+        // Start fade-out animation
+        _orientationAnimController.forward(from: 0.0).then((_) {
+          if (mounted) {
+            setState(() {
+              _showOverlay = false;
+            });
+          }
+        });
+      }
+    }
+    _lastWindowSize = newSize;
   }
   
   void _updateSystemUI(bool isLandscape) {
@@ -94,9 +124,16 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   @override
   void initState() {
     super.initState();
+    // Register for metrics changes to detect orientation early
+    WidgetsBinding.instance.addObserver(this);
+    
+    // Initialize window size tracking
+    final window = WidgetsBinding.instance.platformDispatcher.views.first;
+    _lastWindowSize = window.physicalSize;
+    
     // Setup orientation transition animation
     _orientationAnimController = AnimationController(
-      duration: const Duration(milliseconds: 250),
+      duration: const Duration(milliseconds: 300),
       vsync: this,
     );
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -152,6 +189,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _orientationAnimController.dispose();
     _restoreSystemUI();
     // Restore portrait-only orientation when leaving playback screen
@@ -560,13 +598,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
               _updateSystemUI(isLandscape);
             });
             
-            // Trigger fade animation on orientation change
-            if (_lastOrientation != null && _lastOrientation != isLandscape) {
-              // Orientation changed - animate overlay fade out
-              _orientationAnimController.forward(from: 0.0);
-            }
-            _lastOrientation = isLandscape;
-            
             final layout = isLandscape
                 ? _buildLandscapeLayout(
                     colors: colors,
@@ -594,18 +625,21 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                   );
             
             // Use overlay that fades out after orientation change
+            if (!_showOverlay) {
+              return layout;
+            }
+            
             return Stack(
               children: [
                 layout,
-                // Black overlay that fades out after orientation change
+                // Overlay that fades out after orientation change
                 AnimatedBuilder(
                   animation: _orientationAnimController,
                   builder: (context, child) {
                     // Invert the animation: start opaque, fade to transparent
                     final overlayOpacity = 1.0 - _fadeAnimation.value;
-                    if (overlayOpacity <= 0.01) return const SizedBox.shrink();
                     return Container(
-                      color: colors.background.withValues(alpha: overlayOpacity),
+                      color: colors.background.withValues(alpha: overlayOpacity.clamp(0.0, 1.0)),
                     );
                   },
                 ),
