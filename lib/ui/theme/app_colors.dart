@@ -38,6 +38,16 @@ class AppPalette {
   static const amber500 = Color(0xFFF59E0B);
   static const amber600 = Color(0xFFD97706);
 
+  // Light mode colors (from Figma Improve Colour Palette)
+  static const lightPrimary = Color(0xFF030213);       // Near black primary
+  static const lightMuted = Color(0xFFECECF0);         // Muted background
+  static const lightMutedForeground = Color(0xFF717182); // Muted text
+  static const lightAccent = Color(0xFFE9EBEF);        // Accent background
+  static const lightInputBg = Color(0xFFF3F3F5);       // Input field background
+  static const lightPageBg = Color(0xFFF5F5F5);        // Page background
+  static const lightBorder = Color(0x1A000000);        // 10% black border
+  static const lightDestructive = Color(0xFFD4183D);   // Red destructive
+
   static const white = Color(0xFFFFFFFF);
   static const black = Color(0xFF000000);
   static const red = Color(0xFFEF4444);
@@ -95,28 +105,28 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   final Color controlBackground;
 
   static const light = AppThemeColors(
-    background: AppPalette.white,
-    backgroundSecondary: AppPalette.neutral50,
-    text: AppPalette.neutral900,
-    textSecondary: AppPalette.neutral500,
+    background: AppPalette.lightPageBg,
+    backgroundSecondary: AppPalette.white,
+    text: AppPalette.lightPrimary,
+    textSecondary: AppPalette.lightMutedForeground,
     textTertiary: AppPalette.neutral400,
-    primary: AppPalette.indigo500,
+    primary: AppPalette.lightPrimary,
     primaryForeground: AppPalette.white,
-    accent: AppPalette.amber500,
-    accentForeground: AppPalette.neutral900,
+    accent: AppPalette.lightAccent,
+    accentForeground: AppPalette.lightPrimary,
     card: AppPalette.white,
-    border: AppPalette.neutral200,
-    inputBackground: AppPalette.neutral100,
-    danger: AppPalette.red,
+    border: AppPalette.lightBorder,
+    inputBackground: AppPalette.lightInputBg,
+    danger: AppPalette.lightDestructive,
     warning: AppPalette.amber600,
     headerBackground: AppPalette.white,
     tabBarBackground: AppPalette.white,
-    voiceBadgeBackground: AppPalette.indigo100,
-    voiceBadgeText: AppPalette.indigo700,
-    chapterItemBg: AppPalette.neutral50,
-    textHighlight: AppPalette.amber500,
+    voiceBadgeBackground: AppPalette.lightMuted,
+    voiceBadgeText: AppPalette.lightPrimary,
+    chapterItemBg: AppPalette.lightMuted,
+    textHighlight: AppPalette.lightPrimary,
     textPast: AppPalette.neutral400,
-    controlBackground: AppPalette.neutral100,
+    controlBackground: AppPalette.lightInputBg,
   );
 
   static const dark = AppThemeColors(
