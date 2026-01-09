@@ -544,107 +544,42 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
               _updateSystemUI(isLandscape);
             });
             
-            if (isLandscape) {
-              // Landscape layout: controls on right, progress at bottom
-              return SafeArea(
-                child: Stack(
-                  children: [
-                    // Main content area (padded for controls)
-                    Positioned.fill(
-                      right: _landscapeControlsWidth,
-                      bottom: _landscapeBottomBarHeight,
-                      child: Column(
-                        children: [
-                          if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
-                          if (isLoading)
-                            Expanded(
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    CircularProgressIndicator(color: colors.primary),
-                                    const SizedBox(height: 16),
-                                    Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
-                                  ],
-                                ),
-                              ),
-                            )
-                          else
-                            Expanded(
-                              child: _showCover
-                                  ? _buildCoverView(colors, book)
-                                  : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
-                            ),
-                        ],
-                      ),
-                    ),
-                    // Back button (top left corner)
-                    Positioned(
-                      left: 8,
-                      top: 8,
-                      child: Material(
-                        color: colors.controlBackground.withValues(alpha: 0.8),
-                        borderRadius: BorderRadius.circular(20),
-                        child: InkWell(
-                          onTap: _saveProgressAndPop,
-                          borderRadius: BorderRadius.circular(20),
-                          child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Icon(Icons.arrow_back, size: 20, color: colors.text),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Right side vertical controls (full height)
-                    if (!isLoading)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        child: _buildLandscapeControls(colors, playbackState, currentIndex, queueLength),
-                      ),
-                    // Bottom bar with chapter controls + progress
-                    if (!isLoading)
-                      Positioned(
-                        left: 0,
-                        right: _landscapeControlsWidth,
-                        bottom: 0,
-                        child: _buildLandscapeBottomBar(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
-                      ),
-                  ],
-                ),
-              );
-            }
-            
-            // Portrait layout (original)
-            return SafeArea(
-              child: Column(
-                children: [
-                  _buildHeader(colors, book, chapter),
-                  if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
-                  if (isLoading)
-                    Expanded(
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(color: colors.primary),
-                            const SizedBox(height: 16),
-                            Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
-                          ],
-                        ),
-                      ),
-                    )
-                  else ...[
-                    Expanded(
-                      child: _showCover
-                          ? _buildCoverView(colors, book)
-                          : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
-                    ),
-                    _buildPlaybackControls(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
-                  ],
-                ],
+            // Use AnimatedSwitcher for smooth orientation transitions
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              switchInCurve: Curves.easeInOut,
+              switchOutCurve: Curves.easeInOut,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: child,
               ),
+              child: isLandscape
+                  ? _buildLandscapeLayout(
+                      key: const ValueKey('landscape'),
+                      colors: colors,
+                      book: book,
+                      chapter: chapter,
+                      playbackState: playbackState,
+                      queue: queue,
+                      currentTrack: currentTrack,
+                      currentIndex: currentIndex,
+                      queueLength: queueLength,
+                      chapterIdx: chapterIdx,
+                      isLoading: isLoading,
+                    )
+                  : _buildPortraitLayout(
+                      key: const ValueKey('portrait'),
+                      colors: colors,
+                      book: book,
+                      chapter: chapter,
+                      playbackState: playbackState,
+                      queue: queue,
+                      currentTrack: currentTrack,
+                      currentIndex: currentIndex,
+                      queueLength: queueLength,
+                      chapterIdx: chapterIdx,
+                      isLoading: isLoading,
+                    ),
             );
           },
         ),
@@ -719,7 +654,138 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
       ),
     );
   }
-  
+
+  /// Landscape layout for playback screen
+  Widget _buildLandscapeLayout({
+    required Key key,
+    required AppThemeColors colors,
+    required Book book,
+    required Chapter chapter,
+    required PlaybackState playbackState,
+    required List<AudioTrack> queue,
+    required AudioTrack? currentTrack,
+    required int currentIndex,
+    required int queueLength,
+    required int chapterIdx,
+    required bool isLoading,
+  }) {
+    return SafeArea(
+      key: key,
+      child: Stack(
+        children: [
+          // Main content area (padded for controls)
+          Positioned.fill(
+            right: _landscapeControlsWidth,
+            bottom: _landscapeBottomBarHeight,
+            child: Column(
+              children: [
+                if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
+                if (isLoading)
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: colors.primary),
+                          const SizedBox(height: 16),
+                          Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: _showCover
+                        ? _buildCoverView(colors, book)
+                        : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
+                  ),
+              ],
+            ),
+          ),
+          // Back button (top left corner)
+          Positioned(
+            left: 8,
+            top: 8,
+            child: Material(
+              color: colors.controlBackground.withValues(alpha: 0.8),
+              borderRadius: BorderRadius.circular(20),
+              child: InkWell(
+                onTap: _saveProgressAndPop,
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(Icons.arrow_back, size: 20, color: colors.text),
+                ),
+              ),
+            ),
+          ),
+          // Right side vertical controls (full height)
+          if (!isLoading)
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: _buildLandscapeControls(colors, playbackState, currentIndex, queueLength),
+            ),
+          // Bottom bar with chapter controls + progress
+          if (!isLoading)
+            Positioned(
+              left: 0,
+              right: _landscapeControlsWidth,
+              bottom: 0,
+              child: _buildLandscapeBottomBar(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Portrait layout for playback screen
+  Widget _buildPortraitLayout({
+    required Key key,
+    required AppThemeColors colors,
+    required Book book,
+    required Chapter chapter,
+    required PlaybackState playbackState,
+    required List<AudioTrack> queue,
+    required AudioTrack? currentTrack,
+    required int currentIndex,
+    required int queueLength,
+    required int chapterIdx,
+    required bool isLoading,
+  }) {
+    return SafeArea(
+      key: key,
+      child: Column(
+        children: [
+          _buildHeader(colors, book, chapter),
+          if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
+          if (isLoading)
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: colors.primary),
+                    const SizedBox(height: 16),
+                    Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
+                  ],
+                ),
+              ),
+            )
+          else ...[
+            Expanded(
+              child: _showCover
+                  ? _buildCoverView(colors, book)
+                  : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
+            ),
+            _buildPlaybackControls(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildCoverView(AppThemeColors colors, Book book) {
     return Center(
       child: Padding(
