@@ -1,0 +1,8 @@
+flutter_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: "docs/deployment/image06.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#1A1A1A"
+  adaptive_icon_foreground: "docs/deployment/image06.png"
