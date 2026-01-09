@@ -483,11 +483,24 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       
       final chapter = book.chapters[chapterIndex];
       
+      // Get artwork URI from cover image path
+      Uri? artUri;
+      if (book.coverImagePath != null) {
+        final coverFile = File(book.coverImagePath!);
+        if (await coverFile.exists()) {
+          artUri = coverFile.uri;
+          PlaybackLogger.info('[PlaybackProvider] Cover image found: $artUri');
+        } else {
+          PlaybackLogger.info('[PlaybackProvider] Cover image file not found: ${book.coverImagePath}');
+        }
+      }
+      
       handler.updateNowPlaying(
         id: book.id,
         title: chapter.title,
         album: book.title,
         artist: book.author,
+        artUri: artUri,
         extras: {
           'chapterIndex': chapterIndex,
           'totalChapters': book.chapters.length,
