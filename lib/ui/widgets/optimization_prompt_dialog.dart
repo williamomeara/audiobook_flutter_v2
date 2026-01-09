@@ -6,6 +6,7 @@ import 'package:playback/playback.dart';
 import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
 import '../../app/tts_providers.dart';
+import '../theme/app_colors.dart';
 
 /// Dialog that prompts users to optimize a TTS engine for their device.
 /// 
@@ -93,41 +94,78 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.appColors;
     
-    return AlertDialog(
-      title: Row(
-        children: [
-          Icon(Icons.speed, color: theme.colorScheme.primary),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              _isOptimizing
-                  ? 'Optimizing $_engineName...'
-                  : _result != null
-                      ? 'Optimization Complete!'
-                      : 'Optimize $_engineName?',
-            ),
-          ),
-        ],
+    return Dialog(
+      backgroundColor: colors.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
       ),
-      content: _buildContent(theme),
-      actions: _buildActions(theme),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Title
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: colors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.speed, color: colors.primary, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _isOptimizing
+                        ? 'Optimizing $_engineName...'
+                        : _result != null
+                            ? 'Optimization Complete!'
+                            : 'Optimize $_engineName?',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: colors.text,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Content
+            _buildContent(theme, colors),
+            
+            const SizedBox(height: 24),
+            
+            // Actions
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: _buildActions(theme, colors),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildContent(ThemeData theme) {
+  Widget _buildContent(ThemeData theme, AppThemeColors colors) {
     if (_result != null) {
-      return _buildResultContent(theme);
+      return _buildResultContent(theme, colors);
     }
     
     if (_isOptimizing) {
-      return _buildOptimizingContent(theme);
+      return _buildOptimizingContent(theme, colors);
     }
     
-    return _buildPromptContent(theme);
+    return _buildPromptContent(theme, colors);
   }
 
-  Widget _buildPromptContent(ThemeData theme) {
+  Widget _buildPromptContent(ThemeData theme, AppThemeColors colors) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,42 +173,45 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
         Text(
           'Run a quick test to optimize audio synthesis for your device. '
           'This only takes a few seconds and improves playback performance.',
-          style: theme.textTheme.bodyMedium,
+          style: TextStyle(
+            fontSize: 14,
+            color: colors.textSecondary,
+          ),
         ),
         const SizedBox(height: 16),
         _buildBenefitRow(
           Icons.flash_on,
           'Faster audio preparation',
-          theme,
+          colors,
         ),
         const SizedBox(height: 8),
         _buildBenefitRow(
           Icons.pause_circle_outline,
           'Eliminate buffering during playback',
-          theme,
+          colors,
         ),
         const SizedBox(height: 8),
         _buildBenefitRow(
           Icons.battery_saver,
           'Better battery efficiency',
-          theme,
+          colors,
         ),
         if (_error != null) ...[
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.red.shade50,
-              borderRadius: BorderRadius.circular(8),
+              color: Colors.red.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               children: [
-                Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                Icon(Icons.error_outline, color: Colors.red.shade400, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     _error!,
-                    style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+                    style: TextStyle(color: Colors.red.shade400, fontSize: 13),
                   ),
                 ),
               ],
@@ -181,7 +222,7 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
     );
   }
 
-  Widget _buildOptimizingContent(ThemeData theme) {
+  Widget _buildOptimizingContent(ThemeData theme, AppThemeColors colors) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -195,11 +236,15 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
               CircularProgressIndicator(
                 value: _total > 0 ? _progress / _total : null,
                 strokeWidth: 4,
+                color: colors.primary,
               ),
               if (_total > 0)
                 Text(
                   '$_progress/$_total',
-                  style: theme.textTheme.bodySmall,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.textSecondary,
+                  ),
                 ),
             ],
           ),
@@ -207,13 +252,17 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
         const SizedBox(height: 16),
         Text(
           'Running synthesis test...',
-          style: theme.textTheme.bodyMedium,
+          style: TextStyle(
+            fontSize: 14,
+            color: colors.text,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           'This will take a few seconds',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+          style: TextStyle(
+            fontSize: 12,
+            color: colors.textSecondary,
           ),
         ),
         const SizedBox(height: 8),
@@ -221,7 +270,7 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
     );
   }
 
-  Widget _buildResultContent(ThemeData theme) {
+  Widget _buildResultContent(ThemeData theme, AppThemeColors colors) {
     final config = _result!;
     final tierName = _getTierDisplayName(config.deviceTier);
     final tierColor = _getTierColor(config.deviceTier);
@@ -234,7 +283,7 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: tierColor.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: tierColor.withValues(alpha: 0.3)),
           ),
           child: Column(
@@ -247,15 +296,19 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
               const SizedBox(height: 8),
               Text(
                 tierName,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: tierColor,
+                style: TextStyle(
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
+                  color: tierColor,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 'RTF: ${config.measuredRTF.toStringAsFixed(2)}x',
-                style: theme.textTheme.bodySmall,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.textSecondary,
+                ),
               ),
             ],
           ),
@@ -263,7 +316,10 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
         const SizedBox(height: 16),
         Text(
           'Optimal settings applied for your device.',
-          style: theme.textTheme.bodyMedium,
+          style: TextStyle(
+            fontSize: 14,
+            color: colors.text,
+          ),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 8),
@@ -272,50 +328,58 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
           runSpacing: 4,
           alignment: WrapAlignment.center,
           children: [
-            _buildSettingChip('Prefetch: ${config.prefetchWindowSize} segments', theme),
+            _buildSettingChip('Prefetch: ${config.prefetchWindowSize} segments', colors),
             if (config.prefetchConcurrency > 1)
-              _buildSettingChip('Parallel: ${config.prefetchConcurrency}x', theme),
+              _buildSettingChip('Parallel: ${config.prefetchConcurrency}x', colors),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildBenefitRow(IconData icon, String text, ThemeData theme) {
+  Widget _buildBenefitRow(IconData icon, String text, AppThemeColors colors) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: theme.colorScheme.primary),
+        Icon(icon, size: 18, color: colors.primary),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             text,
-            style: theme.textTheme.bodyMedium,
+            style: TextStyle(
+              fontSize: 14,
+              color: colors.text,
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildSettingChip(String text, ThemeData theme) {
+  Widget _buildSettingChip(String text, AppThemeColors colors) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
+        color: colors.background,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
         text,
-        style: theme.textTheme.bodySmall,
+        style: TextStyle(
+          fontSize: 12,
+          color: colors.textSecondary,
+        ),
       ),
     );
   }
 
-  List<Widget> _buildActions(ThemeData theme) {
+  List<Widget> _buildActions(ThemeData theme, AppThemeColors colors) {
     if (_result != null) {
       return [
-        FilledButton(
+        _buildActionButton(
+          label: 'Done',
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('Done'),
+          colors: colors,
+          isPrimary: true,
         ),
       ];
     }
@@ -325,15 +389,46 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
     }
     
     return [
-      TextButton(
+      _buildActionButton(
+        label: 'Skip',
         onPressed: () => Navigator.pop(context, false),
-        child: const Text('Skip'),
+        colors: colors,
+        isPrimary: false,
       ),
-      FilledButton(
+      const SizedBox(width: 12),
+      _buildActionButton(
+        label: 'Optimize Now',
         onPressed: _runOptimization,
-        child: const Text('Optimize Now'),
+        colors: colors,
+        isPrimary: true,
       ),
     ];
+  }
+
+  Widget _buildActionButton({
+    required String label,
+    required VoidCallback onPressed,
+    required AppThemeColors colors,
+    required bool isPrimary,
+  }) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        decoration: BoxDecoration(
+          color: isPrimary ? colors.primary : colors.background,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: isPrimary ? Colors.white : colors.textSecondary,
+          ),
+        ),
+      ),
+    );
   }
 
   String _getTierDisplayName(DevicePerformanceTier tier) {
