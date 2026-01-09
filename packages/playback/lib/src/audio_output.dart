@@ -11,6 +11,10 @@ import 'playback_state.dart';
 abstract interface class AudioOutput {
   /// Stream of audio events.
   Stream<AudioEvent> get events;
+  
+  /// Get the underlying AudioPlayer for system media controls integration.
+  /// Returns null if the implementation doesn't use just_audio.
+  AudioPlayer? get player;
 
   /// Play an audio file at the specified rate.
   Future<void> playFile(String path, {double playbackRate = 1.0});
@@ -45,6 +49,9 @@ class JustAudioOutput implements AudioOutput {
   StreamSubscription<Duration?>? _durationSub;
   bool _sessionConfigured = false;
   String? _currentFilePath;
+  
+  @override
+  AudioPlayer? get player => _player;
 
   /// Initialize audio session with proper configuration for audiobook playback.
   Future<void> _initAudioSession() async {

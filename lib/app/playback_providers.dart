@@ -7,8 +7,10 @@ import 'package:playback/playback.dart';
 import 'package:tts_engines/tts_engines.dart';
 
 import 'app_paths.dart';
+import 'audio_service_handler.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
+import '../main.dart' show initAudioService;
 import '../utils/app_logger.dart';
 
 /// Global segment readiness tracker singleton.
@@ -203,6 +205,12 @@ final deviceProfilerProvider = Provider<DevicePerformanceProfiler>((ref) {
   return DevicePerformanceProfiler();
 });
 
+/// Provider for the audio service handler (system media controls).
+/// Uses lazy initialization to avoid blocking app startup.
+final audioServiceHandlerProvider = FutureProvider<AudioServiceHandler>((ref) async {
+  return await initAudioService();
+});
+
 /// Provider for the playback controller.
 /// Creates a single instance of the controller for the app.
 final playbackControllerProvider =
@@ -214,6 +222,7 @@ final playbackControllerProvider =
 class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   AudiobookPlaybackController? _controller;
   StreamSubscription<PlaybackState>? _stateSub;
+  JustAudioOutput? _audioOutput;
 
   @override
   FutureOr<PlaybackState> build() async {
@@ -240,10 +249,16 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       final resourceMonitor = ref.read(resourceMonitorProvider);
       PlaybackLogger.info('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
 
+      // Create audio output externally so we can access its player
+      // for audio service integration (system media controls)
+      PlaybackLogger.info('[PlaybackProvider] Creating audio output...');
+      _audioOutput = JustAudioOutput();
+
       PlaybackLogger.info('[PlaybackProvider] Creating AudiobookPlaybackController...');
       _controller = AudiobookPlaybackController(
         engine: engine,
         cache: cache,
+        audioOutput: _audioOutput,
         // Voice selection is global-only for now (per-book voice not implemented)
         voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
         smartSynthesisManager: smartSynthesisManager,
@@ -268,6 +283,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       _stateSub = _controller!.stateStream.listen((newState) {
         state = AsyncData(newState);
       });
+      
+      // Connect audio output player to audio service for system media controls
+      await _connectAudioService();
 
       ref.onDispose(() {
         PlaybackLogger.info('[PlaybackProvider] Disposing playback controller');
@@ -281,6 +299,60 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       PlaybackLogger.error('[PlaybackProvider] ERROR during initialization: $e');
       PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       rethrow;
+    }
+  }
+  
+  /// Connect the audio player to the audio service for system media controls.
+  Future<void> _connectAudioService() async {
+    PlaybackLogger.info('[PlaybackProvider] _connectAudioService() called');
+    
+    final player = _audioOutput?.player;
+    if (player == null) {
+      PlaybackLogger.info('[PlaybackProvider] No player available for audio service');
+      return;
+    }
+    
+    PlaybackLogger.info('[PlaybackProvider] Player available, connecting to audio service...');
+    
+    try {
+      PlaybackLogger.info('[PlaybackProvider] Calling audioServiceHandlerProvider.future...');
+      final handler = await ref.read(audioServiceHandlerProvider.future);
+      PlaybackLogger.info('[PlaybackProvider] Got handler: ${handler.runtimeType}');
+      
+      handler.connectPlayer(player);
+      PlaybackLogger.info('[PlaybackProvider] Player connected to handler');
+      
+      // Wire up callbacks so media control buttons trigger our controller
+      handler.onPlayCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onPlayCallback triggered from media controls');
+        _controller?.play();
+      };
+      handler.onPauseCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onPauseCallback triggered from media controls');
+        _controller?.pause();
+      };
+      handler.onStopCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onStopCallback triggered from media controls');
+        _controller?.pause();
+      };
+      handler.onSkipToNextCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onSkipToNextCallback triggered from media controls');
+        _controller?.nextTrack();
+      };
+      handler.onSkipToPreviousCallback = () {
+        PlaybackLogger.info('[PlaybackProvider] onSkipToPreviousCallback triggered from media controls');
+        _controller?.previousTrack();
+      };
+      handler.onSpeedChangeCallback = (speed) {
+        PlaybackLogger.info('[PlaybackProvider] Speed changed from media controls: ${speed}x');
+        // The player speed is already set by the handler, just log it
+      };
+      
+      PlaybackLogger.info('[PlaybackProvider] Audio service callbacks wired up');
+    } catch (e, st) {
+      PlaybackLogger.error('[PlaybackProvider] Failed to connect audio service: $e');
+      PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
+      // Non-fatal - app works without system media controls
     }
   }
 
@@ -386,10 +458,52 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         autoPlay: autoPlay,
       );
       PlaybackLogger.info('[PlaybackProvider] Chapter loaded successfully');
+      
+      // Always update audio service with media metadata for lock screen/notification controls
+      // This ensures metadata is set even when the user manually presses play later
+      await _updateAudioServiceMetadata(book: book, chapterIndex: chapterIndex);
     } catch (e, st) {
       PlaybackLogger.error('[PlaybackProvider] ERROR loading chapter: $e');
       PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       rethrow;
+    }
+  }
+  
+  /// Update audio service with current book/chapter metadata.
+  /// This makes the notification/lock screen show the correct info.
+  Future<void> _updateAudioServiceMetadata({
+    required Book book,
+    required int chapterIndex,
+  }) async {
+    PlaybackLogger.info('[PlaybackProvider] Updating audio service metadata: ${book.title}, chapter $chapterIndex');
+    
+    try {
+      final handler = await ref.read(audioServiceHandlerProvider.future);
+      final chapter = book.chapters[chapterIndex];
+      
+      // Get artwork URI from cover image path
+      Uri? artUri;
+      if (book.coverImagePath != null) {
+        final coverFile = File(book.coverImagePath!);
+        if (await coverFile.exists()) {
+          artUri = coverFile.uri;
+        }
+      }
+      
+      handler.updateNowPlaying(
+        id: book.id,
+        title: chapter.title,
+        album: book.title,
+        artist: book.author,
+        artUri: artUri,
+        extras: {
+          'chapterIndex': chapterIndex,
+          'totalChapters': book.chapters.length,
+        },
+      );
+    } catch (e) {
+      PlaybackLogger.error('[PlaybackProvider] Failed to update audio service metadata: $e');
+      // Non-fatal - continue playback even if notification fails
     }
   }
 
