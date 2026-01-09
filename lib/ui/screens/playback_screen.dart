@@ -562,7 +562,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
             
             // Trigger fade animation on orientation change
             if (_lastOrientation != null && _lastOrientation != isLandscape) {
-              // Orientation changed - animate fade in
+              // Orientation changed - animate overlay fade out
               _orientationAnimController.forward(from: 0.0);
             }
             _lastOrientation = isLandscape;
@@ -593,10 +593,23 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                     isLoading: isLoading,
                   );
             
-            // Wrap in fade animation
-            return FadeTransition(
-              opacity: _fadeAnimation,
-              child: layout,
+            // Use overlay that fades out after orientation change
+            return Stack(
+              children: [
+                layout,
+                // Black overlay that fades out after orientation change
+                AnimatedBuilder(
+                  animation: _orientationAnimController,
+                  builder: (context, child) {
+                    // Invert the animation: start opaque, fade to transparent
+                    final overlayOpacity = 1.0 - _fadeAnimation.value;
+                    if (overlayOpacity <= 0.01) return const SizedBox.shrink();
+                    return Container(
+                      color: colors.background.withValues(alpha: overlayOpacity),
+                    );
+                  },
+                ),
+              ],
             );
           },
         ),
