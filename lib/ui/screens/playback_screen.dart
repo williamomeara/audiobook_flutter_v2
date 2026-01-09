@@ -25,7 +25,7 @@ class PlaybackScreen extends ConsumerStatefulWidget {
   ConsumerState<PlaybackScreen> createState() => _PlaybackScreenState();
 }
 
-class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
+class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTickerProviderStateMixin {
   // Layout constants for landscape mode
   static const double _landscapeControlsWidth = 100.0;
   static const double _landscapeBottomBarHeight = 52.0;
@@ -51,6 +51,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   int? _sleepTimerMinutes; // null = off
   int? _sleepTimeRemainingSeconds;
   Timer? _sleepTimer;
+  
+  // Orientation transition animation
+  late AnimationController _orientationAnimController;
+  late Animation<double> _fadeAnimation;
+  bool? _lastOrientation; // Track orientation for transition
   
   // Fullscreen mode for landscape
   bool _wasLandscape = false;
@@ -89,6 +94,16 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   @override
   void initState() {
     super.initState();
+    // Setup orientation transition animation
+    _orientationAnimController = AnimationController(
+      duration: const Duration(milliseconds: 250),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _orientationAnimController, curve: Curves.easeOut),
+    );
+    _orientationAnimController.value = 1.0; // Start fully visible
+    
     // Allow all orientations on playback screen
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -137,6 +152,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
   
   @override
   void dispose() {
+    _orientationAnimController.dispose();
     _restoreSystemUI();
     // Restore portrait-only orientation when leaving playback screen
     SystemChrome.setPreferredOrientations([
@@ -544,58 +560,43 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
               _updateSystemUI(isLandscape);
             });
             
-            // Use AnimatedSwitcher for smooth orientation transitions
-            // Note: Key must be on the immediate child for AnimatedSwitcher to work
-            return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 400),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (child, animation) {
-                return FadeTransition(
-                  opacity: animation,
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: 0.95, end: 1.0).animate(animation),
-                    child: child,
-                  ),
-                );
-              },
-              layoutBuilder: (currentChild, previousChildren) {
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ...previousChildren,
-                    if (currentChild != null) currentChild,
-                  ],
-                );
-              },
-              child: KeyedSubtree(
-                key: ValueKey(isLandscape),
-                child: isLandscape
-                    ? _buildLandscapeLayout(
-                        colors: colors,
-                        book: book,
-                        chapter: chapter,
-                        playbackState: playbackState,
-                        queue: queue,
-                        currentTrack: currentTrack,
-                        currentIndex: currentIndex,
-                        queueLength: queueLength,
-                        chapterIdx: chapterIdx,
-                        isLoading: isLoading,
-                      )
-                    : _buildPortraitLayout(
-                        colors: colors,
-                        book: book,
-                        chapter: chapter,
-                        playbackState: playbackState,
-                        queue: queue,
-                        currentTrack: currentTrack,
-                        currentIndex: currentIndex,
-                        queueLength: queueLength,
-                        chapterIdx: chapterIdx,
-                        isLoading: isLoading,
-                      ),
-              ),
+            // Trigger fade animation on orientation change
+            if (_lastOrientation != null && _lastOrientation != isLandscape) {
+              // Orientation changed - animate fade in
+              _orientationAnimController.forward(from: 0.0);
+            }
+            _lastOrientation = isLandscape;
+            
+            final layout = isLandscape
+                ? _buildLandscapeLayout(
+                    colors: colors,
+                    book: book,
+                    chapter: chapter,
+                    playbackState: playbackState,
+                    queue: queue,
+                    currentTrack: currentTrack,
+                    currentIndex: currentIndex,
+                    queueLength: queueLength,
+                    chapterIdx: chapterIdx,
+                    isLoading: isLoading,
+                  )
+                : _buildPortraitLayout(
+                    colors: colors,
+                    book: book,
+                    chapter: chapter,
+                    playbackState: playbackState,
+                    queue: queue,
+                    currentTrack: currentTrack,
+                    currentIndex: currentIndex,
+                    queueLength: queueLength,
+                    chapterIdx: chapterIdx,
+                    isLoading: isLoading,
+                  );
+            
+            // Wrap in fade animation
+            return FadeTransition(
+              opacity: _fadeAnimation,
+              child: layout,
             );
           },
         ),
