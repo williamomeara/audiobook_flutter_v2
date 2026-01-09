@@ -270,8 +270,9 @@ Test with sample books from `local_dev/dev_books/`:
 | Phase 5: Sentence Segmentation | 2-3 hours | Medium |
 | Phase 6: Unit Tests | 1-2 hours | High |
 | Phase 7: Real-World Testing | 2-3 hours | High |
+| Phase 8: Front Matter Detection | 3-4 hours | High |
 
-**Total Estimate**: 10-15 hours
+**Total Estimate**: 14-20 hours
 
 ## Success Criteria
 
@@ -282,3 +283,288 @@ Test with sample books from `local_dev/dev_books/`:
 5. Clean sentence boundaries for TTS
 6. Passes all unit tests
 7. Works with all sample books without errors
+8. **Audiobook starts at actual story content, not front matter**
+
+---
+
+## Phase 8: Smart Front Matter Detection & Filtering
+
+### Problem
+
+EPUB files contain sections that are not suitable for audiobook listening:
+- Title page
+- Copyright page
+- Dedication
+- Acknowledgments
+- Table of Contents
+- Preface/Foreword (sometimes)
+- About the Author (at start or end)
+- Also by this Author
+- Epigraph (decorative quotes)
+
+Users want to hear the story from "Chapter 1" or the actual narrative beginning.
+
+### Detection Strategy
+
+#### 8.1 Filename-Based Detection
+
+EPUB chapter files often have predictable naming patterns:
+
+**Skip patterns** (front matter):
+```
+/cover\./i
+/title/i
+/copyright/i
+/toc\./i
+/contents/i
+/dedication/i
+/acknowledgment/i
+/foreword/i
+/preface/i
+/about.?the.?author/i
+/also.?by/i
+/frontmatter/i
+/front_matter/i
+/epigraph/i
+/halftitle/i
+```
+
+**Keep patterns** (story content):
+```
+/chapter/i
+/part\d/i
+/prologue/i
+/epilogue/i
+/book\d/i
+```
+
+#### 8.2 Content-Based Detection
+
+Analyze the first 200-500 characters of each chapter for indicators:
+
+**Front matter indicators**:
+- "Copyright ©"
+- "All rights reserved"
+- "Published by"
+- "ISBN"
+- "Library of Congress"
+- "Printed in"
+- "First edition"
+- "Also by [Author]"
+- "Table of Contents"
+- "Dedication"
+- "For my"
+- "Acknowledgments"
+- "About the Author"
+
+**Story content indicators**:
+- Dialogue (quoted speech)
+- Narrative paragraphs (multiple sentences)
+- Character names
+- Scene descriptions
+
+#### 8.3 Title-Based Detection
+
+Chapter titles extracted from EPUB often indicate content type:
+
+**Skip titles matching**:
+```dart
+final _frontMatterTitles = [
+  RegExp(r'^copyright', caseSensitive: false),
+  RegExp(r'^title\s*page', caseSensitive: false),
+  RegExp(r'^table\s*of\s*contents', caseSensitive: false),
+  RegExp(r'^contents$', caseSensitive: false),
+  RegExp(r'^dedication', caseSensitive: false),
+  RegExp(r'^acknowledgment', caseSensitive: false),
+  RegExp(r'^about\s*the\s*author', caseSensitive: false),
+  RegExp(r'^also\s*by', caseSensitive: false),
+  RegExp(r'^foreword', caseSensitive: false),
+  RegExp(r'^preface', caseSensitive: false),
+  RegExp(r'^epigraph', caseSensitive: false),
+  RegExp(r'^cover$', caseSensitive: false),
+];
+```
+
+**Back matter (end of book)**:
+```dart
+final _backMatterTitles = [
+  RegExp(r'^about\s*the\s*author', caseSensitive: false),
+  RegExp(r'^acknowledgment', caseSensitive: false),
+  RegExp(r'^bibliography', caseSensitive: false),
+  RegExp(r'^notes$', caseSensitive: false),
+  RegExp(r'^index$', caseSensitive: false),
+  RegExp(r'^appendix', caseSensitive: false),
+  RegExp(r'^also\s*by', caseSensitive: false),
+  RegExp(r'^author', caseSensitive: false),
+];
+```
+
+#### 8.4 EPUB Landmark Detection
+
+EPUB3 files include navigation landmarks that explicitly mark content types:
+
+```xml
+<nav epub:type="landmarks">
+  <ol>
+    <li><a epub:type="cover" href="cover.xhtml">Cover</a></li>
+    <li><a epub:type="toc" href="toc.xhtml">Table of Contents</a></li>
+    <li><a epub:type="bodymatter" href="chapter1.xhtml">Start Reading</a></li>
+  </ol>
+</nav>
+```
+
+Parse the `nav` file to find `epub:type="bodymatter"` or `epub:type="chapter"`.
+
+#### 8.5 Spine Order with Heuristics
+
+EPUB spine defines reading order. Apply heuristics:
+1. Skip first N items if they match front matter patterns
+2. Find first item matching "chapter" or story pattern
+3. Stop at items matching back matter patterns
+
+### Implementation
+
+**File**: `lib/utils/content_classifier.dart`
+
+```dart
+enum ContentType {
+  frontMatter,
+  bodyMatter,
+  backMatter,
+}
+
+class ContentClassifier {
+  /// Classify a chapter based on filename, title, and content
+  static ContentType classify({
+    required String filename,
+    required String title,
+    required String contentSnippet,
+  }) {
+    // Check filename patterns
+    if (_matchesFrontMatter(filename)) return ContentType.frontMatter;
+    
+    // Check title patterns
+    if (_isFrontMatterTitle(title)) return ContentType.frontMatter;
+    if (_isBackMatterTitle(title)) return ContentType.backMatter;
+    
+    // Check content for copyright, ISBN, etc.
+    if (_hasFrontMatterContent(contentSnippet)) return ContentType.frontMatter;
+    
+    return ContentType.bodyMatter;
+  }
+  
+  /// Filter chapters to only include body matter
+  static List<Chapter> filterToBodyMatter(List<Chapter> chapters) {
+    var startIndex = 0;
+    var endIndex = chapters.length;
+    
+    // Find first body matter chapter
+    for (var i = 0; i < chapters.length; i++) {
+      final type = classify(
+        filename: chapters[i].id,
+        title: chapters[i].title,
+        contentSnippet: chapters[i].content.substring(0, min(500, chapters[i].content.length)),
+      );
+      if (type == ContentType.bodyMatter) {
+        startIndex = i;
+        break;
+      }
+    }
+    
+    // Find where back matter starts
+    for (var i = chapters.length - 1; i >= startIndex; i--) {
+      final type = classify(
+        filename: chapters[i].id,
+        title: chapters[i].title,
+        contentSnippet: chapters[i].content.substring(0, min(500, chapters[i].content.length)),
+      );
+      if (type != ContentType.backMatter) {
+        endIndex = i + 1;
+        break;
+      }
+    }
+    
+    return chapters.sublist(startIndex, endIndex);
+  }
+}
+```
+
+### Integration with EPUB Parser
+
+Modify `lib/infra/epub_parser.dart`:
+
+```dart
+import '../utils/content_classifier.dart';
+
+Future<ParsedEpub> parseFromFile({...}) async {
+  // ... existing parsing code ...
+  
+  // Filter out front/back matter
+  final bodyChapters = ContentClassifier.filterToBodyMatter(chapters);
+  
+  // Renumber chapters
+  final renumbered = bodyChapters.asMap().entries.map((e) => 
+    Chapter(
+      id: e.value.id,
+      number: e.key + 1,  // Start from 1
+      title: e.value.title,
+      content: e.value.content,
+    )
+  ).toList();
+  
+  return ParsedEpub(
+    title: title,
+    author: author,
+    coverPath: coverPath,
+    chapters: renumbered,
+  );
+}
+```
+
+### User Override Option
+
+Some users may want to include front matter (e.g., forewords, prologues). Consider:
+
+1. **Settings toggle**: "Skip front matter" (default: on)
+2. **Manual chapter selection**: Allow users to select which chapters to include
+3. **Preview before import**: Show detected chapters with classification labels
+
+### Testing Strategy
+
+Test with books that have various front matter structures:
+1. Simple: Just copyright + title + chapters
+2. Complex: Dedication, acknowledgments, foreword, prologue, etc.
+3. Literary: Epigraphs, multiple title pages
+4. Non-fiction: Table of contents, introduction, appendices
+
+### Examples from Sample Books
+
+From `local_dev/dev_books/`:
+
+**Kindred (Octavia Butler)**:
+- `Butl_*_cop_r1.htm` - Copyright (skip)
+- `Butl_*_ded_r1.htm` - Dedication (skip)
+- `Butl_*_prl_r1.htm` - Prologue (KEEP - story content)
+- `Butl_*_c01_r1.htm` - Chapter 1 (KEEP)
+
+**1984 (George Orwell)**:
+- `cubierta.xhtml` - Cover (skip)
+- `sinopsis.xhtml` - Synopsis (skip)
+- `titulo.xhtml` - Title (skip)
+- `PartePrimera.xhtml` - Part 1 heading (KEEP)
+- `1-1.xhtml` - Chapter 1.1 (KEEP)
+
+### Edge Cases
+
+1. **Books without chapters**: Some books have no "Chapter X" labels
+2. **Prologues**: Sometimes front matter, sometimes story content
+3. **Introduction by editor**: Not the author, but may be valuable
+4. **Epistolary novels**: May start with letters, not chapters
+5. **Serialized novels**: May have "Part I" structure
+
+### Fallback Behavior
+
+If detection fails or is uncertain:
+1. Include all chapters
+2. Log warning for debugging
+3. Consider prompting user to confirm
