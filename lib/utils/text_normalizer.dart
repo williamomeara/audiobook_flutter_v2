@@ -1,6 +1,7 @@
 /// Normalizes text for TTS consumption.
 ///
 /// Handles typography issues that can cause poor TTS output:
+/// - HTML entities → decoded characters
 /// - Smart/curly quotes → straight quotes
 /// - Em/en dashes → hyphens with spaces
 /// - Unicode ligatures → expanded characters
@@ -25,21 +26,26 @@ class TextNormalizer {
   static final _spacePattern =
       RegExp(r'[\u00A0\u202F\u2009\u200A\u2002\u2003\u2007]');
 
+  // Numeric HTML entities pattern
+  static final _numericEntityPattern = RegExp(r'&#x?([0-9a-fA-F]+);');
+
   /// Main entry point - applies all normalizations in order.
   ///
   /// The order matters:
-  /// 1. Quotes first (simple replacements)
-  /// 2. Dashes (includes em-dash with special spacing)
-  /// 3. Ellipsis
-  /// 4. Ligatures
-  /// 5. Spaces (including zero-width removal)
-  /// 6. Symbols
-  /// 7. Whitespace cleanup (last, to fix any introduced issues)
+  /// 1. HTML entities first (decode before other normalizations)
+  /// 2. Quotes (simple replacements)
+  /// 3. Dashes (includes em-dash with special spacing)
+  /// 4. Ellipsis
+  /// 5. Ligatures
+  /// 6. Spaces (including zero-width removal)
+  /// 7. Symbols
+  /// 8. Whitespace cleanup (last, to fix any introduced issues)
   static String normalize(String text) {
     if (text.isEmpty) return text;
 
     var result = text;
 
+    result = decodeHtmlEntities(result);
     result = normalizeQuotes(result);
     result = normalizeDashes(result);
     result = normalizeEllipsis(result);
@@ -47,6 +53,52 @@ class TextNormalizer {
     result = normalizeSpaces(result);
     result = normalizeSymbols(result);
     result = cleanWhitespace(result);
+
+    return result;
+  }
+
+  /// Decodes HTML entities to their character equivalents.
+  ///
+  /// Handles both named entities (&amp;) and numeric entities (&#39; &#x27;)
+  static String decodeHtmlEntities(String text) {
+    var result = text;
+
+    // Named entities
+    result = result
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&mdash;', '\u2014')
+        .replaceAll('&ndash;', '\u2013')
+        .replaceAll('&hellip;', '\u2026')
+        .replaceAll('&lsquo;', '\u2018')
+        .replaceAll('&rsquo;', '\u2019')
+        .replaceAll('&ldquo;', '\u201C')
+        .replaceAll('&rdquo;', '\u201D')
+        .replaceAll('&laquo;', '\u00AB')
+        .replaceAll('&raquo;', '\u00BB')
+        .replaceAll('&copy;', '\u00A9')
+        .replaceAll('&reg;', '\u00AE')
+        .replaceAll('&trade;', '\u2122')
+        .replaceAll('&bull;', '\u2022')
+        .replaceAll('&middot;', '\u00B7')
+        .replaceAll('&frac12;', '\u00BD')
+        .replaceAll('&frac14;', '\u00BC')
+        .replaceAll('&frac34;', '\u00BE');
+
+    // Numeric entities (decimal and hex)
+    result = result.replaceAllMapped(_numericEntityPattern, (match) {
+      final value = match.group(1)!;
+      final isHex = match.group(0)!.contains('x');
+      final codePoint = int.tryParse(value, radix: isHex ? 16 : 10);
+      if (codePoint != null && codePoint > 0 && codePoint <= 0x10FFFF) {
+        return String.fromCharCode(codePoint);
+      }
+      return match.group(0)!; // Return original if invalid
+    });
 
     return result;
   }

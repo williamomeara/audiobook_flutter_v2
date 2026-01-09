@@ -19,6 +19,53 @@ void main() {
         const input = 'Hello world. This is plain ASCII text.';
         expect(TextNormalizer.normalize(input), equals(input));
       });
+
+      test('handles HTML entities in full pipeline', () {
+        const input = 'She said &ldquo;it&rsquo;s fine&rdquo;&mdash;really.';
+        final result = TextNormalizer.normalize(input);
+        expect(result, equals('She said "it\'s fine" - really.'));
+      });
+    });
+
+    group('decodeHtmlEntities', () {
+      test('decodes basic named entities', () {
+        expect(TextNormalizer.decodeHtmlEntities('&amp;'), equals('&'));
+        expect(TextNormalizer.decodeHtmlEntities('&lt;'), equals('<'));
+        expect(TextNormalizer.decodeHtmlEntities('&gt;'), equals('>'));
+        expect(TextNormalizer.decodeHtmlEntities('&quot;'), equals('"'));
+        expect(TextNormalizer.decodeHtmlEntities('&apos;'), equals("'"));
+        expect(TextNormalizer.decodeHtmlEntities('&nbsp;'), equals(' '));
+      });
+
+      test('decodes typographic named entities', () {
+        expect(TextNormalizer.decodeHtmlEntities('&mdash;'), equals('\u2014'));
+        expect(TextNormalizer.decodeHtmlEntities('&ndash;'), equals('\u2013'));
+        expect(TextNormalizer.decodeHtmlEntities('&hellip;'), equals('\u2026'));
+        expect(TextNormalizer.decodeHtmlEntities('&lsquo;'), equals('\u2018'));
+        expect(TextNormalizer.decodeHtmlEntities('&rsquo;'), equals('\u2019'));
+        expect(TextNormalizer.decodeHtmlEntities('&ldquo;'), equals('\u201C'));
+        expect(TextNormalizer.decodeHtmlEntities('&rdquo;'), equals('\u201D'));
+      });
+
+      test('decodes decimal numeric entities', () {
+        expect(TextNormalizer.decodeHtmlEntities('&#39;'), equals("'"));
+        expect(TextNormalizer.decodeHtmlEntities('&#34;'), equals('"'));
+        expect(TextNormalizer.decodeHtmlEntities('&#8217;'), equals('\u2019'));
+        expect(TextNormalizer.decodeHtmlEntities('&#8212;'), equals('\u2014'));
+      });
+
+      test('decodes hexadecimal numeric entities', () {
+        expect(TextNormalizer.decodeHtmlEntities('&#x27;'), equals("'"));
+        expect(TextNormalizer.decodeHtmlEntities('&#x22;'), equals('"'));
+        expect(TextNormalizer.decodeHtmlEntities('&#x2019;'), equals('\u2019'));
+        expect(TextNormalizer.decodeHtmlEntities('&#x2014;'), equals('\u2014'));
+      });
+
+      test('handles mixed entities in text', () {
+        const input = 'He said &ldquo;Don&#x2019;t&rdquo; &mdash; really.';
+        final result = TextNormalizer.decodeHtmlEntities(input);
+        expect(result, equals('He said \u201CDon\u2019t\u201D \u2014 really.'));
+      });
     });
 
     group('normalizeQuotes', () {
