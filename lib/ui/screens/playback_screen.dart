@@ -545,41 +545,57 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
             });
             
             // Use AnimatedSwitcher for smooth orientation transitions
+            // Note: Key must be on the immediate child for AnimatedSwitcher to work
             return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              switchInCurve: Curves.easeInOut,
-              switchOutCurve: Curves.easeInOut,
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: child,
+              duration: const Duration(milliseconds: 400),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.95, end: 1.0).animate(animation),
+                    child: child,
+                  ),
+                );
+              },
+              layoutBuilder: (currentChild, previousChildren) {
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                );
+              },
+              child: KeyedSubtree(
+                key: ValueKey(isLandscape),
+                child: isLandscape
+                    ? _buildLandscapeLayout(
+                        colors: colors,
+                        book: book,
+                        chapter: chapter,
+                        playbackState: playbackState,
+                        queue: queue,
+                        currentTrack: currentTrack,
+                        currentIndex: currentIndex,
+                        queueLength: queueLength,
+                        chapterIdx: chapterIdx,
+                        isLoading: isLoading,
+                      )
+                    : _buildPortraitLayout(
+                        colors: colors,
+                        book: book,
+                        chapter: chapter,
+                        playbackState: playbackState,
+                        queue: queue,
+                        currentTrack: currentTrack,
+                        currentIndex: currentIndex,
+                        queueLength: queueLength,
+                        chapterIdx: chapterIdx,
+                        isLoading: isLoading,
+                      ),
               ),
-              child: isLandscape
-                  ? _buildLandscapeLayout(
-                      key: const ValueKey('landscape'),
-                      colors: colors,
-                      book: book,
-                      chapter: chapter,
-                      playbackState: playbackState,
-                      queue: queue,
-                      currentTrack: currentTrack,
-                      currentIndex: currentIndex,
-                      queueLength: queueLength,
-                      chapterIdx: chapterIdx,
-                      isLoading: isLoading,
-                    )
-                  : _buildPortraitLayout(
-                      key: const ValueKey('portrait'),
-                      colors: colors,
-                      book: book,
-                      chapter: chapter,
-                      playbackState: playbackState,
-                      queue: queue,
-                      currentTrack: currentTrack,
-                      currentIndex: currentIndex,
-                      queueLength: queueLength,
-                      chapterIdx: chapterIdx,
-                      isLoading: isLoading,
-                    ),
             );
           },
         ),
@@ -657,7 +673,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
 
   /// Landscape layout for playback screen
   Widget _buildLandscapeLayout({
-    required Key key,
     required AppThemeColors colors,
     required Book book,
     required Chapter chapter,
@@ -670,7 +685,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     required bool isLoading,
   }) {
     return SafeArea(
-      key: key,
       child: Stack(
         children: [
           // Main content area (padded for controls)
@@ -742,7 +756,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
 
   /// Portrait layout for playback screen
   Widget _buildPortraitLayout({
-    required Key key,
     required AppThemeColors colors,
     required Book book,
     required Chapter chapter,
@@ -755,7 +768,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> {
     required bool isLoading,
   }) {
     return SafeArea(
-      key: key,
       child: Column(
         children: [
           _buildHeader(colors, book, chapter),
