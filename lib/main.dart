@@ -109,7 +109,7 @@ class AudiobookApp extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
     
     return MaterialApp.router(
-      title: 'Audiobook',
+      title: 'Éist',
       theme: buildLightTheme(),
       darkTheme: buildDarkTheme(),
       themeMode: settings.darkMode ? ThemeMode.dark : ThemeMode.light,

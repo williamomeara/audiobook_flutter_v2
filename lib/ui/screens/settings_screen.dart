@@ -226,6 +226,59 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 20),
+
+                    // About section
+                    _SectionCard(
+                      title: 'About',
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Éist',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w600,
+                                  color: colors.text,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Ebook/PDF to Audiobook',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: colors.textSecondary,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Version 1.0.0',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: colors.textTertiary,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                '"Éist" means "listen" in Irish 🇮🇪',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontStyle: FontStyle.italic,
+                                  color: colors.textSecondary,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -237,6 +290,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   String _voiceDisplayName(String voiceId) {
+    if (voiceId == VoiceIds.none) return 'None - Download a voice';
     if (voiceId == VoiceIds.device) return 'Device TTS';
     if (VoiceIds.isKokoro(voiceId)) {
       final parts = voiceId.replaceFirst('kokoro_', '').split('_');

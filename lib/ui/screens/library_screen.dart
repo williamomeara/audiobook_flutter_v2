@@ -136,13 +136,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                             onTap: () => context.push('/settings'),
                           ),
                           const SizedBox(width: 16),
-                          Text(
-                            'Library',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w500,
-                              color: colors.text,
-                            ),
+                          // App branding and screen title
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Éist',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: colors.textSecondary,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                              Text(
+                                'Library',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w500,
+                                  color: colors.text,
+                                ),
+                              ),
+                            ],
                           ),
                           const Spacer(),
                           // Filter button
