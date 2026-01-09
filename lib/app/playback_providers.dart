@@ -222,6 +222,7 @@ final playbackControllerProvider =
 class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   AudiobookPlaybackController? _controller;
   StreamSubscription<PlaybackState>? _stateSub;
+  JustAudioOutput? _audioOutput;
 
   @override
   FutureOr<PlaybackState> build() async {
@@ -248,10 +249,16 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       final resourceMonitor = ref.read(resourceMonitorProvider);
       PlaybackLogger.info('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
 
+      // Create audio output externally so we can access its player
+      // for audio service integration (system media controls)
+      PlaybackLogger.info('[PlaybackProvider] Creating audio output...');
+      _audioOutput = JustAudioOutput();
+
       PlaybackLogger.info('[PlaybackProvider] Creating AudiobookPlaybackController...');
       _controller = AudiobookPlaybackController(
         engine: engine,
         cache: cache,
+        audioOutput: _audioOutput,
         // Voice selection is global-only for now (per-book voice not implemented)
         voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
         smartSynthesisManager: smartSynthesisManager,
@@ -276,6 +283,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       _stateSub = _controller!.stateStream.listen((newState) {
         state = AsyncData(newState);
       });
+      
+      // Connect audio output player to audio service for system media controls
+      _connectAudioService();
 
       ref.onDispose(() {
         PlaybackLogger.info('[PlaybackProvider] Disposing playback controller');
@@ -289,6 +299,32 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       PlaybackLogger.error('[PlaybackProvider] ERROR during initialization: $e');
       PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       rethrow;
+    }
+  }
+  
+  /// Connect the audio player to the audio service for system media controls.
+  Future<void> _connectAudioService() async {
+    final player = _audioOutput?.player;
+    if (player == null) {
+      PlaybackLogger.info('[PlaybackProvider] No player available for audio service');
+      return;
+    }
+    
+    try {
+      final handler = await ref.read(audioServiceHandlerProvider.future);
+      handler.connectPlayer(player);
+      
+      // Wire up callbacks so media control buttons trigger our controller
+      handler.onPlayCallback = () => _controller?.play();
+      handler.onPauseCallback = () => _controller?.pause();
+      handler.onStopCallback = () => _controller?.pause();
+      handler.onSkipToNextCallback = () => _controller?.nextTrack();
+      handler.onSkipToPreviousCallback = () => _controller?.previousTrack();
+      
+      PlaybackLogger.info('[PlaybackProvider] Audio service connected');
+    } catch (e) {
+      PlaybackLogger.error('[PlaybackProvider] Failed to connect audio service: $e');
+      // Non-fatal - app works without system media controls
     }
   }
 
@@ -394,10 +430,42 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         autoPlay: autoPlay,
       );
       PlaybackLogger.info('[PlaybackProvider] Chapter loaded successfully');
+      
+      // Update audio service with media metadata for lock screen/notification controls
+      if (autoPlay) {
+        _updateAudioServiceMetadata(book: book, chapterIndex: chapterIndex);
+      }
     } catch (e, st) {
       PlaybackLogger.error('[PlaybackProvider] ERROR loading chapter: $e');
       PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       rethrow;
+    }
+  }
+  
+  /// Update audio service with current book/chapter metadata.
+  /// This makes the notification/lock screen show the correct info.
+  Future<void> _updateAudioServiceMetadata({
+    required Book book,
+    required int chapterIndex,
+  }) async {
+    try {
+      final handler = await ref.read(audioServiceHandlerProvider.future);
+      final chapter = book.chapters[chapterIndex];
+      
+      handler.updateNowPlaying(
+        id: book.id,
+        title: chapter.title,
+        album: book.title,
+        artist: book.author,
+        extras: {
+          'chapterIndex': chapterIndex,
+          'totalChapters': book.chapters.length,
+        },
+      );
+      PlaybackLogger.info('[PlaybackProvider] Updated audio service metadata: ${chapter.title}');
+    } catch (e) {
+      PlaybackLogger.error('[PlaybackProvider] Failed to update audio service metadata: $e');
+      // Non-fatal - continue playback even if notification fails
     }
   }
 

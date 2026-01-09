@@ -13,3 +13,6 @@ export 'src/engine_config_manager.dart'; // Phase 4: Config persistence
 
 // Re-export SmartSynthesisManager for convenience
 export 'package:tts_engines/tts_engines.dart' show SmartSynthesisManager;
+
+// Re-export just_audio's AudioPlayer for audio service integration
+export 'package:just_audio/just_audio.dart' show AudioPlayer;

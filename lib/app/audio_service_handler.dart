@@ -10,36 +10,65 @@ import 'package:rxdart/rxdart.dart';
 /// This class bridges our app's audio playback with system-level media controls,
 /// including lock screen controls, notification shade, and Bluetooth/headphone
 /// button events.
+/// 
+/// Note: This handler does NOT create its own AudioPlayer. Instead, it must be
+/// connected to the app's existing player via [connectPlayer]. This allows the
+/// existing playback architecture to continue working while gaining system
+/// media control integration.
 class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
-  AudioServiceHandler() {
-    _init();
-  }
+  AudioServiceHandler();
 
-  final AudioPlayer _player = AudioPlayer();
+  /// The connected audio player (from the app's playback system).
+  AudioPlayer? _player;
+  
+  /// Subscription to player events.
+  StreamSubscription<dynamic>? _playerEventSub;
 
   /// Callbacks for skip actions (to be set by PlaybackController).
   void Function()? onSkipToNextCallback;
   void Function()? onSkipToPreviousCallback;
+  void Function()? onPlayCallback;
+  void Function()? onPauseCallback;
+  void Function()? onStopCallback;
 
-  /// Initialize player event forwarding.
-  void _init() {
+  /// Connect an external AudioPlayer to this handler.
+  /// This forwards the player's state to the system media controls.
+  void connectPlayer(AudioPlayer player) {
+    // Disconnect any previous player
+    _playerEventSub?.cancel();
+    _player = player;
+    
     try {
       // Forward player state changes to the media session.
-      // Use RxDart to combine multiple streams into a single playback state.
-      Rx.combineLatest3<PlaybackEvent, bool, Duration, PlaybackState>(
-        _player.playbackEventStream,
-        _player.playingStream,
-        _player.positionStream,
-        (event, playing, position) => _transformEvent(event, playing, position),
+      _playerEventSub = Rx.combineLatest3<PlaybackEvent, bool, Duration, PlaybackState>(
+        player.playbackEventStream,
+        player.playingStream,
+        player.positionStream,
+        (event, playing, position) => _transformEvent(event, playing, position, player),
       ).listen(
         (state) => playbackState.add(state),
         onError: (error) {
           developer.log('AudioServiceHandler: Error in playback state stream: $error');
         },
       );
+      developer.log('AudioServiceHandler: Player connected');
     } catch (e) {
-      developer.log('AudioServiceHandler: Error during init: $e');
+      developer.log('AudioServiceHandler: Error connecting player: $e');
     }
+  }
+  
+  /// Disconnect the current player.
+  void disconnectPlayer() {
+    _playerEventSub?.cancel();
+    _playerEventSub = null;
+    _player = null;
+    
+    // Reset to idle state
+    playbackState.add(PlaybackState(
+      controls: [],
+      processingState: AudioProcessingState.idle,
+      playing: false,
+    ));
   }
 
   /// Transform just_audio events to audio_service PlaybackState.
@@ -47,6 +76,7 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     PlaybackEvent event,
     bool playing,
     Duration position,
+    AudioPlayer player,
   ) {
     return PlaybackState(
       controls: [
@@ -66,11 +96,11 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
         MediaAction.stop,
       },
       androidCompactActionIndices: const [0, 1, 3],
-      processingState: _mapProcessingState(_player.processingState),
+      processingState: _mapProcessingState(player.processingState),
       playing: playing,
       updatePosition: position,
-      bufferedPosition: _player.bufferedPosition,
-      speed: _player.speed,
+      bufferedPosition: player.bufferedPosition,
+      speed: player.speed,
       queueIndex: event.currentIndex,
     );
   }
@@ -91,8 +121,8 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
-  /// Get the underlying audio player (for direct control if needed).
-  AudioPlayer get player => _player;
+  /// Get the connected audio player.
+  AudioPlayer? get player => _player;
 
   /// Update the currently playing media item.
   /// This updates the metadata shown in lock screen and notification controls.
@@ -116,6 +146,7 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     );
     // Use the base class's mediaItem BehaviorSubject
     mediaItem.add(item);
+    developer.log('AudioServiceHandler: Updated now playing: $title');
   }
 
   /// Clear the current media item (e.g., when stopping).
@@ -128,58 +159,83 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
   // ─────────────────────────────────────────────────────────────────────────
 
   @override
-  Future<void> play() => _player.play();
+  Future<void> play() async {
+    if (onPlayCallback != null) {
+      onPlayCallback!();
+    } else {
+      await _player?.play();
+    }
+  }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() async {
+    if (onPauseCallback != null) {
+      onPauseCallback!();
+    } else {
+      await _player?.pause();
+    }
+  }
 
   @override
   Future<void> stop() async {
-    await _player.stop();
+    if (onStopCallback != null) {
+      onStopCallback!();
+    } else {
+      await _player?.stop();
+    }
     clearNowPlaying();
   }
 
   @override
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) async {
+    await _player?.seek(position);
+  }
 
   @override
   Future<void> skipToNext() async {
-    // Delegate to the app's playback controller for chapter/segment navigation.
     onSkipToNextCallback?.call();
   }
 
   @override
   Future<void> skipToPrevious() async {
-    // Delegate to the app's playback controller for chapter/segment navigation.
     onSkipToPreviousCallback?.call();
   }
 
   @override
-  Future<void> setSpeed(double speed) => _player.setSpeed(speed);
+  Future<void> setSpeed(double speed) async {
+    await _player?.setSpeed(speed);
+  }
 
   @override
   Future<void> fastForward() async {
-    final newPosition = _player.position + const Duration(seconds: 30);
-    final duration = _player.duration;
+    final player = _player;
+    if (player == null) return;
+    
+    final newPosition = player.position + const Duration(seconds: 30);
+    final duration = player.duration;
     if (duration != null && newPosition < duration) {
-      await _player.seek(newPosition);
+      await player.seek(newPosition);
     } else if (duration != null) {
-      await _player.seek(duration);
+      await player.seek(duration);
     }
   }
 
   @override
   Future<void> rewind() async {
-    final newPosition = _player.position - const Duration(seconds: 30);
+    final player = _player;
+    if (player == null) return;
+    
+    final newPosition = player.position - const Duration(seconds: 30);
     if (newPosition > Duration.zero) {
-      await _player.seek(newPosition);
+      await player.seek(newPosition);
     } else {
-      await _player.seek(Duration.zero);
+      await player.seek(Duration.zero);
     }
   }
 
   /// Dispose of resources.
   Future<void> dispose() async {
-    await _player.dispose();
+    await _playerEventSub?.cancel();
+    // Don't dispose the player - it's owned by the playback system
   }
 }
