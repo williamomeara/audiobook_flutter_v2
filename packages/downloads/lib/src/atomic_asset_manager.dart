@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
@@ -516,74 +517,22 @@ class AtomicAssetManager {
     }
   }
 
-  /// Extract archive (tar.gz, tar.bz2, or zip).
+  /// Extract archive (tar.gz, tar.bz2, or zip) in background isolate.
   /// 
   /// For tar.bz2 archives (sherpa-onnx models), strips the leading directory
   /// component so contents are extracted directly to destDir.
   Future<void> _extractArchive(File archive, Directory destDir) async {
-    final bytes = await archive.readAsBytes();
-
-    Archive decoded;
-    final lower = archive.path.toLowerCase();
-    final lowerNoTmp = lower.endsWith('.tmp') ? lower.substring(0, lower.length - 4) : lower;
-    final isBz2 = lowerNoTmp.endsWith('.tar.bz2') || lowerNoTmp.endsWith('.tbz2');
-    
-    if (lowerNoTmp.endsWith('.tar.gz') || lowerNoTmp.endsWith('.tgz')) {
-      decoded = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
-    } else if (isBz2) {
-      decoded = TarDecoder().decodeBytes(BZip2Decoder().decodeBytes(bytes));
-    } else if (lowerNoTmp.endsWith('.zip')) {
-      decoded = ZipDecoder().decodeBytes(bytes);
-    } else {
-      throw Exception('Unsupported archive type: ${archive.path}');
-    }
-
-    // For tar.bz2 (sherpa-onnx format), strip the leading directory component
-    // e.g., "vits-piper-en_GB-alan-medium/tokens.txt" -> "tokens.txt"
-    String? stripPrefix;
-    if (isBz2) {
-      stripPrefix = _detectCommonPrefix(decoded);
-    }
-
-    for (final file in decoded) {
-      String filename = file.name;
-      
-      // Strip prefix if detected
-      if (stripPrefix != null && filename.startsWith(stripPrefix)) {
-        filename = filename.substring(stripPrefix.length);
-        if (filename.isEmpty) continue; // Skip the root directory entry
-      }
-      
-      if (file.isFile) {
-        final outFile = File('${destDir.path}/$filename');
-        await outFile.parent.create(recursive: true);
-        await outFile.writeAsBytes(file.content as List<int>);
-      } else if (filename.isNotEmpty) {
-        await Directory('${destDir.path}/$filename').create(recursive: true);
-      }
-    }
-  }
-  
-  /// Detect common prefix directory in archive (for stripping).
-  String? _detectCommonPrefix(Archive archive) {
-    final names = archive.files.map((f) => f.name).toList();
-    if (names.isEmpty) return null;
-    
-    // Check if all files start with a common directory prefix
-    final firstSlash = names.first.indexOf('/');
-    if (firstSlash < 0) return null;
-    
-    final prefix = names.first.substring(0, firstSlash + 1);
-    if (names.every((n) => n.startsWith(prefix))) {
-      return prefix;
-    }
-    return null;
+    // Run extraction in background isolate to avoid UI jank
+    await Isolate.run(() => _extractArchiveIsolate(_ExtractParams(
+      archivePath: archive.path,
+      destPath: destDir.path,
+    )));
   }
 
-  /// Calculate SHA256 of a file.
+  /// Calculate SHA256 of a file in background isolate.
   Future<String> _sha256File(File file) async {
-    final bytes = await file.readAsBytes();
-    return sha256.convert(bytes).toString();
+    // Run hash computation in background isolate to avoid UI jank
+    return Isolate.run(() => _sha256FileIsolate(file.path));
   }
 
   /// Verify directory checksum (check main model file).
@@ -670,4 +619,77 @@ class AtomicAssetManager {
     }
     _controllers.clear();
   }
+}
+
+/// Data class for passing extraction parameters to isolate.
+class _ExtractParams {
+  _ExtractParams({
+    required this.archivePath,
+    required this.destPath,
+  });
+
+  final String archivePath;
+  final String destPath;
+}
+
+/// Extract archive in background isolate to avoid UI jank.
+Future<void> _extractArchiveIsolate(_ExtractParams params) async {
+  final archive = File(params.archivePath);
+  final destDir = Directory(params.destPath);
+  
+  final bytes = await archive.readAsBytes();
+
+  Archive decoded;
+  final lower = archive.path.toLowerCase();
+  final lowerNoTmp = lower.endsWith('.tmp') ? lower.substring(0, lower.length - 4) : lower;
+  final isBz2 = lowerNoTmp.endsWith('.tar.bz2') || lowerNoTmp.endsWith('.tbz2');
+  
+  if (lowerNoTmp.endsWith('.tar.gz') || lowerNoTmp.endsWith('.tgz')) {
+    decoded = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
+  } else if (isBz2) {
+    decoded = TarDecoder().decodeBytes(BZip2Decoder().decodeBytes(bytes));
+  } else if (lowerNoTmp.endsWith('.zip')) {
+    decoded = ZipDecoder().decodeBytes(bytes);
+  } else {
+    throw Exception('Unsupported archive type: ${archive.path}');
+  }
+
+  // For tar.bz2 (sherpa-onnx format), strip the leading directory component
+  String? stripPrefix;
+  if (isBz2) {
+    final names = decoded.files.map((f) => f.name).toList();
+    if (names.isNotEmpty) {
+      final firstSlash = names.first.indexOf('/');
+      if (firstSlash >= 0) {
+        final prefix = names.first.substring(0, firstSlash + 1);
+        if (names.every((n) => n.startsWith(prefix))) {
+          stripPrefix = prefix;
+        }
+      }
+    }
+  }
+
+  for (final file in decoded) {
+    String filename = file.name;
+    
+    // Strip prefix if detected
+    if (stripPrefix != null && filename.startsWith(stripPrefix)) {
+      filename = filename.substring(stripPrefix.length);
+      if (filename.isEmpty) continue; // Skip the root directory entry
+    }
+    
+    if (file.isFile) {
+      final outFile = File('${destDir.path}/$filename');
+      await outFile.parent.create(recursive: true);
+      await outFile.writeAsBytes(file.content as List<int>);
+    } else if (filename.isNotEmpty) {
+      await Directory('${destDir.path}/$filename').create(recursive: true);
+    }
+  }
+}
+
+/// Calculate SHA256 of file in background isolate.
+Future<String> _sha256FileIsolate(String filePath) async {
+  final bytes = await File(filePath).readAsBytes();
+  return sha256.convert(bytes).toString();
 }
