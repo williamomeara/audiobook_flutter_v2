@@ -285,7 +285,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       });
       
       // Connect audio output player to audio service for system media controls
-      _connectAudioService();
+      await _connectAudioService();
 
       ref.onDispose(() {
         PlaybackLogger.info('[PlaybackProvider] Disposing playback controller');
@@ -342,6 +342,10 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       handler.onSkipToPreviousCallback = () {
         PlaybackLogger.info('[PlaybackProvider] onSkipToPreviousCallback triggered from media controls');
         _controller?.previousTrack();
+      };
+      handler.onSpeedChangeCallback = (speed) {
+        PlaybackLogger.info('[PlaybackProvider] Speed changed from media controls: ${speed}x');
+        // The player speed is already set by the handler, just log it
       };
       
       PlaybackLogger.info('[PlaybackProvider] Audio service callbacks wired up');
@@ -455,10 +459,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       );
       PlaybackLogger.info('[PlaybackProvider] Chapter loaded successfully');
       
-      // Update audio service with media metadata for lock screen/notification controls
-      if (autoPlay) {
-        _updateAudioServiceMetadata(book: book, chapterIndex: chapterIndex);
-      }
+      // Always update audio service with media metadata for lock screen/notification controls
+      // This ensures metadata is set even when the user manually presses play later
+      await _updateAudioServiceMetadata(book: book, chapterIndex: chapterIndex);
     } catch (e, st) {
       PlaybackLogger.error('[PlaybackProvider] ERROR loading chapter: $e');
       PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
@@ -472,15 +475,10 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     required Book book,
     required int chapterIndex,
   }) async {
-    PlaybackLogger.info('[PlaybackProvider] _updateAudioServiceMetadata() called');
-    PlaybackLogger.info('[PlaybackProvider]   Book: ${book.title}');
-    PlaybackLogger.info('[PlaybackProvider]   Chapter: $chapterIndex');
+    PlaybackLogger.info('[PlaybackProvider] Updating audio service metadata: ${book.title}, chapter $chapterIndex');
     
     try {
-      PlaybackLogger.info('[PlaybackProvider] Getting audio service handler...');
       final handler = await ref.read(audioServiceHandlerProvider.future);
-      PlaybackLogger.info('[PlaybackProvider] Got handler, updating now playing...');
-      
       final chapter = book.chapters[chapterIndex];
       
       // Get artwork URI from cover image path
@@ -489,9 +487,6 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         final coverFile = File(book.coverImagePath!);
         if (await coverFile.exists()) {
           artUri = coverFile.uri;
-          PlaybackLogger.info('[PlaybackProvider] Cover image found: $artUri');
-        } else {
-          PlaybackLogger.info('[PlaybackProvider] Cover image file not found: ${book.coverImagePath}');
         }
       }
       
@@ -506,10 +501,8 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           'totalChapters': book.chapters.length,
         },
       );
-      PlaybackLogger.info('[PlaybackProvider] Updated audio service metadata: ${chapter.title}');
-    } catch (e, st) {
+    } catch (e) {
       PlaybackLogger.error('[PlaybackProvider] Failed to update audio service metadata: $e');
-      PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       // Non-fatal - continue playback even if notification fails
     }
   }

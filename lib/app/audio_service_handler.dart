@@ -30,6 +30,10 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
   void Function()? onPlayCallback;
   void Function()? onPauseCallback;
   void Function()? onStopCallback;
+  void Function(double speed)? onSpeedChangeCallback;
+  
+  /// Playback speed presets for cycling
+  static const List<double> _speedPresets = [1.0, 1.25, 1.5, 1.75, 2.0];
 
   /// Connect an external AudioPlayer to this handler.
   /// This forwards the player's state to the system media controls.
@@ -90,12 +94,22 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     Duration position,
     AudioPlayer player,
   ) {
+    // Create speed label based on current speed
+    final speedLabel = '${player.speed}x';
+    
     return PlaybackState(
       controls: [
+        MediaControl.rewind,
         MediaControl.skipToPrevious,
         if (playing) MediaControl.pause else MediaControl.play,
-        MediaControl.stop,
         MediaControl.skipToNext,
+        MediaControl.fastForward,
+        // Speed button as custom control
+        MediaControl.custom(
+          androidIcon: 'drawable/ic_speed',
+          label: speedLabel,
+          name: 'cycleSpeed',
+        ),
       ],
       systemActions: const {
         MediaAction.seek,
@@ -106,8 +120,11 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
         MediaAction.play,
         MediaAction.pause,
         MediaAction.stop,
+        MediaAction.fastForward,
+        MediaAction.rewind,
+        MediaAction.setSpeed,
       },
-      androidCompactActionIndices: const [0, 1, 3],
+      androidCompactActionIndices: const [1, 2, 3], // skipPrev, play/pause, skipNext
       processingState: _mapProcessingState(player.processingState),
       playing: playing,
       updatePosition: position,
@@ -147,12 +164,7 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     Duration? duration,
     Map<String, dynamic>? extras,
   }) {
-    developer.log('AudioServiceHandler: updateNowPlaying() called');
-    developer.log('AudioServiceHandler:   id: $id');
-    developer.log('AudioServiceHandler:   title: $title');
-    developer.log('AudioServiceHandler:   album: $album');
-    developer.log('AudioServiceHandler:   artist: $artist');
-    developer.log('AudioServiceHandler:   duration: $duration');
+    developer.log('AudioServiceHandler: updateNowPlaying - title: $title, album: $album');
     
     final item = MediaItem(
       id: id,
@@ -165,8 +177,6 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     );
     // Use the base class's mediaItem BehaviorSubject
     mediaItem.add(item);
-    developer.log('AudioServiceHandler: MediaItem added to stream');
-    developer.log('AudioServiceHandler: Updated now playing: $title');
   }
 
   /// Clear the current media item (e.g., when stopping).
@@ -223,7 +233,30 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> setSpeed(double speed) async {
-    await _player?.setSpeed(speed);
+    // If a specific speed is requested, use it; otherwise cycle to next preset
+    if (speed > 0) {
+      await _player?.setSpeed(speed);
+      onSpeedChangeCallback?.call(speed);
+    }
+  }
+  
+  /// Cycle to the next playback speed preset.
+  /// Called when user taps the speed button in notification.
+  Future<void> cycleSpeed() async {
+    final player = _player;
+    if (player == null) return;
+    
+    final currentSpeed = player.speed;
+    // Find current preset index and move to next
+    int currentIndex = _speedPresets.indexWhere((s) => (s - currentSpeed).abs() < 0.01);
+    if (currentIndex < 0) currentIndex = 0;
+    
+    final nextIndex = (currentIndex + 1) % _speedPresets.length;
+    final nextSpeed = _speedPresets[nextIndex];
+    
+    await player.setSpeed(nextSpeed);
+    onSpeedChangeCallback?.call(nextSpeed);
+    developer.log('AudioServiceHandler: Speed changed to ${nextSpeed}x');
   }
 
   @override
@@ -251,6 +284,18 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     } else {
       await player.seek(Duration.zero);
     }
+  }
+
+  @override
+  Future<dynamic> customAction(String name, [Map<String, dynamic>? extras]) async {
+    switch (name) {
+      case 'cycleSpeed':
+        await cycleSpeed();
+        break;
+      default:
+        developer.log('AudioServiceHandler: Unknown custom action: $name');
+    }
+    return null;
   }
 
   /// Dispose of resources.
