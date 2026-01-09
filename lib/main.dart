@@ -57,8 +57,12 @@ Future<AudioServiceHandler> initAudioService() async {
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.williamomeara.audiobook.channel.audio',
         androidNotificationChannelName: 'Audiobook Playback',
-        androidNotificationOngoing: true,
-        androidStopForegroundOnPause: true,
+        // When false, notification can be dismissed by user swipe
+        // When true, notification is "ongoing" and cannot be dismissed
+        // Note: androidNotificationOngoing only applies when foreground service is running
+        androidNotificationOngoing: false,
+        // Keep notification visible while paused so user can resume easily
+        androidStopForegroundOnPause: false,
         androidNotificationIcon: 'drawable/ic_notification',
       ),
     );
