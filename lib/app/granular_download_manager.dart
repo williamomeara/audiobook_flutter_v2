@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:downloads/downloads.dart';
+import 'package:core_domain/core_domain.dart';
 
 import 'app_paths.dart';
+import 'settings_controller.dart';
 
 /// Provider for the granular download manager.
 final granularDownloadManagerProvider =
@@ -129,6 +131,13 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     // For most voices, downloading cores is sufficient
     // (Kokoro uses speakerId, Piper core IS the voice model)
     debugPrint('[GranularDownloadManager] Voice $voiceId is now ready');
+    
+    // Auto-select this voice if no voice is currently selected
+    final settings = ref.read(settingsProvider);
+    if (settings.selectedVoice == VoiceIds.none) {
+      await ref.read(settingsProvider.notifier).setSelectedVoice(voiceId);
+      debugPrint('[GranularDownloadManager] Auto-selected voice: $voiceId');
+    }
   }
 
   /// Download a specific core.
