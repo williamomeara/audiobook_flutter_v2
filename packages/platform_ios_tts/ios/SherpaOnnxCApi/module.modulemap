@@ -1,0 +1,4 @@
+module SherpaOnnxCApi {
+    header "shim.h"
+    export *
+}
