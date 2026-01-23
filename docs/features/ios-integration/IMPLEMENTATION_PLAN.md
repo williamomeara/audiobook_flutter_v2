@@ -364,21 +364,34 @@ Added `platform_ios_tts` dependency to:
 
 ---
 
-## Phase 6: Model Downloads & Storage (2-3 days)
+## Phase 6: Model Downloads & Storage (2-3 days) ✅ COMPLETE
 
-### 6.1 iOS Storage Paths
+The downloads package is already cross-platform and works on iOS without changes.
 
-```swift
-let modelsDir = FileManager.default
-    .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    .appendingPathComponent("tts_models")
-```
+### 6.1 iOS Storage Paths ✅ DONE
 
-### 6.2 Verify Downloads Package
+Uses `path_provider`'s `getApplicationDocumentsDirectory()` which returns:
+- **iOS**: `~/Documents/` (app sandbox)
+- **Android**: `/data/data/{pkg}/files/`
 
-- Test `AtomicAssetManager` on iOS
-- Test `ResilientDownloader` resume support
-- Test .tar.bz2 extraction on iOS
+### 6.2 Archive Support ✅ DONE
+
+The `archive` package (v3.6.1) is pure Dart and supports:
+- ✅ .zip extraction
+- ✅ .tar.gz extraction
+- ✅ .tar.bz2 extraction (sherpa-onnx format)
+
+### 6.3 AtomicAssetManager ✅ DONE
+
+Cross-platform atomic downloads with:
+- Resumable downloads via Content-Range headers
+- SHA256 checksum verification
+- Atomic directory moves for corruption protection
+- Strip leading directory for tar.bz2 archives
+
+### 6.4 No iOS-Specific Changes Required
+
+The downloads system works identically on both platforms.
 
 ---
 
