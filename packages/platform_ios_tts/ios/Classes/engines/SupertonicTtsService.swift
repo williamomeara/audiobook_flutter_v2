@@ -18,47 +18,72 @@ class SupertonicTtsService: TtsServiceProtocol {
     }
     
     func loadCore(corePath: String, configPath: String?) async throws {
-        // For Supertonic, core loading is per-voice
         lock.lock()
         defer { lock.unlock() }
         
+        NSLog("[SupertonicTtsService] loadCore called with corePath: %@", corePath)
+        
         guard FileManager.default.fileExists(atPath: corePath) else {
+            NSLog("[SupertonicTtsService] ERROR: corePath does not exist: %@", corePath)
             throw TtsError.modelNotLoaded
         }
         
-        print("[SupertonicTtsService] Core path validated: \(corePath)")
+        // Load the model if not already loaded
+        if !inference.isModelLoaded {
+            // Find model.onnx in onnx subdirectory
+            let onnxDir = (corePath as NSString).appendingPathComponent("onnx")
+            let modelPath = (onnxDir as NSString).appendingPathComponent("model.onnx")
+            let tokensPath = (onnxDir as NSString).appendingPathComponent("tokens.txt")
+            
+            NSLog("[SupertonicTtsService] Looking for model at: %@", modelPath)
+            NSLog("[SupertonicTtsService] Looking for tokens at: %@", tokensPath)
+            
+            guard FileManager.default.fileExists(atPath: modelPath) else {
+                NSLog("[SupertonicTtsService] ERROR: model.onnx not found at: %@", modelPath)
+                // List contents of corePath to debug
+                if let contents = try? FileManager.default.contentsOfDirectory(atPath: corePath) {
+                    NSLog("[SupertonicTtsService] Contents of corePath: %@", contents)
+                }
+                if FileManager.default.fileExists(atPath: onnxDir) {
+                    if let onnxContents = try? FileManager.default.contentsOfDirectory(atPath: onnxDir) {
+                        NSLog("[SupertonicTtsService] Contents of onnx dir: %@", onnxContents)
+                    }
+                } else {
+                    NSLog("[SupertonicTtsService] onnx subdirectory does not exist")
+                }
+                throw TtsError.modelNotLoaded
+            }
+            
+            guard FileManager.default.fileExists(atPath: tokensPath) else {
+                NSLog("[SupertonicTtsService] ERROR: tokens.txt not found at: %@", tokensPath)
+                throw TtsError.invalidInput("Tokens file not found at: \(tokensPath)")
+            }
+            
+            // Find espeak-ng-data directory if exists
+            let dataDir = (onnxDir as NSString).appendingPathComponent("espeak-ng-data")
+            let dataDirPath = FileManager.default.fileExists(atPath: dataDir) ? dataDir : nil
+            
+            NSLog("[SupertonicTtsService] Loading model...")
+            try inference.loadModel(modelPath: modelPath, tokensPath: tokensPath, dataDir: dataDirPath)
+            NSLog("[SupertonicTtsService] Model loaded successfully from: %@", modelPath)
+        } else {
+            NSLog("[SupertonicTtsService] Core already loaded")
+        }
     }
     
     func loadVoice(voiceId: String, modelPath: String, speakerId: Int?, configPath: String?) async throws {
         lock.lock()
         defer { lock.unlock() }
         
-        guard FileManager.default.fileExists(atPath: modelPath) else {
-            throw TtsError.voiceNotLoaded(voiceId)
-        }
-        
-        // Find tokens file in same directory
-        let modelDir = (modelPath as NSString).deletingLastPathComponent
-        let tokensPath = (modelDir as NSString).appendingPathComponent("tokens.txt")
-        
-        guard FileManager.default.fileExists(atPath: tokensPath) else {
-            throw TtsError.invalidInput("Tokens file not found at: \(tokensPath)")
-        }
-        
-        // Find espeak-ng-data directory if exists
-        let dataDir = (modelDir as NSString).appendingPathComponent("espeak-ng-data")
-        let dataDirPath = FileManager.default.fileExists(atPath: dataDir) ? dataDir : nil
-        
-        // Load the model
-        try inference.loadModel(modelPath: modelPath, tokensPath: tokensPath, dataDir: dataDirPath)
-        
+        // For Supertonic, all voices use the same model with different speakerIds
+        // Just register the voice - model is loaded during loadCore
         loadedVoices[voiceId] = VoiceInfo(
             voiceId: voiceId,
             modelPath: modelPath,
             speakerId: speakerId,
             lastUsed: Date()
         )
-        print("[SupertonicTtsService] Voice loaded: \(voiceId)")
+        print("[SupertonicTtsService] Voice registered: \(voiceId) with speakerId: \(speakerId ?? 0)")
     }
     
     func synthesize(text: String, voiceId: String, outputPath: String, speakerId: Int?, speed: Double) async throws -> SynthesizeResult {

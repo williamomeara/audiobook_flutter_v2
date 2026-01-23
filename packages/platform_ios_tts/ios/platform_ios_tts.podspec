@@ -21,6 +21,9 @@ Supports Kokoro, Piper, and Supertonic TTS engines.
   # Vendored xcframeworks for TTS inference
   s.vendored_frameworks = 'Frameworks/onnxruntime.xcframework', 'Frameworks/sherpa-onnx.xcframework'
   
+  # Supertonic CoreML models and resources (bundled with app)
+  s.resources = 'Assets/supertonic_coreml/**/*'
+  
   # Preserve module map folder
   s.preserve_paths = 'SherpaOnnxCApi'
   
@@ -33,7 +36,7 @@ Supports Kokoro, Piper, and Supertonic TTS engines.
   }
   s.swift_version = '5.0'
   
-  # Frameworks required by ONNX Runtime
+  # Frameworks required by ONNX Runtime and CoreML
   s.frameworks = 'Accelerate', 'CoreML'
 
   # If your plugin requires a privacy manifest, for example if it uses any
