@@ -6,7 +6,7 @@
 /// Run with: flutter test integration_test/tts_synthesis_test.dart
 ///
 /// Prerequisites:
-/// - A connected Android device or emulator
+/// - A connected Android or iOS device
 /// - Internet connection for model downloads (only if models not already present)
 ///
 library;
