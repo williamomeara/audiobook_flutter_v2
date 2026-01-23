@@ -10,8 +10,6 @@ End of Chapter: This is the most critical feature. It allows the user to finish 
 
 Persistent Countdown: Once set, the remaining time should be visible on the main player screen (often as a countdown inside a moon or clock icon) so the user doesn't have to tap again to check the status.
 
-End of Book: An option to stop at the very end of the title, useful for short stories or the final chapters of a book.
-
 2. Smart "Shake to Extend"
 One of the biggest pain points is the audiobook cutting off just as the user is getting comfortable but hasn't fallen asleep yet.
 
@@ -26,12 +24,6 @@ Logarithmic Fade-Out: Over the final 15 to 30 seconds, the volume should slowly 
 
 Audio Ducking: If a notification arrives during the countdown, the app should lower the audiobook volume rather than pausing it, to maintain the sleep-inducing atmosphere.
 
-
-Automatic Bookmark: The app should automatically drop a "Sleep Timer Start" bookmark the moment the timer is engaged.
-
-Sleep Log: A history log that shows exactly when the sleep timer was started and when the audio actually stopped.
-
-Smart Rewind: When the user hits "Play" the next morning, the app could offer to rewind by a small amount (e.g., 2 minutes) or back to the last "Active" interaction.
 
 
 

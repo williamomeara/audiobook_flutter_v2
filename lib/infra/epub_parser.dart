@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:archive/archive_io.dart';
 import 'package:epubx/epubx.dart';
@@ -10,6 +11,9 @@ import 'package:image/image.dart' as img;
 import 'package:core_domain/core_domain.dart';
 
 import '../app/app_paths.dart';
+import '../utils/text_normalizer.dart' as tts_normalizer;
+import '../utils/boilerplate_remover.dart';
+import '../utils/content_classifier.dart';
 
 /// Parsed EPUB result.
 class ParsedEpub {
@@ -84,7 +88,7 @@ class EpubParser {
       } catch (_) {}
     }
 
-    final chapters = <Chapter>[];
+    final rawChapters = <Chapter>[];
     final flattened = <EpubChapter>[];
     
     void addChapters(List<EpubChapter>? list) {
@@ -106,7 +110,7 @@ class EpubParser {
 
       chapterNumber += 1;
       final chTitle = (ch.Title ?? '').trim();
-      chapters.add(Chapter(
+      rawChapters.add(Chapter(
         id: '$bookId-ch-$chapterNumber-${generateId(length: 6)}',
         number: chapterNumber,
         title: chTitle.isEmpty ? 'Chapter $chapterNumber' : chTitle,
@@ -114,12 +118,79 @@ class EpubParser {
       ));
     }
 
+    // Apply smart text processing pipeline
+    final chapters = _processChapters(rawChapters);
+
     return ParsedEpub(
       title: title,
       author: author,
       coverPath: coverPath,
       chapters: chapters,
     );
+  }
+
+  /// Process chapters through the smart text pipeline.
+  ///
+  /// Pipeline steps:
+  /// 1. Classify chapters to find body matter range (skip front/back matter)
+  /// 2. Clean each chapter (remove boilerplate, scanner notes)
+  /// 3. Normalize text (quotes, dashes, ligatures, spaces)
+  /// 4. Renumber chapters starting from 1
+  List<Chapter> _processChapters(List<Chapter> rawChapters) {
+    if (rawChapters.isEmpty) return rawChapters;
+
+    // Build ChapterInfo for classification
+    final chapterInfos = rawChapters.map((ch) {
+      final snippetLength = min(500, ch.content.length);
+      return ChapterInfo(
+        filename: ch.id,
+        title: ch.title,
+        contentSnippet: ch.content.substring(0, snippetLength),
+      );
+    }).toList();
+
+    // Find body matter range (skip front/back matter)
+    final (startIdx, endIdx) = ContentClassifier.findBodyMatterRange(chapterInfos);
+
+    // Filter to body matter only
+    var bodyChapters = rawChapters.sublist(startIdx, endIdx);
+
+    // Detect repeated prefixes across chapters (e.g., "Book Title | Publisher")
+    final chapterContents = bodyChapters.map((ch) => ch.content).toList();
+    final repeatedPrefix = BoilerplateRemover.detectRepeatedPrefix(chapterContents);
+
+    // Clean and normalize each chapter
+    bodyChapters = bodyChapters.map((chapter) {
+      var content = chapter.content;
+
+      // Remove detected repeated prefix
+      if (repeatedPrefix != null) {
+        content = BoilerplateRemover.removePrefix(content, repeatedPrefix);
+      }
+
+      // Remove per-chapter boilerplate (page numbers, scanner notes, etc.)
+      content = BoilerplateRemover.cleanChapter(content);
+
+      // Normalize text (quotes, dashes, ligatures, special chars)
+      content = tts_normalizer.TextNormalizer.normalize(content);
+
+      return Chapter(
+        id: chapter.id,
+        number: chapter.number,
+        title: chapter.title,
+        content: content,
+      );
+    }).toList();
+
+    // Renumber chapters starting from 1
+    final renumbered = bodyChapters.asMap().entries.map((e) => Chapter(
+      id: e.value.id,
+      number: e.key + 1,
+      title: e.value.title,
+      content: e.value.content,
+    )).toList();
+
+    return renumbered;
   }
 
   Future<String?> _extractCoverFromZip({
@@ -179,7 +250,7 @@ class EpubParser {
     await dir.create(recursive: true);
 
     String? coverPath;
-    final chapters = <Chapter>[];
+    final rawChapters = <Chapter>[];
 
     try {
       final inputStream = InputFileStream(epubPath);
@@ -205,13 +276,16 @@ class EpubParser {
         if (text.trim().isEmpty) continue;
         
         chapterNumber += 1;
-        chapters.add(Chapter(
+        rawChapters.add(Chapter(
           id: '$bookId-ch-$chapterNumber-${generateId(length: 6)}',
           number: chapterNumber,
           title: 'Chapter $chapterNumber',
           content: text,
         ));
       }
+
+      // Apply smart text processing pipeline
+      final chapters = _processChapters(rawChapters);
 
       final fileName = epubPath.split('/').last;
       return ParsedEpub(
@@ -221,6 +295,9 @@ class EpubParser {
         chapters: chapters,
       );
     } catch (e) {
+      // Apply smart processing even on error path if we have chapters
+      final chapters = _processChapters(rawChapters);
+      
       final fileName = epubPath.split('/').last;
       return ParsedEpub(
         title: fileName.replaceAll('.epub', ''),

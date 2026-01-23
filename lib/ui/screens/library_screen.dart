@@ -35,7 +35,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Future<void> _handleImport() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['epub'],
+      allowedExtensions: const ['epub', 'pdf'],
       withData: false,
     );
 
@@ -702,14 +702,44 @@ class _BookCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 8),
-                    // Chapter count and progress
+                    // Chapter count, format badge, and progress
                     Row(
                       children: [
+                        Flexible(
+                          child: Text(
+                            '${book.chapters.length} Ch',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textTertiary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                         Text(
-                          '${book.chapters.length} Chapters',
+                          ' • ',
                           style: TextStyle(
                             fontSize: 12,
                             color: colors.textTertiary,
+                          ),
+                        ),
+                        // Format badge (PDF or EPUB)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: book.filePath.toLowerCase().endsWith('.pdf')
+                                ? colors.primary.withValues(alpha: 0.15)
+                                : colors.textSecondary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(
+                            book.filePath.toLowerCase().endsWith('.pdf') ? 'PDF' : 'EPUB',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: book.filePath.toLowerCase().endsWith('.pdf')
+                                  ? colors.primary
+                                  : colors.textSecondary,
+                            ),
                           ),
                         ),
                         if (hasProgress) ...[
@@ -720,11 +750,14 @@ class _BookCard extends StatelessWidget {
                               color: colors.textTertiary,
                             ),
                           ),
-                          Text(
-                            '$progress% Complete',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: colors.textTertiary,
+                          Flexible(
+                            child: Text(
+                              '$progress%',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colors.textTertiary,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
