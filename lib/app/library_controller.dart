@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:core_domain/core_domain.dart';
 
 import '../infra/epub_parser.dart';
+import '../infra/pdf_parser.dart';
 import 'app_paths.dart';
 
 /// Library state containing all books.
@@ -101,7 +102,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     return null;
   }
 
-  /// Import an EPUB file into the app's book storage, parse it, and add to library.
+  /// Import an EPUB or PDF file into the app's book storage, parse it, and add to library.
   ///
   /// Returns the created (or existing) bookId.
   Future<String> importBookFromPath({
@@ -123,8 +124,9 @@ class LibraryController extends AsyncNotifier<LibraryState> {
 
       final lower = fileName.toLowerCase();
       final isEpub = lower.endsWith('.epub');
-      if (!isEpub) {
-        throw Exception('Unsupported file format. Please select an EPUB file.');
+      final isPdf = lower.endsWith('.pdf');
+      if (!isEpub && !isPdf) {
+        throw Exception('Unsupported file format. Please select an EPUB or PDF file.');
       }
 
       final bookId = IdGenerator.generateBookId();
@@ -133,21 +135,40 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       final bookDir = paths.bookDir(bookId);
       await bookDir.create(recursive: true);
 
-      final safeName = _sanitizeFileName(fileName);
+      final safeName = _sanitizeFileName(fileName, isPdf: isPdf);
       final destPath = '${bookDir.path}/$safeName';
       await File(sourcePath).copy(destPath);
 
-      final parser = await ref.read(epubParserProvider.future);
-      final parsed = await parser.parseFromFile(epubPath: destPath, bookId: bookId);
+      // Parse based on file type
+      final String title;
+      final String author;
+      final String? coverPath;
+      final List<Chapter> chapters;
+
+      if (isPdf) {
+        final parser = await ref.read(pdfParserProvider.future);
+        final parsed = await parser.parseFromFile(pdfPath: destPath, bookId: bookId);
+        title = parsed.title;
+        author = parsed.author;
+        coverPath = parsed.coverPath;
+        chapters = parsed.chapters;
+      } else {
+        final parser = await ref.read(epubParserProvider.future);
+        final parsed = await parser.parseFromFile(epubPath: destPath, bookId: bookId);
+        title = parsed.title;
+        author = parsed.author;
+        coverPath = parsed.coverPath;
+        chapters = parsed.chapters;
+      }
 
       final book = Book(
         id: bookId,
-        title: parsed.title,
-        author: parsed.author,
+        title: title,
+        author: author,
         filePath: destPath,
         addedAt: DateTime.now().millisecondsSinceEpoch,
-        coverImagePath: parsed.coverPath,
-        chapters: parsed.chapters,
+        coverImagePath: coverPath,
+        chapters: chapters,
         gutenbergId: gutenbergId,
         progress: BookProgress.zero,
       );
@@ -166,12 +187,13 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     }
   }
 
-  String _sanitizeFileName(String name) {
-    final trimmed = name.trim().isEmpty ? 'book.epub' : name.trim();
+  String _sanitizeFileName(String name, {bool isPdf = false}) {
+    final ext = isPdf ? '.pdf' : '.epub';
+    final trimmed = name.trim().isEmpty ? 'book$ext' : name.trim();
     final withoutBadChars = trimmed.replaceAll(RegExp(r'[^A-Za-z0-9._\- ]+'), '_');
     var out = withoutBadChars;
-    if (!out.toLowerCase().endsWith('.epub')) out = '$out.epub';
-    if (out.length > 160) out = '${out.substring(0, 160)}.epub';
+    if (!out.toLowerCase().endsWith(ext)) out = '$out$ext';
+    if (out.length > 160) out = '${out.substring(0, 160)}$ext';
     return out;
   }
 

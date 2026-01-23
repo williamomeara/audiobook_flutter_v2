@@ -128,11 +128,6 @@ Target coverage: XX%
 - Limitation 2: Description
 - Future work needed
 
-## Backwards Compatibility
-
-- Does this break existing APIs? No/Yes
-- Migration needed? Description
-- Deprecation warnings? None/Included
 
 ## Documentation
 
