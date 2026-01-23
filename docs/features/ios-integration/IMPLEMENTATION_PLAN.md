@@ -327,33 +327,40 @@ Created in `Classes/common/`:
 
 ---
 
-## Phase 5: Integration with tts_engines Package (2-3 days)
+## Phase 5: Integration with tts_engines Package (2-3 days) ✅ COMPLETE
 
-### 5.1 Platform Conditional in Adapters
+### 5.1 Platform Conditional in Provider ✅ DONE
+
+Instead of modifying adapters, we use a wrapper pattern in `lib/app/tts_providers.dart`:
 
 ```dart
-// packages/tts_engines/lib/src/adapters/kokoro_adapter.dart
-class KokoroAdapter implements AiVoiceEngine {
-  late final TtsNativeApi _nativeApi;
-  
-  KokoroAdapter() {
-    if (Platform.isAndroid) {
-      _nativeApi = AndroidTtsNativeApi();  // Existing
-    } else if (Platform.isIOS) {
-      _nativeApi = IosTtsNativeApi();      // NEW
-    }
+final ttsNativeApiProvider = Provider<android.TtsNativeApi>((ref) {
+  if (Platform.isIOS) {
+    return _IosApiWrapper(ios.TtsNativeApi());
   }
-}
+  return android.TtsNativeApi();
+});
 ```
 
-### 5.2 Plugin Registration
+### 5.2 iOS API Wrapper ✅ DONE
 
-```dart
-// packages/platform_ios_tts/lib/platform_ios_tts.dart
-class IosTtsNativeApi implements TtsNativeApi {
-  // Pigeon-generated implementation
-}
-```
+Created `_IosApiWrapper` class that:
+- Implements `android.TtsNativeApi` interface
+- Delegates all calls to `ios.TtsNativeApi`
+- Converts between Android and iOS enum types
+- Preserves full type safety
+
+### 5.3 Package Dependencies ✅ DONE
+
+Added `platform_ios_tts` dependency to:
+- `packages/tts_engines/pubspec.yaml`
+- Main app already had it
+
+### 5.4 Build Verification ✅ DONE
+
+- iOS release build: **87.0MB**
+- All 269/270 tests pass
+- Adapters work transparently on both platforms
 
 ---
 
