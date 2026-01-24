@@ -1785,7 +1785,7 @@ assert(reloaded.cacheBudgetBytes == 1024 * 1024 * 1024);
 - [x] Works correctly with concurrency 1 (sequential)
 - [x] No memory growth with increasing concurrency
 
-### Phase 5: Edge Case Handlers (1 sprint)
+### Phase 5: Edge Case Handlers (1 sprint) ✅ COMPLETE
 
 **Goal:** Handle voice changes, memory pressure, and rate changes gracefully.
 
@@ -1798,6 +1798,12 @@ assert(reloaded.cacheBudgetBytes == 1024 * 1024 * 1024);
 | Integration tests for edge cases | High | High | All handlers |
 
 **Deliverable:** Graceful handling of voice changes, memory pressure, and rate changes.
+
+**Implementation:**
+- `VoiceChangeHandler`: Coordinates cancellation, context invalidation, and resynthesis
+- `MemoryPressureHandler`: Handles moderate/critical pressure with recovery timer
+- `RateChangeHandler`: Debounces rapid changes, handles rate-independent vs rate-dependent synthesis
+- `AutoTuneRollback`: Snapshot-based rollback with performance degradation detection
 
 **Rollback Strategy:**
 ```dart

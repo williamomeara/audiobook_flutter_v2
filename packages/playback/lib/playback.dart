@@ -16,6 +16,7 @@ export 'src/strategies/synthesis_strategy.dart'; // Phase 3: Synthesis strategie
 export 'src/synthesis/synthesis.dart'; // Phase 4: Parallel synthesis
 export 'src/strategies/synthesis_strategy_manager.dart'; // Phase 3: Strategy management
 export 'src/calibration/calibration.dart'; // Phase 2: Engine calibration
+export 'src/edge_cases/edge_cases.dart'; // Phase 5: Edge case handlers
 
 // Re-export SmartSynthesisManager for convenience
 export 'package:tts_engines/tts_engines.dart' show SmartSynthesisManager;
