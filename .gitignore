@@ -52,3 +52,4 @@ local_dev/dev_books/
 test/epub_analysis_output/
 test/pdf_analysis_output/
 
+packages/platform_ios_tts/ios/Frameworks/onnxruntime.xcframework/**/*.a
