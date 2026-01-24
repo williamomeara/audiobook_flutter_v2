@@ -6,9 +6,12 @@ import android.os.IBinder
 import com.example.platform_android_tts.sherpa.KokoroSherpaInference
 import kotlinx.coroutines.*
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 
 /**
  * Kokoro TTS Service running in its own process (:kokoro).
@@ -29,14 +32,17 @@ class KokoroTtsService : Service() {
     // Model state - Kokoro uses single shared model
     private var modelPath: String? = null
     private var voicesPath: String? = null
-    private var isInitialized = false
-    private var loadedVoices = mutableMapOf<String, KokoroVoice>() // voiceId -> voice info
+    @Volatile private var isInitialized = false
+    private val loadedVoices = ConcurrentHashMap<String, KokoroVoice>() // voiceId -> voice info
     
     // Single inference engine (shared model)
-    private var inference: KokoroSherpaInference? = null
+    @Volatile private var inference: KokoroSherpaInference? = null
     
-    // Active synthesis jobs for cancellation
-    private val activeJobs = mutableMapOf<String, Job>()
+    // Active synthesis jobs for cancellation (thread-safe)
+    private val activeJobs = ConcurrentHashMap<String, Job>()
+    
+    // Limit concurrent synthesis to prevent resource exhaustion
+    private val synthesisPermits = Semaphore(4)
     
     override fun onBind(intent: Intent?): IBinder? = null
     
@@ -156,6 +162,16 @@ class KokoroTtsService : Service() {
         // Track active synthesis to prevent unload during operation
         synthesisCounter.increment()
         
+        // Limit concurrent synthesis
+        if (!synthesisPermits.tryAcquire()) {
+            synthesisCounter.decrement()
+            return SynthesisResult(
+                success = false,
+                errorCode = ErrorCode.BUSY,
+                errorMessage = "Too many concurrent synthesis requests"
+            )
+        }
+        
         // Get speaker ID from loaded voice or use provided ID
         val voice = loadedVoices[voiceId]
         val actualSpeakerId = voice?.speakerId ?: speakerId
@@ -163,7 +179,10 @@ class KokoroTtsService : Service() {
         val job = scope.launch {
             try {
                 val tmpFile = File("$outputPath.tmp")
-                tmpFile.parentFile?.mkdirs()
+                val parentDir = tmpFile.parentFile
+                if (parentDir != null && !parentDir.exists() && !parentDir.mkdirs()) {
+                    throw IOException("Failed to create output directory: $parentDir")
+                }
                 
                 // Run sherpa-onnx inference (only once!)
                 val samples = engine.synthesize(text, actualSpeakerId, speed).getOrThrow()
@@ -177,7 +196,12 @@ class KokoroTtsService : Service() {
                 writeWavFile(tmpFile, pcmData, sampleRate)
                 
                 ensureActive()
-                tmpFile.renameTo(File(outputPath))
+                val finalFile = File(outputPath)
+                if (!tmpFile.renameTo(finalFile)) {
+                    // Fallback: copy and delete
+                    tmpFile.copyTo(finalFile, overwrite = true)
+                    tmpFile.delete()
+                }
                 
             } catch (e: CancellationException) {
                 File("$outputPath.tmp").delete()
@@ -226,6 +250,7 @@ class KokoroTtsService : Service() {
         } finally {
             activeJobs.remove(requestId)
             synthesisCounter.decrement()
+            synthesisPermits.release()
         }
     }
     
@@ -233,8 +258,9 @@ class KokoroTtsService : Service() {
      * Cancel an in-flight synthesis.
      */
     fun cancelSynthesis(requestId: String) {
-        activeJobs[requestId]?.cancel()
-        activeJobs.remove(requestId)
+        // Remove first, then cancel (prevents race with completion)
+        val job = activeJobs.remove(requestId) ?: return
+        job.cancel()
     }
     
     /**
@@ -408,6 +434,7 @@ enum class ErrorCode {
     RUNTIME_CRASH,
     INVALID_INPUT,
     FILE_WRITE_ERROR,
+    BUSY,
     UNKNOWN
 }
 
