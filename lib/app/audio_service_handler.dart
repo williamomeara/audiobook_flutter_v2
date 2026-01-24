@@ -5,6 +5,13 @@ import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 
+/// Debug logging helper using print for visibility
+void _log(String message) {
+  // ignore: avoid_print
+  print('[AudioServiceHandler] $message');
+  developer.log('AudioServiceHandler: $message');
+}
+
 /// Audio handler for system media controls integration.
 ///
 /// This class bridges our app's audio playback with system-level media controls,
@@ -16,7 +23,9 @@ import 'package:rxdart/rxdart.dart';
 /// existing playback architecture to continue working while gaining system
 /// media control integration.
 class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
-  AudioServiceHandler();
+  AudioServiceHandler() {
+    _log('AudioServiceHandler created');
+  }
 
   /// The connected audio player (from the app's playback system).
   AudioPlayer? _player;
@@ -38,14 +47,24 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
   /// Connect an external AudioPlayer to this handler.
   /// This forwards the player's state to the system media controls.
   void connectPlayer(AudioPlayer player) {
-    developer.log('AudioServiceHandler: connectPlayer() called');
+    _log('connectPlayer() called');
     
     // Disconnect any previous player
     _playerEventSub?.cancel();
     _player = player;
     
     try {
-      developer.log('AudioServiceHandler: Setting up player state forwarding...');
+      _log('Setting up player state forwarding...');
+      
+      // Emit initial state immediately to ensure audio service is aware of current state
+      final initialState = _transformEvent(
+        PlaybackEvent(processingState: player.processingState),
+        player.playing,
+        player.position,
+        player,
+      );
+      _log('Emitting initial state - playing: ${player.playing}, processingState: ${initialState.processingState}');
+      playbackState.add(initialState);
       
       // Forward player state changes to the media session.
       _playerEventSub = Rx.combineLatest3<PlaybackEvent, bool, Duration, PlaybackState>(
@@ -54,22 +73,22 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
         player.positionStream,
         (event, playing, position) {
           final state = _transformEvent(event, playing, position, player);
-          developer.log('AudioServiceHandler: Player state changed - playing: $playing, processingState: ${state.processingState}, position: $position');
+          _log('Player state changed - playing: $playing, processingState: ${state.processingState}');
           return state;
         },
       ).listen(
         (state) {
-          developer.log('AudioServiceHandler: Updating playbackState BehaviorSubject');
+          _log('Broadcasting playbackState - playing: ${state.playing}, processingState: ${state.processingState}');
           playbackState.add(state);
         },
         onError: (error) {
-          developer.log('AudioServiceHandler: Error in playback state stream: $error');
+          _log('ERROR in playback state stream: $error');
         },
       );
-      developer.log('AudioServiceHandler: Player connected successfully');
+      _log('Player connected successfully');
     } catch (e, st) {
-      developer.log('AudioServiceHandler: Error connecting player: $e');
-      developer.log('AudioServiceHandler: Stack trace: $st');
+      _log('ERROR connecting player: $e');
+      _log('Stack trace: $st');
     }
   }
   
@@ -164,7 +183,7 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     Duration? duration,
     Map<String, dynamic>? extras,
   }) {
-    developer.log('AudioServiceHandler: updateNowPlaying - title: $title, album: $album');
+    _log('updateNowPlaying - title: $title, album: $album, artUri: $artUri, extras: $extras');
     
     final item = MediaItem(
       id: id,
@@ -176,11 +195,13 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
       extras: extras,
     );
     // Use the base class's mediaItem BehaviorSubject
+    _log('Setting mediaItem: ${item.title}');
     mediaItem.add(item);
   }
 
   /// Clear the current media item (e.g., when stopping).
   void clearNowPlaying() {
+    _log('clearNowPlaying called');
     mediaItem.add(null);
   }
 
@@ -190,18 +211,50 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> play() async {
+    _log('play() called from system controls');
+    
+    // Broadcast playing state immediately to ensure iOS shows controls
+    if (_player != null) {
+      final state = _transformEvent(
+        PlaybackEvent(processingState: _player!.processingState),
+        true, // playing
+        _player!.position,
+        _player!,
+      );
+      _log('Broadcasting playing=true state before actual play');
+      playbackState.add(state);
+    }
+    
     if (onPlayCallback != null) {
+      _log('Calling onPlayCallback');
       onPlayCallback!();
     } else {
+      _log('Calling _player.play() directly');
       await _player?.play();
     }
   }
 
   @override
   Future<void> pause() async {
+    _log('pause() called from system controls');
+    
+    // Broadcast paused state immediately
+    if (_player != null) {
+      final state = _transformEvent(
+        PlaybackEvent(processingState: _player!.processingState),
+        false, // not playing
+        _player!.position,
+        _player!,
+      );
+      _log('Broadcasting playing=false state before actual pause');
+      playbackState.add(state);
+    }
+    
     if (onPauseCallback != null) {
+      _log('Calling onPauseCallback');
       onPauseCallback!();
     } else {
+      _log('Calling _player.pause() directly');
       await _player?.pause();
     }
   }
