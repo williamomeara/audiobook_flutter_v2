@@ -26,7 +26,7 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 
 ## 🔴 CRITICAL ISSUES (Fix Immediately)
 
-### C1. Race Condition in BufferScheduler._prefetchedThroughIndex
+### C1. Race Condition in BufferScheduler._prefetchedThroughIndex ✅ FIXED
 
 **Location:** `packages/playback/lib/src/buffer_scheduler.dart` lines 28-29, 238, 257, 370-371
 
@@ -34,7 +34,16 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 
 **Impact:** Prefetch state becomes inconsistent, segments get skipped or duplicated.
 
-**Recommendation:** Add mutex/lock or convert to atomic operations with validation.
+**Fix Applied:** Added `_AsyncLock` class for mutex protection and `_updatePrefetchedIndex()` helper method that:
+- Acquires lock before modifying the index
+- Only updates if new value is greater (monotonic increase)
+- Releases lock in finally block
+
+**Tests Added:** `test/playback/buffer_scheduler_test.dart` with 10 tests covering:
+- Concurrent prefetch operations
+- Immediate vs regular prefetch coordination
+- Index monotonicity under concurrency
+- Buffer and prefetch concurrency
 
 ---
 

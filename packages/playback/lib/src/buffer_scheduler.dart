@@ -7,6 +7,29 @@ import 'playback_config.dart';
 import 'playback_log.dart';
 import 'resource_monitor.dart';
 
+/// Simple async lock for protecting shared state.
+///
+/// Ensures only one async operation can hold the lock at a time.
+/// Uses FIFO ordering to prevent starvation.
+class _AsyncLock {
+  Completer<void>? _lock;
+
+  /// Acquire the lock. Returns when lock is acquired.
+  Future<void> acquire() async {
+    while (_lock != null) {
+      await _lock!.future;
+    }
+    _lock = Completer<void>();
+  }
+
+  /// Release the lock. Must be called after acquire().
+  void release() {
+    final lock = _lock;
+    _lock = null;
+    lock?.complete();
+  }
+}
+
 /// Manages audio prefetching for smooth playback.
 ///
 /// The buffer scheduler decides which segments should be synthesized
@@ -21,6 +44,9 @@ class BufferScheduler {
 
   /// Resource monitor for battery-aware prefetch (Phase 2)
   final ResourceMonitor? _resourceMonitor;
+
+  /// Lock for protecting _prefetchedThroughIndex updates.
+  final _AsyncLock _indexLock = _AsyncLock();
 
   /// Whether prefetch is currently running.
   bool _isRunning = false;
@@ -56,6 +82,19 @@ class BufferScheduler {
   /// Dispose resources.
   void dispose() {
     _resumeTimer?.cancel();
+  }
+
+  /// Safely update _prefetchedThroughIndex with lock protection.
+  /// Only updates if newIndex is greater than current value.
+  Future<void> _updatePrefetchedIndex(int newIndex) async {
+    await _indexLock.acquire();
+    try {
+      if (newIndex > _prefetchedThroughIndex) {
+        _prefetchedThroughIndex = newIndex;
+      }
+    } finally {
+      _indexLock.release();
+    }
   }
 
   /// Update context and return true if context changed.
@@ -235,7 +274,7 @@ class BufferScheduler {
         if (await cache.isReady(cacheKey)) {
           PlaybackLog.debug('✓ [$i] Already cached: $cacheKey');
           onSynthesisComplete?.call(i);  // Notify UI
-          _prefetchedThroughIndex = i;
+          await _updatePrefetchedIndex(i);
           cached++;
           i++;
           continue;
@@ -254,7 +293,7 @@ class BufferScheduler {
           final synthDuration = DateTime.now().difference(synthStart);
           PlaybackLog.debug('✓ [$i] Synthesized in ${synthDuration.inMilliseconds}ms');
           onSynthesisComplete?.call(i);  // Notify UI
-          _prefetchedThroughIndex = i;
+          await _updatePrefetchedIndex(i);
           synthesized++;
         } catch (e, stackTrace) {
           final synthDuration = DateTime.now().difference(synthStart);
@@ -303,7 +342,7 @@ class BufferScheduler {
           text: track.text,
           playbackRate: playbackRate,
         );
-        _prefetchedThroughIndex = i;
+        await _updatePrefetchedIndex(i);
       } catch (e) {
         // Continue trying
       }
@@ -366,10 +405,8 @@ class BufferScheduler {
     if (await cache.isReady(cacheKey)) {
       PlaybackLog.debug('Next segment [$nextIndex] already cached');
       onSynthesisComplete?.call(nextIndex);
-      // Update index if this is the immediate next
-      if (_prefetchedThroughIndex == currentIndex) {
-        _prefetchedThroughIndex = nextIndex;
-      }
+      // Update index atomically
+      await _updatePrefetchedIndex(nextIndex);
       return;
     }
     
@@ -397,10 +434,8 @@ class BufferScheduler {
       PlaybackLog.info('✓ Priority prefetch complete [$nextIndex] in ${synthDuration.inMilliseconds}ms');
       onSynthesisComplete?.call(nextIndex);
       
-      // Update prefetched index
-      if (_prefetchedThroughIndex < nextIndex) {
-        _prefetchedThroughIndex = nextIndex;
-      }
+      // Update prefetched index atomically
+      await _updatePrefetchedIndex(nextIndex);
     } catch (e) {
       PlaybackLog.error('Priority prefetch failed for segment [$nextIndex]: $e');
       // Don't fail silently - regular prefetch may retry
