@@ -178,11 +178,15 @@ class MockRoutingEngine implements RoutingEngine {
 /// Mock AudioCache for testing
 class MockAudioCache implements AudioCache {
   final Map<CacheKey, String> _cache = {};
+  final Set<String> _pinnedFiles = {};
   
   void put(CacheKey key, String path) => _cache[key] = path;
   
   @override
-  Future<void> clear() async => _cache.clear();
+  Future<void> clear() async {
+    _cache.clear();
+    _pinnedFiles.clear();
+  }
   
   @override
   Future<bool> isReady(CacheKey key) async => _cache.containsKey(key);
@@ -194,6 +198,20 @@ class MockAudioCache implements AudioCache {
   Future<void> store(CacheKey key, File file) async {
     _cache[key] = file.path;
   }
+  
+  @override
+  bool pin(CacheKey key) {
+    final filename = key.toFilename();
+    if (_pinnedFiles.contains(filename)) return false;
+    _pinnedFiles.add(filename);
+    return true;
+  }
+  
+  @override
+  bool unpin(CacheKey key) => _pinnedFiles.remove(key.toFilename());
+  
+  @override
+  bool isPinned(CacheKey key) => _pinnedFiles.contains(key.toFilename());
   
   @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();

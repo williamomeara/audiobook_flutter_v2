@@ -236,6 +236,15 @@ class IntelligentCacheManager implements AudioCache {
 
     for (final entry in scoredEntries) {
       if (currentSize <= targetSize) break;
+      
+      // Skip pinned files - they are currently in use by prefetch
+      if (_pinnedFiles.contains(entry.metadata.key)) {
+        developer.log(
+          '📌 Skipping pinned file: ${entry.metadata.key}',
+          name: 'IntelligentCacheManager',
+        );
+        continue;
+      }
 
       final file = File('${_cacheDir.path}/${entry.metadata.key}');
       try {
@@ -610,9 +619,38 @@ class IntelligentCacheManager implements AudioCache {
     }
     return 'unknown';
   }
+  
+  // ============ File Pinning (for coordination with prefetch) ============
+  
+  /// Set of pinned filenames that should not be evicted.
+  final Set<String> _pinnedFiles = {};
+  
+  @override
+  bool pin(CacheKey key) {
+    final filename = _filenameForKey(key);
+    if (_pinnedFiles.contains(filename)) return false;
+    _pinnedFiles.add(filename);
+    return true;
+  }
+  
+  @override
+  bool unpin(CacheKey key) {
+    final filename = _filenameForKey(key);
+    return _pinnedFiles.remove(filename);
+  }
+  
+  @override
+  bool isPinned(CacheKey key) {
+    return _pinnedFiles.contains(_filenameForKey(key));
+  }
+  
+  String _filenameForKey(CacheKey key) {
+    return key.toFilename();
+  }
 
   /// Dispose resources.
   void dispose() {
     _warningController.close();
+    _pinnedFiles.clear();
   }
 }

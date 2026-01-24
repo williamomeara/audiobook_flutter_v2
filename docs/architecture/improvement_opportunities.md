@@ -136,13 +136,33 @@ The pattern in all files is:
 
 ---
 
-### H2. Cache Eviction Not Coordinated with Prefetch
+### ✅ H2. Cache Eviction Not Coordinated with Prefetch - FIXED
 
-**Location:** `packages/tts_engines/lib/src/audio_cache.dart` lines 77-131
+**Location:** `packages/tts_engines/lib/src/cache/audio_cache.dart` and `intelligent_cache_manager.dart`
 
-**Problem:** `pruneIfNeeded()` can delete files while prefetch is still writing/reading them. No locking or coordination.
+**Problem:** `pruneIfNeeded()` could delete files while prefetch is still writing/reading them. No locking or coordination.
 
-**Recommendation:** Add file lock or transaction semantics.
+**Impact:** Files could be deleted mid-synthesis or mid-playback.
+
+**Fix Applied:** Added file pinning mechanism to AudioCache interface:
+- `pin(CacheKey key)` - Pin a file to prevent eviction during use
+- `unpin(CacheKey key)` - Release the pin when done
+- `isPinned(CacheKey key)` - Check if a file is pinned
+
+Both `FileAudioCache` and `IntelligentCacheManager` implementations updated:
+- `_pinnedFiles` Set tracks currently pinned files
+- `pruneIfNeeded()` and `evictIfNeeded()` skip pinned files
+- `clear()` clears pinned files set
+- Pinned files logged as skipped during eviction
+
+**Tests Added:** `packages/tts_engines/test/cache/audio_cache_test.dart` with 16 tests covering:
+- Pin/unpin basic operations
+- Pruning skips pinned files
+- Pinned files survive even if over budget or too old
+- Concurrent access protection
+- Clear also clears pins
+
+**Commit:** (pending)
 
 ---
 
