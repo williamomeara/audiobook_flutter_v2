@@ -322,9 +322,6 @@ class _FreeBooksScreenState extends ConsumerState<FreeBooksScreen> {
                                                   ScaffoldMessenger.of(context).showSnackBar(
                                                     SnackBar(content: Text(result.message)),
                                                   );
-                                                  if (result.ok && result.bookId != null) {
-                                                    context.push('/book/${result.bookId}');
-                                                  }
                                                 },
                                           child: Text(
                                             entry.isBusy

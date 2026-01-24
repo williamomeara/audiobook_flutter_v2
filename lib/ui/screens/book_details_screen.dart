@@ -187,23 +187,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 12),
 
-                                  // Genre tag
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: colors.card,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      'Fiction',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: colors.textTertiary,
-                                      ),
-                                    ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -329,8 +313,9 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                           final index = entry.key;
                           final chapter = entry.value;
                           final isCurrentChapter = index == book.progress.chapterIndex;
-                          final isRead = index < book.progress.chapterIndex;
-                          final chapterProgress = isCurrentChapter && book.progress.segmentIndex > 0
+                          final isRead = book.completedChapters.contains(index);
+                          final isInProgress = isCurrentChapter && book.progress.segmentIndex > 0;
+                          final chapterProgress = isInProgress
                               ? (book.progress.segmentIndex / 10 * 100).clamp(0, 99).round()
                               : null;
 
@@ -342,6 +327,13 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                 0,
                               );
                               context.push('/playback/${widget.bookId}');
+                            },
+                            onLongPress: () {
+                              // Long press to toggle read/unread
+                              ref.read(libraryProvider.notifier).toggleChapterComplete(
+                                widget.bookId,
+                                index,
+                              );
                             },
                             child: Container(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -359,9 +351,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         width: 32,
                                         height: 32,
                                         decoration: BoxDecoration(
-                                          color: isRead || isCurrentChapter
+                                          color: isRead
                                               ? colors.primary
-                                              : colors.background,
+                                              : isInProgress
+                                                  ? colors.primary.withAlpha(128)
+                                                  : colors.background,
                                           shape: BoxShape.circle,
                                         ),
                                         child: Center(
@@ -370,7 +364,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                             style: TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.w500,
-                                              color: isRead || isCurrentChapter
+                                              color: isRead || isInProgress
                                                   ? colors.primaryForeground
                                                   : colors.textTertiary,
                                             ),
@@ -395,6 +389,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: colors.primary,
+                                          ),
+                                        )
+                                      else if (isInProgress)
+                                        Text(
+                                          'In Progress',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: colors.textTertiary,
                                           ),
                                         ),
                                     ],
@@ -483,7 +485,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   }
 
   int _countReadChapters(book) {
-    return book.progress.chapterIndex;
+    return book.completedChapters.length;
   }
 }
 

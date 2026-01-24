@@ -202,7 +202,15 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     if (book == null) return;
     
     final currentChapterIndex = _currentChapterIndex;
-    if (currentChapterIndex >= book.chapters.length - 1) return; // No more chapters
+    
+    // Mark the current chapter as complete (works for all chapters including last)
+    ref.read(libraryProvider.notifier).markChapterComplete(
+      widget.bookId,
+      currentChapterIndex,
+    );
+    
+    // Only auto-advance if there's another chapter
+    if (currentChapterIndex >= book.chapters.length - 1) return;
     
     // Auto-advance to next chapter
     _autoAdvanceToNextChapter(book, currentChapterIndex + 1);
@@ -400,6 +408,14 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     if (book == null) return;
 
     final currentChapterIndex = _currentChapterIndex;
+    
+    // Mark the current chapter as complete when advancing to next
+    await ref.read(libraryProvider.notifier).markChapterComplete(
+      widget.bookId,
+      currentChapterIndex,
+    );
+
+    // If at last chapter, can't advance further
     if (currentChapterIndex >= book.chapters.length - 1) return;
 
     final newChapterIndex = currentChapterIndex + 1;
