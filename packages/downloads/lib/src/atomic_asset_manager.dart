@@ -9,10 +9,13 @@ import 'package:http/http.dart' as http;
 import 'asset_spec.dart';
 import 'download_state.dart';
 
-// Use print since this is a non-Flutter package
+/// Debug-only logging (stripped in release builds via assert).
 void _debugLog(String message) {
-  // ignore: avoid_print
-  print('[AtomicAssetManager] $message');
+  assert(() {
+    // ignore: avoid_print
+    print('[AtomicAssetManager] $message');
+    return true;
+  }());
 }
 
 /// Specification for a file in a multi-file download.

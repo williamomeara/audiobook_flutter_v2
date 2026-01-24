@@ -1,39 +1,38 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# core_domain
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages).
+Shared domain models and types for the audiobook_flutter application.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages).
--->
+## Overview
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+This package provides the core domain layer containing:
 
-## Features
-
-TODO: List what your package can do. Maybe include images, gifs, or videos.
-
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+- **Book**: Represents an audiobook with chapters, metadata, and cover art
+- **Chapter**: Individual chapter with content and reading position
+- **Segment**: Text segment for TTS synthesis
+- **Voice**: TTS voice configuration
+- **TTS Types**: Engine types (Kokoro, Piper, Supertonic) and related enums
 
 ## Usage
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
-
 ```dart
-const like = 'sample';
+import 'package:core_domain/core_domain.dart';
+
+// Create a book
+final book = Book(
+  id: 'book-123',
+  title: 'My Audiobook',
+  author: 'Author Name',
+  chapters: [chapter1, chapter2],
+);
+
+// Work with voices
+final voice = Voice(
+  id: 'kokoro-af',
+  name: 'American Female',
+  engine: TtsEngine.kokoro,
+);
 ```
 
-## Additional information
+## Part of audiobook_flutter_v2
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+This is an internal package for the audiobook_flutter_v2 project and is not published to pub.dev.

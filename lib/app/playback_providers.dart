@@ -563,14 +563,12 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     required Book book,
     required int chapterIndex,
   }) async {
-    // ignore: avoid_print
-    print('[PlaybackProvider] _updateAudioServiceMetadata called: ${book.title}, chapter $chapterIndex');
+    PlaybackLogger.debug('_updateAudioServiceMetadata called: ${book.title}, chapter $chapterIndex');
     
     try {
       final handler = await ref.read(audioServiceHandlerProvider.future);
       final chapter = book.chapters[chapterIndex];
-      // ignore: avoid_print
-      print('[PlaybackProvider] Got handler, setting mediaItem...');
+      PlaybackLogger.debug('Got handler, setting mediaItem...');
       
       // Get artwork URI from cover image path
       Uri? artUri;
@@ -584,8 +582,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         }
       }
       
-      // ignore: avoid_print
-      print('[PlaybackProvider] Calling updateNowPlaying: title=${chapter.title}, album=${book.title}');
+      PlaybackLogger.debug('Calling updateNowPlaying: title=${chapter.title}, album=${book.title}');
       handler.updateNowPlaying(
         id: book.id,
         title: chapter.title,
@@ -599,13 +596,10 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           if (artCacheFile != null) 'artCacheFile': artCacheFile,
         },
       );
-      // ignore: avoid_print
-      print('[PlaybackProvider] updateNowPlaying called successfully');
+      PlaybackLogger.debug('updateNowPlaying called successfully');
     } catch (e, st) {
-      // ignore: avoid_print
-      print('[PlaybackProvider] ERROR updating audio service metadata: $e');
-      // ignore: avoid_print
-      print('[PlaybackProvider] Stack: $st');
+      PlaybackLogger.error('ERROR updating audio service metadata: $e');
+      PlaybackLogger.debug('Stack: $st');
     }
   }
 

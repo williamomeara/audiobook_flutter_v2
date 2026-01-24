@@ -75,19 +75,16 @@ class JustAudioOutput implements AudioOutput {
   /// Initialize audio session with proper configuration for audiobook playback.
   Future<void> _initAudioSession() async {
     if (_sessionConfigured) {
-      // ignore: avoid_print
-      print('[AudioSession] Already configured, skipping');
+      PlaybackLog.debug('[AudioSession] Already configured, skipping');
       return;
     }
     
     try {
-      // ignore: avoid_print
-      print('[AudioSession] Configuring audio session...');
+      PlaybackLog.debug('[AudioSession] Configuring audio session...');
       
       // Set audio session mode for speech content
       final session = await AudioSession.instance;
-      // ignore: avoid_print
-      print('[AudioSession] Got AudioSession instance');
+      PlaybackLog.debug('[AudioSession] Got AudioSession instance');
       
       await session.configure(AudioSessionConfiguration(
         avAudioSessionCategory: AVAudioSessionCategory.playback,
@@ -103,44 +100,34 @@ class JustAudioOutput implements AudioOutput {
         androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
         androidWillPauseWhenDucked: true,
       ));
-      // ignore: avoid_print
-      print('[AudioSession] Audio session configured with playback category');
+      PlaybackLog.debug('[AudioSession] Audio session configured with playback category');
       
       // Activate the audio session - required for iOS lock screen controls
       // and Control Center playback controls to appear
-      // ignore: avoid_print
-      print('[AudioSession] Calling setActive(true)...');
+      PlaybackLog.debug('[AudioSession] Calling setActive(true)...');
       await session.setActive(true);
-      // ignore: avoid_print
-      print('[AudioSession] setActive(true) completed - iOS lock screen should work now');
+      PlaybackLog.debug('[AudioSession] setActive(true) completed - iOS lock screen should work now');
       
       // Handle interruptions (calls, other apps)
       session.interruptionEventStream.listen((event) {
         if (event.begin) {
-          // ignore: avoid_print
-          print('[AudioSession] Audio session interrupted');
+          PlaybackLog.debug('[AudioSession] Audio session interrupted');
           _player.pause();
         } else {
-          // ignore: avoid_print
-          print('[AudioSession] Audio session interruption ended');
+          PlaybackLog.debug('[AudioSession] Audio session interruption ended');
         }
       });
 
       // Handle audio becoming noisy (headphones unplugged)
       session.becomingNoisyEventStream.listen((_) {
-        // ignore: avoid_print
-        print('[AudioSession] Audio becoming noisy (headphones unplugged)');
+        PlaybackLog.debug('[AudioSession] Audio becoming noisy (headphones unplugged)');
         _player.pause();
       });
       
       _sessionConfigured = true;
-      // ignore: avoid_print
-      print('[AudioSession] Audio session fully configured and active');
+      PlaybackLog.debug('[AudioSession] Audio session fully configured and active');
     } catch (e, st) {
-      // ignore: avoid_print
-      print('[AudioSession] ERROR configuring audio session: $e');
-      // ignore: avoid_print
-      print('[AudioSession] Stack trace: $st');
+      PlaybackLog.error('[AudioSession] ERROR configuring audio session: $e', stackTrace: st);
     }
   }
 

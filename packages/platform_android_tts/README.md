@@ -1,15 +1,30 @@
 # platform_android_tts
 
-A new Flutter plugin project.
+Android-specific TTS implementations for the audiobook_flutter application.
 
-## Getting Started
+## Overview
 
-This project is a starting point for a Flutter
-[plug-in package](https://flutter.dev/to/develop-plugins),
-a specialized package that includes platform-specific implementation code for
-Android and/or iOS.
+This Flutter plugin provides native Android TTS functionality using:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- **ONNX Runtime**: Neural network inference for Kokoro and Piper models
+- **JNI Integration**: Efficient Dart-to-Kotlin communication via Pigeon
+- **Model Management**: Loading and caching of voice models
+
+## Key Features
+
+- Native ONNX model inference for high-performance TTS
+- GPU acceleration support where available
+- Memory-efficient model loading
+- Streaming audio output
+
+## Platform Support
+
+| Platform | Support |
+|----------|---------|
+| Android  | ✅       |
+| iOS      | ❌       |
+
+## Part of audiobook_flutter_v2
+
+This is an internal package for the audiobook_flutter_v2 project and is not published to pub.dev.
 

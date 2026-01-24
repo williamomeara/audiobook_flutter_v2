@@ -1,5 +1,3 @@
-import 'dart:developer' as developer;
-
 /// A snapshot of configuration at a point in time for rollback purposes.
 class ConfigSnapshot {
   ConfigSnapshot({

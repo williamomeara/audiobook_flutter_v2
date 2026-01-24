@@ -164,8 +164,11 @@ class DevicePerformanceProfiler {
     // Output via multiple channels for visibility
     PlaybackLog.progress(summary);
     developer.log(summary, name: 'DeviceProfiler');
-    // ignore: avoid_print
-    print(summary);
+    assert(() {
+      // ignore: avoid_print
+      print(summary);
+      return true;
+    }());
 
     return profile;
   }

@@ -1,5 +1,6 @@
 // Test script for parsing EPUBs and analyzing text normalization/boilerplate removal
 // Run with: dart test/epub_text_analysis_test.dart
+// ignore_for_file: avoid_print
 
 import 'dart:convert';
 import 'dart:io';
@@ -7,8 +8,8 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:epubx/epubx.dart';
 
-import '../lib/utils/text_normalizer.dart';
-import '../lib/utils/boilerplate_remover.dart';
+import 'package:audiobook_flutter_v2/utils/text_normalizer.dart';
+import 'package:audiobook_flutter_v2/utils/boilerplate_remover.dart';
 
 void main() async {
   final epubDir = Directory('local_dev/dev_books/epub');
@@ -251,7 +252,8 @@ Map<String, dynamic> findIssues(List<Map<String, dynamic>> chapters) {
   // Check for potential front matter (short chapters at start)
   if (chapters.isNotEmpty) {
     final firstChapter = chapters.first;
-    final wordCount = (firstChapter['wordCount'] as Map)['cleaned'] as int;
+    // wordCount used for potential future analysis
+    final _ = (firstChapter['wordCount'] as Map)['cleaned'] as int;
     final first100 = (firstChapter['first100Words'] as Map)['cleaned'] as String;
     
     // Check for front matter indicators

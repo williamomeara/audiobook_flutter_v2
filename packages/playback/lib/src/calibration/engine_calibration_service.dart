@@ -201,8 +201,11 @@ ${optimal.hasWarning ? '║ WARNING: ${optimal.warningMessage}' : ''}
 
     // Output via multiple channels for visibility
     developer.log(summary, name: 'EngineCalibration');
-    // ignore: avoid_print
-    print(summary);
+    assert(() {
+      // ignore: avoid_print
+      print(summary);
+      return true;
+    }());
 
     return result;
   }
