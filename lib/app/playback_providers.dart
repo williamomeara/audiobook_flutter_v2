@@ -223,6 +223,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   AudiobookPlaybackController? _controller;
   StreamSubscription<PlaybackState>? _stateSub;
   JustAudioOutput? _audioOutput;
+  AudioServiceHandler? _audioServiceHandler;
 
   @override
   FutureOr<PlaybackState> build() async {
@@ -276,6 +277,10 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           final key = '$bookId:$chapterIndex';
           SegmentReadinessTracker.instance.onSynthesisComplete(key, segmentIndex);
         },
+        // Prevent play button flicker during segment transitions
+        onPlayIntentOverride: (override) {
+          _audioServiceHandler?.setPlayIntentOverride(override);
+        },
       );
       PlaybackLogger.info('[PlaybackProvider] Controller created successfully');
 
@@ -318,6 +323,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       PlaybackLogger.info('[PlaybackProvider] Calling audioServiceHandlerProvider.future...');
       final handler = await ref.read(audioServiceHandlerProvider.future);
       PlaybackLogger.info('[PlaybackProvider] Got handler: ${handler.runtimeType}');
+      
+      // Store reference so controller callbacks can access it
+      _audioServiceHandler = handler;
       
       handler.connectPlayer(player);
       PlaybackLogger.info('[PlaybackProvider] Player connected to handler');

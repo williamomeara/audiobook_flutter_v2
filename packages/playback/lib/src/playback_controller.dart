@@ -61,6 +61,9 @@ abstract interface class PlaybackController {
 /// Parameters: (bookId, chapterIndex, segmentIndex)
 typedef SegmentSynthesisCallback = void Function(String bookId, int chapterIndex, int segmentIndex);
 
+/// Callback to set play intent override for media controls.
+typedef PlayIntentOverrideCallback = void Function(bool override);
+
 /// Implementation of PlaybackController with synthesis and buffering.
 class AudiobookPlaybackController implements PlaybackController {
   final Logger _logger = Logger('AudiobookPlaybackController');
@@ -75,12 +78,14 @@ class AudiobookPlaybackController implements PlaybackController {
     ResourceMonitor? resourceMonitor,
     SegmentSynthesisCallback? onSegmentSynthesisStarted,
     SegmentSynthesisCallback? onSegmentSynthesisComplete,
+    PlayIntentOverrideCallback? onPlayIntentOverride,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _smartSynthesisManager = smartSynthesisManager,
         _resourceMonitor = resourceMonitor,
         _onSegmentSynthesisStarted = onSegmentSynthesisStarted,
         _onSegmentSynthesisComplete = onSegmentSynthesisComplete,
+        _onPlayIntentOverride = onPlayIntentOverride,
         _scheduler = BufferScheduler(resourceMonitor: resourceMonitor) {
     _setupEventListeners();
   }
@@ -111,6 +116,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Callback for segment synthesis complete (for UI feedback).
   final SegmentSynthesisCallback? _onSegmentSynthesisComplete;
+  
+  /// Callback to set play intent override (prevents play button flicker).
+  final PlayIntentOverrideCallback? _onPlayIntentOverride;
 
   /// Buffer scheduler for prefetch.
   final BufferScheduler _scheduler;
@@ -444,6 +452,9 @@ class AudiobookPlaybackController implements PlaybackController {
       final opId = _newOp();
       final nextTrack = _state.queue[idx + 1];
 
+      // Set override to prevent play button flicker during transition
+      _onPlayIntentOverride?.call(true);
+
       _updateState(_state.copyWith(
         currentTrack: nextTrack,
         isPlaying: true,
@@ -599,11 +610,17 @@ class AudiobookPlaybackController implements PlaybackController {
       );
 
       _logger.info('Audio playback started successfully');
+      
+      // Clear the play intent override - audio is now actually playing
+      _onPlayIntentOverride?.call(false);
 
       // Start background prefetch for additional segments
       _startPrefetchIfNeeded();
     } catch (e, stackTrace) {
       _logger.severe('Synthesis failed for track ${track.id}', e, stackTrace);
+      
+      // Clear override on error
+      _onPlayIntentOverride?.call(false);
       
       if (!_isCurrentOp(opId)) return;
 
