@@ -1,0 +1,1 @@
+packages/platform_ios_tts/ios/Frameworks/onnxruntime.xcframework/**/* filter=lfs diff=lfs merge=lfs -text

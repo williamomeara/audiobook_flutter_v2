@@ -30,29 +30,35 @@ bool _audioServiceInitializing = false;
 
 /// Initialize the audio service. Safe to call multiple times.
 Future<AudioServiceHandler> initAudioService() async {
-  AppLogger.info('[AudioService] initAudioService() called');
+  // ignore: avoid_print
+  print('[AudioService] initAudioService() called');
   
   if (_audioHandler != null) {
-    AppLogger.info('[AudioService] Already initialized, returning existing handler');
+    // ignore: avoid_print
+    print('[AudioService] Already initialized, returning existing handler');
     return _audioHandler!;
   }
   if (_audioServiceInitializing) {
-    AppLogger.info('[AudioService] Initialization in progress, waiting...');
+    // ignore: avoid_print
+    print('[AudioService] Initialization in progress, waiting...');
     // Wait for initialization to complete
     while (_audioHandler == null && _audioServiceInitializing) {
       await Future.delayed(const Duration(milliseconds: 50));
     }
-    AppLogger.info('[AudioService] Initialization complete, returning handler');
+    // ignore: avoid_print
+    print('[AudioService] Initialization complete, returning handler');
     return _audioHandler ?? AudioServiceHandler();
   }
   
   _audioServiceInitializing = true;
-  AppLogger.info('[AudioService] Starting AudioService.init()...');
+  // ignore: avoid_print
+  print('[AudioService] Starting AudioService.init()...');
   
   try {
     _audioHandler = await AudioService.init(
       builder: () {
-        AppLogger.info('[AudioService] Builder called, creating AudioServiceHandler');
+        // ignore: avoid_print
+        print('[AudioService] Builder called, creating AudioServiceHandler');
         return AudioServiceHandler();
       },
       config: const AudioServiceConfig(
@@ -67,14 +73,19 @@ Future<AudioServiceHandler> initAudioService() async {
         androidNotificationIcon: 'drawable/ic_notification',
       ),
     );
-    AppLogger.info('[AudioService] AudioService.init() completed successfully');
-    AppLogger.info('[AudioService] Handler type: ${_audioHandler.runtimeType}');
+    // ignore: avoid_print
+    print('[AudioService] AudioService.init() completed successfully');
+    // ignore: avoid_print
+    print('[AudioService] Handler type: ${_audioHandler.runtimeType}');
   } catch (e, st) {
-    AppLogger.info('[AudioService] Failed to initialize audio service: $e');
-    AppLogger.info('[AudioService] Stack trace: $st');
+    // ignore: avoid_print
+    print('[AudioService] Failed to initialize audio service: $e');
+    // ignore: avoid_print
+    print('[AudioService] Stack trace: $st');
     // Create a minimal handler even if init fails
     _audioHandler = AudioServiceHandler();
-    AppLogger.info('[AudioService] Created fallback handler');
+    // ignore: avoid_print
+    print('[AudioService] Created fallback handler');
   }
   _audioServiceInitializing = false;
   return _audioHandler!;

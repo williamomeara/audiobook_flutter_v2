@@ -66,6 +66,8 @@ dependencies:
     path: packages/tts_engines
   platform_android_tts:
     path: packages/platform_android_tts
+  platform_ios_tts:
+    path: packages/platform_ios_tts
 
 dev_dependencies:
   flutter_test:

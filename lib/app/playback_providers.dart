@@ -475,21 +475,29 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     required Book book,
     required int chapterIndex,
   }) async {
-    PlaybackLogger.info('[PlaybackProvider] Updating audio service metadata: ${book.title}, chapter $chapterIndex');
+    // ignore: avoid_print
+    print('[PlaybackProvider] _updateAudioServiceMetadata called: ${book.title}, chapter $chapterIndex');
     
     try {
       final handler = await ref.read(audioServiceHandlerProvider.future);
       final chapter = book.chapters[chapterIndex];
+      // ignore: avoid_print
+      print('[PlaybackProvider] Got handler, setting mediaItem...');
       
       // Get artwork URI from cover image path
       Uri? artUri;
+      String? artCacheFile;
       if (book.coverImagePath != null) {
         final coverFile = File(book.coverImagePath!);
         if (await coverFile.exists()) {
           artUri = coverFile.uri;
+          // iOS requires artCacheFile in extras for lock screen artwork
+          artCacheFile = coverFile.path;
         }
       }
       
+      // ignore: avoid_print
+      print('[PlaybackProvider] Calling updateNowPlaying: title=${chapter.title}, album=${book.title}');
       handler.updateNowPlaying(
         id: book.id,
         title: chapter.title,
@@ -499,11 +507,17 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         extras: {
           'chapterIndex': chapterIndex,
           'totalChapters': book.chapters.length,
+          // iOS-specific: local file path for artwork
+          if (artCacheFile != null) 'artCacheFile': artCacheFile,
         },
       );
-    } catch (e) {
-      PlaybackLogger.error('[PlaybackProvider] Failed to update audio service metadata: $e');
-      // Non-fatal - continue playback even if notification fails
+      // ignore: avoid_print
+      print('[PlaybackProvider] updateNowPlaying called successfully');
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[PlaybackProvider] ERROR updating audio service metadata: $e');
+      // ignore: avoid_print
+      print('[PlaybackProvider] Stack: $st');
     }
   }
 

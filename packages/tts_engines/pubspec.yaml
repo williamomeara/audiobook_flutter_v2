@@ -11,6 +11,8 @@ dependencies:
     path: ../core_domain
   platform_android_tts:
     path: ../platform_android_tts
+  platform_ios_tts:
+    path: ../platform_ios_tts
   path_provider: ^2.1.5
   crypto: ^3.0.7
   opus_dart: ^3.0.1

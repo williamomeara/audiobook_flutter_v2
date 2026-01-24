@@ -13,7 +13,10 @@ import '../interfaces/tts_state_machines.dart';
 
 /// Supertonic TTS engine adapter.
 ///
-/// Routes synthesis requests to the native Supertonic ONNX service.
+/// Routes synthesis requests to the native Supertonic service.
+/// - Android: Uses ONNX models (downloaded at runtime)
+/// - iOS: Uses CoreML models (bundled with app)
+///
 /// Supertonic uses speaker embeddings for voice cloning.
 class SupertonicAdapter implements AiVoiceEngine {
   final Logger _logger = Logger('SupertonicAdapter');
@@ -44,6 +47,7 @@ class SupertonicAdapter implements AiVoiceEngine {
 
   @override
   Future<EngineAvailability> probe() async {
+    // Check native status - works for both Android and iOS
     try {
       final status = await _nativeApi.getCoreStatus(NativeEngineType.supertonic);
       if (status.state == NativeCoreState.ready) {
@@ -57,10 +61,14 @@ class SupertonicAdapter implements AiVoiceEngine {
 
   @override
   Future<void> ensureCoreReady(CoreSelector selector) async {
-    // Path structure after extraction: {coreDir}/supertonic/supertonic_core_v1/supertonic/
-    // Download key: supertonic/supertonic_core_v1
-    // Archive extracts as: supertonic_core_v1/supertonic/onnx/...
-    final coreDir = Directory('${_coreDir.path}/supertonic/supertonic_core_v1/supertonic');
+    // Platform-specific core paths:
+    // Android: ONNX models downloaded to voice_assets
+    // iOS: CoreML models downloaded to voice_assets
+    final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
+    final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+    
+    // Path structure after extraction: {coreDir}/supertonic/{coreId}/{subdir}/
+    final coreDir = Directory('${_coreDir.path}/supertonic/$coreId/$coreSubdir');
 
     if (await coreDir.exists()) {
       await _initEngine(coreDir.path);
@@ -69,7 +77,7 @@ class SupertonicAdapter implements AiVoiceEngine {
 
     throw VoiceNotAvailableException(
       'supertonic',
-      'Core not installed. Please download the Supertonic core.',
+      'Core not installed. Please download the Supertonic core for ${Platform.isIOS ? "iOS" : "Android"}.',
     );
   }
 
@@ -103,13 +111,16 @@ class SupertonicAdapter implements AiVoiceEngine {
       );
     }
 
-    // Check core exists - matches extraction path structure
-    final coreDir = Directory('${_coreDir.path}/supertonic/supertonic_core_v1/supertonic');
+    // Check if downloaded core exists (both iOS and Android now use downloads)
+    final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
+    final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+    final coreDir = Directory('${_coreDir.path}/supertonic/$coreId/$coreSubdir');
+    
     if (!await coreDir.exists()) {
       return VoiceReadiness(
         voiceId: voiceId,
         state: VoiceReadyState.coreRequired,
-        nextActionUserShouldTake: 'Download Supertonic core (~350MB)',
+        nextActionUserShouldTake: 'Download Supertonic core for ${Platform.isIOS ? "iOS" : "Android"}',
       );
     }
 
@@ -177,10 +188,26 @@ class SupertonicAdapter implements AiVoiceEngine {
       }
 
       // Ensure native engine is initialized
-      final corePath = '${_coreDir.path}/supertonic/supertonic_core_v1/supertonic';
-      final coreDir = Directory(corePath);
-      if (await coreDir.exists() && !_coreReadiness.isReady) {
-        await _initEngine(corePath);
+      if (!_coreReadiness.isReady) {
+        // Both iOS and Android now use downloaded cores
+        final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
+        final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+        final corePath = '${_coreDir.path}/supertonic/$coreId/$coreSubdir';
+        final coreDir = Directory(corePath);
+        if (await coreDir.exists()) {
+          await _initEngine(corePath);
+        }
+      }
+
+      // Ensure voice is loaded in native layer
+      if (!_loadedVoices.containsKey(request.voiceId)) {
+        // Model path depends on platform
+        final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
+        final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+        final modelPath = Platform.isIOS 
+            ? '${_coreDir.path}/supertonic/$coreId/$coreSubdir' 
+            : '${_coreDir.path}/supertonic/$coreId/$coreSubdir/onnx/model.onnx';
+        await _loadVoice(request.voiceId, modelPath);
       }
 
       final tmpPath = '${request.outputFile.path}.tmp';
@@ -196,6 +223,9 @@ class SupertonicAdapter implements AiVoiceEngine {
       );
 
       final result = await _nativeApi.synthesize(nativeRequest);
+      
+      // Debug: log synthesis result
+      _logger.info('Supertonic synthesis result: success=${result.success}, durationMs=${result.durationMs}, sampleRate=${result.sampleRate}');
 
       if (request.isCancelled) {
         await _deleteTempFile(tmpPath);
@@ -216,6 +246,7 @@ class SupertonicAdapter implements AiVoiceEngine {
 
       _loadedVoices[request.voiceId] = DateTime.now();
 
+      _logger.info('Supertonic synthesis complete: ${result.durationMs}ms to ${request.outputFile.path}');
       return ExtendedSynthResult.successWith(
         outputFile: request.outputFile.path,
         durationMs: result.durationMs ?? 0,
@@ -310,6 +341,16 @@ class SupertonicAdapter implements AiVoiceEngine {
     );
     await _nativeApi.initEngine(request);
     _coreReadiness = CoreReadiness.readyFor('supertonic');
+  }
+
+  Future<void> _loadVoice(String voiceId, String modelPath) async {
+    final request = LoadVoiceRequest(
+      engineType: NativeEngineType.supertonic,
+      voiceId: voiceId,
+      modelPath: modelPath,
+      speakerId: _getSpeakerId(voiceId),
+    );
+    await _nativeApi.loadVoice(request);
   }
 
   int _getSpeakerId(String voiceId) {

@@ -6,6 +6,7 @@ export 'src/interfaces/synth_request.dart';
 export 'src/interfaces/synth_result.dart';
 export 'src/interfaces/tts_state_machines.dart';
 export 'src/interfaces/segment_synth_request.dart';
+export 'src/interfaces/engine_memory_manager.dart';
 export 'src/cache/audio_cache.dart';
 export 'src/cache/cache_entry_metadata.dart';
 export 'src/cache/intelligent_cache_manager.dart';

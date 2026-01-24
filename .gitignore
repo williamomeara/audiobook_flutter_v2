@@ -52,3 +52,9 @@ local_dev/dev_books/
 test/epub_analysis_output/
 test/pdf_analysis_output/
 
+# iOS ONNX Runtime binaries (downloaded from GitHub releases)
+packages/platform_ios_tts/ios/Frameworks/onnxruntime.xcframework/**/*.a
+
+# iOS Supertonic CoreML models (downloaded at runtime)
+# Keeping these in git during development for testing, but can be removed
+# packages/platform_ios_tts/ios/Assets/supertonic_coreml/

@@ -47,6 +47,7 @@ class CoreRequirement {
     this.quality,
     this.required = true,
     this.files = const [],
+    this.platform,
   });
 
   final String id;
@@ -58,6 +59,8 @@ class CoreRequirement {
   final String? quality;
   final bool required;
   final List<FileSpec> files;
+  /// Platform restriction: 'ios', 'android', or null for all platforms
+  final String? platform;
 
   /// Total download size (sum of files or sizeBytes)
   int get totalSize => files.isEmpty ? sizeBytes : files.fold(0, (sum, f) => sum + f.sizeBytes);
@@ -77,6 +80,7 @@ class CoreRequirement {
       quality: json['quality'] as String?,
       required: json['required'] as bool? ?? true,
       files: filesJson?.map((f) => FileSpec.fromJson(f as Map<String, dynamic>)).toList() ?? [],
+      platform: json['platform'] as String?,
     );
   }
 
