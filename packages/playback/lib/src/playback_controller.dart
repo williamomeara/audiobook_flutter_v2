@@ -162,7 +162,10 @@ class AudiobookPlaybackController implements PlaybackController {
       case AudioEvent.completed:
         if (_speakingTrackId == _state.currentTrack?.id) {
           _speakingTrackId = null;
-          unawaited(nextTrack());
+          // C3: Wrap in error handler to catch unexpected errors
+          unawaited(nextTrack().catchError((error, stackTrace) {
+            _logger.severe('nextTrack failed after audio completed', error, stackTrace);
+          }));
         }
         break;
 
@@ -230,6 +233,18 @@ class AudiobookPlaybackController implements PlaybackController {
         isBuffering: true,
         playbackRate: _state.playbackRate,
       ));
+
+      // H6: Check voice readiness BEFORE starting pre-synthesis
+      final readiness = await engine.checkVoiceReady(voiceId);
+      if (!readiness.isReady) {
+        _logger.warning('Voice not ready for synthesis: ${readiness.state}');
+        _updateState(_state.copyWith(
+          isBuffering: false,
+          error: readiness.nextActionUserShouldTake ?? 
+              'Voice not ready. Please download the voice model first.',
+        ));
+        return;
+      }
 
       _logger.info('🎤 Starting smart pre-synthesis for voice: $voiceId');
       
@@ -304,6 +319,7 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Phase 2: Start immediate prefetch in background after pre-synthesis.
   /// This synthesizes extended window (10-15 segments) to ensure smooth playback.
+  /// C3: Wraps in error handling to prevent silent failures.
   void _startImmediatePrefetch({
     required List<AudioTrack> tracks,
     required int startIndex,
@@ -311,12 +327,19 @@ class AudiobookPlaybackController implements PlaybackController {
     required int opId,
   }) {
     // Fire and forget - don't await, run in background
-    unawaited(_runImmediatePrefetch(
-      tracks: tracks,
-      startIndex: startIndex,
-      voiceId: voiceId,
-      opId: opId,
-    ));
+    // C3: Wrap in error handler to catch any unhandled errors
+    unawaited(
+      _runImmediatePrefetch(
+        tracks: tracks,
+        startIndex: startIndex,
+        voiceId: voiceId,
+        opId: opId,
+      ).catchError((error, stackTrace) {
+        _logger.severe('[Phase 2] Immediate prefetch failed unexpectedly', error, stackTrace);
+        // Don't propagate - this is a background operation
+        // Playback can continue without prefetch
+      }),
+    );
   }
 
   /// Phase 2: Run the immediate prefetch loop.
@@ -437,7 +460,10 @@ class AudiobookPlaybackController implements PlaybackController {
     // Debounce AI synthesis on rapid seeks
     _seekDebounceTimer = Timer(PlaybackConfig.seekDebounce, () {
       if (!_isCurrentOp(opId) || !_playIntent) return;
-      unawaited(_speakCurrent(opId: opId));
+      // C3: Wrap in error handler to catch unexpected errors
+      unawaited(_speakCurrent(opId: opId).catchError((error, stackTrace) {
+        _logger.severe('_speakCurrent failed after seek', error, stackTrace);
+      }));
     });
   }
 
@@ -600,10 +626,6 @@ class AudiobookPlaybackController implements PlaybackController {
       _updateState(_state.copyWith(isBuffering: false));
       _logger.info('Starting audio playback...');
 
-      // Immediately start prefetching the next segment (highest priority)
-      // This happens BEFORE playFile completes to minimize gap at transition
-      _startImmediateNextPrefetch();
-
       await _audioOutput.playFile(
         result.file.path,
         playbackRate: _state.playbackRate,
@@ -613,6 +635,10 @@ class AudiobookPlaybackController implements PlaybackController {
       
       // Clear the play intent override - audio is now actually playing
       _onPlayIntentOverride?.call(false);
+
+      // H7: Start prefetching AFTER successful playFile to avoid wasted synthesis on failure
+      // Immediately start prefetching the next segment (highest priority)
+      _startImmediateNextPrefetch();
 
       // Start background prefetch for additional segments
       _startPrefetchIfNeeded();
@@ -664,6 +690,7 @@ class AudiobookPlaybackController implements PlaybackController {
         ? _state.queue.first.chapterIndex 
         : 0;
 
+    // C3: Wrap in error handler to catch unexpected errors
     unawaited(_scheduler.runPrefetch(
       engine: engine,
       cache: cache,
@@ -678,7 +705,9 @@ class AudiobookPlaybackController implements PlaybackController {
       onSynthesisComplete: _onSegmentSynthesisComplete != null
           ? (segmentIndex) => _onSegmentSynthesisComplete(bookId, chapterIndex, segmentIndex)
           : null,
-    ));
+    ).catchError((error, stackTrace) {
+      _logger.severe('Background prefetch failed', error, stackTrace);
+    }));
   }
 
   /// Start immediate prefetch of the next segment with highest priority.
@@ -700,6 +729,7 @@ class AudiobookPlaybackController implements PlaybackController {
         ? _state.queue.first.chapterIndex 
         : 0;
 
+    // C3: Wrap in error handler to catch unexpected errors
     unawaited(_scheduler.prefetchNextSegmentImmediately(
       engine: engine,
       cache: cache,
@@ -714,6 +744,8 @@ class AudiobookPlaybackController implements PlaybackController {
       onSynthesisComplete: _onSegmentSynthesisComplete != null
           ? (segmentIndex) => _onSegmentSynthesisComplete(bookId, chapterIndex, segmentIndex)
           : null,
-    ));
+    ).catchError((error, stackTrace) {
+      _logger.severe('Immediate next prefetch failed', error, stackTrace);
+    }));
   }
 }
