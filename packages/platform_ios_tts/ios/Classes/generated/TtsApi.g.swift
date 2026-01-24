@@ -723,6 +723,12 @@ protocol TtsFlutterApiProtocol {
   func onCoreStateChanged(status statusArg: CoreStatus, completion: @escaping (Result<Void, PigeonError>) -> Void)
   /// Called when an engine encounters an error.
   func onEngineError(engineType engineTypeArg: NativeEngineType, code codeArg: NativeErrorCode, message messageArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  /// Called when a voice is unloaded (e.g., due to memory pressure or LRU eviction).
+  func onVoiceUnloaded(engineType engineTypeArg: NativeEngineType, voiceId voiceIdArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  /// Called when memory is running low - Flutter should consider reducing memory usage.
+  func onMemoryWarning(engineType engineTypeArg: NativeEngineType, availableMB availableMBArg: Int64, totalMB totalMBArg: Int64, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  /// Called when engine state changes (init, ready, etc).
+  func onEngineStateChanged(engineType engineTypeArg: NativeEngineType, state stateArg: NativeCoreState, errorMessage errorMessageArg: String?, completion: @escaping (Result<Void, PigeonError>) -> Void)
 }
 class TtsFlutterApi: TtsFlutterApiProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -777,6 +783,63 @@ class TtsFlutterApi: TtsFlutterApiProtocol {
     let channelName: String = "dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onEngineError\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([engineTypeArg, codeArg, messageArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(()))
+      }
+    }
+  }
+  /// Called when a voice is unloaded (e.g., due to memory pressure or LRU eviction).
+  func onVoiceUnloaded(engineType engineTypeArg: NativeEngineType, voiceId voiceIdArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onVoiceUnloaded\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([engineTypeArg, voiceIdArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(()))
+      }
+    }
+  }
+  /// Called when memory is running low - Flutter should consider reducing memory usage.
+  func onMemoryWarning(engineType engineTypeArg: NativeEngineType, availableMB availableMBArg: Int64, totalMB totalMBArg: Int64, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onMemoryWarning\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([engineTypeArg, availableMBArg, totalMBArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(()))
+      }
+    }
+  }
+  /// Called when engine state changes (init, ready, etc).
+  func onEngineStateChanged(engineType engineTypeArg: NativeEngineType, state stateArg: NativeCoreState, errorMessage errorMessageArg: String?, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onEngineStateChanged\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([engineTypeArg, stateArg, errorMessageArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return

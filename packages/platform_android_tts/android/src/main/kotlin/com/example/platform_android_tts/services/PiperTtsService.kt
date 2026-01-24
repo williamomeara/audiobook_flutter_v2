@@ -280,6 +280,11 @@ class PiperTtsService : Service() {
     fun isReady(): Boolean = isInitialized
     fun isVoiceLoaded(voiceId: String): Boolean = loadedModels.containsKey(voiceId)
     
+    /**
+     * Get list of currently loaded voice IDs.
+     */
+    fun getLoadedVoiceIds(): List<String> = loadedModels.keys().toList()
+    
     // Private helpers
     
     private fun estimateDuration(text: String): Float {

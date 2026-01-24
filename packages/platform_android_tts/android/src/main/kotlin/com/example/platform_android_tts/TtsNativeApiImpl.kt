@@ -12,7 +12,8 @@ import java.util.concurrent.ConcurrentHashMap
 class TtsNativeApiImpl(
     private val kokoroService: KokoroTtsService,
     private val piperService: PiperTtsService,
-    private val supertonicService: SupertonicTtsService
+    private val supertonicService: SupertonicTtsService,
+    private val flutterApi: TtsFlutterApi
 ) : TtsNativeApi {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -125,6 +126,8 @@ class TtsNativeApiImpl(
             NativeEngineType.PIPER -> piperService.unloadVoice(voiceId)
             NativeEngineType.SUPERTONIC -> supertonicService.unloadVoice(voiceId)
         }
+        // Notify Flutter that voice was unloaded
+        notifyVoiceUnloaded(engineType, voiceId)
         callback(Result.success(Unit))
     }
     
@@ -132,11 +135,27 @@ class TtsNativeApiImpl(
         engineType: NativeEngineType,
         callback: (Result<Unit>) -> Unit
     ) {
+        // Get loaded voices before unloading to notify Flutter
+        val voicesToNotify = when (engineType) {
+            NativeEngineType.KOKORO -> kokoroService.getLoadedVoiceIds()
+            NativeEngineType.PIPER -> piperService.getLoadedVoiceIds()
+            NativeEngineType.SUPERTONIC -> supertonicService.getLoadedVoiceIds()
+        }
+        
         when (engineType) {
             NativeEngineType.KOKORO -> kokoroService.unloadAllModels()
             NativeEngineType.PIPER -> piperService.unloadAllModels()
             NativeEngineType.SUPERTONIC -> supertonicService.unloadAllModels()
         }
+        
+        // Notify Flutter about all unloaded voices
+        voicesToNotify.forEach { voiceId ->
+            notifyVoiceUnloaded(engineType, voiceId)
+        }
+        
+        // Notify engine state changed
+        notifyEngineStateChanged(engineType, NativeCoreState.NOT_STARTED, null)
+        
         callback(Result.success(Unit))
     }
     
@@ -198,6 +217,40 @@ class TtsNativeApiImpl(
     
     fun cleanup() {
         scope.cancel()
+    }
+    
+    // Helper methods for Flutter callbacks
+    
+    private fun notifyVoiceUnloaded(engineType: NativeEngineType, voiceId: String) {
+        scope.launch(Dispatchers.Main) {
+            flutterApi.onVoiceUnloaded(engineType, voiceId) { /* ignore callback result */ }
+        }
+    }
+    
+    private fun notifyEngineStateChanged(engineType: NativeEngineType, state: NativeCoreState, errorMessage: String?) {
+        scope.launch(Dispatchers.Main) {
+            flutterApi.onEngineStateChanged(engineType, state, errorMessage) { /* ignore callback result */ }
+        }
+    }
+    
+    private fun notifyMemoryWarning(engineType: NativeEngineType, availableMB: Int, totalMB: Int) {
+        scope.launch(Dispatchers.Main) {
+            flutterApi.onMemoryWarning(engineType, availableMB.toLong(), totalMB.toLong()) { /* ignore callback result */ }
+        }
+    }
+    
+    /**
+     * Called by services when they internally unload a voice (e.g., due to LRU eviction).
+     */
+    fun onVoiceUnloadedByService(engineType: NativeEngineType, voiceId: String) {
+        notifyVoiceUnloaded(engineType, voiceId)
+    }
+    
+    /**
+     * Called by memory manager to warn Flutter of low memory.
+     */
+    fun onMemoryWarningFromService(engineType: NativeEngineType, availableMB: Int, totalMB: Int) {
+        notifyMemoryWarning(engineType, availableMB, totalMB)
     }
 }
 

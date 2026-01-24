@@ -323,6 +323,11 @@ class SupertonicTtsService : Service() {
     fun isReady(): Boolean = isInitialized && SupertonicNative.isReady()
     fun isVoiceLoaded(voiceId: String): Boolean = loadedSpeakers.containsKey(voiceId)
     
+    /**
+     * Get list of currently loaded voice IDs.
+     */
+    fun getLoadedVoiceIds(): List<String> = loadedSpeakers.keys().toList()
+    
     // Private helpers
     
     /**

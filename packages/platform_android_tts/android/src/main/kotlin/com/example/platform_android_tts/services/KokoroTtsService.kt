@@ -332,6 +332,11 @@ class KokoroTtsService : Service() {
      */
     fun isVoiceLoaded(voiceId: String): Boolean = loadedVoices.containsKey(voiceId)
     
+    /**
+     * Get list of currently loaded voice IDs.
+     */
+    fun getLoadedVoiceIds(): List<String> = loadedVoices.keys().toList()
+    
     // Private helpers
     
     private fun estimateDuration(text: String): Float {

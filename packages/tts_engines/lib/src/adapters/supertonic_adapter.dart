@@ -10,6 +10,7 @@ import '../interfaces/segment_synth_request.dart';
 import '../interfaces/synth_request.dart';
 import '../interfaces/synth_result.dart';
 import '../interfaces/tts_state_machines.dart';
+import '../tts_log.dart';
 
 /// Supertonic TTS engine adapter.
 ///
@@ -41,6 +42,17 @@ class SupertonicAdapter implements AiVoiceEngine {
 
   /// Current core state.
   CoreReadiness _coreReadiness = CoreReadiness.notStarted;
+  
+  /// Called when native notifies us a voice was unloaded.
+  void onVoiceUnloaded(String voiceId) {
+    _loadedVoices.remove(voiceId);
+    TtsLog.info('Voice unloaded (from native): $voiceId');
+  }
+  
+  /// Called when native sends a memory warning.
+  void onMemoryWarning(int availableMB, int totalMB) {
+    TtsLog.info('Memory warning: ${availableMB}MB / ${totalMB}MB');
+  }
 
   @override
   EngineType get engineType => EngineType.supertonic;
