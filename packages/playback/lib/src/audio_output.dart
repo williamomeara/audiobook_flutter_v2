@@ -60,6 +60,9 @@ class JustAudioOutput implements AudioOutput {
   String? _currentFilePath;
   bool _isPaused = false;
   
+  /// Track logged progress milestones to avoid spam
+  final Set<int> _loggedProgressMilestones = {};
+  
   @override
   AudioPlayer? get player => _player;
   
@@ -185,16 +188,16 @@ class JustAudioOutput implements AudioOutput {
       _eventController.add(AudioEvent.error);
     });
     
-    // Listen to position changes (for detailed playback tracking)
+    // Listen to position changes (for progress tracking at milestones)
     _positionSub = _player.positionStream.listen((position) {
       final duration = _player.duration;
       if (duration != null && duration.inMilliseconds > 0) {
         final percent = position.inMilliseconds / duration.inMilliseconds * 100;
-        // Log at 25%, 50%, 75%  to track progress without spam
-        if ((percent > 24.5 && percent < 25.5) || 
-            (percent > 49.5 && percent < 50.5) ||
-            (percent > 74.5 && percent < 75.5)) {
-          PlaybackLog.debug('Playback progress: ${percent.toStringAsFixed(1)}% '
+        // Only log once at 25%, 50%, 75% milestones
+        final milestone = (percent / 25).floor() * 25;
+        if (milestone > 0 && milestone < 100 && !_loggedProgressMilestones.contains(milestone)) {
+          _loggedProgressMilestones.add(milestone);
+          PlaybackLog.debug('Playback progress: $milestone% '
                 '(${position.inSeconds}s / ${duration.inSeconds}s)');
         }
       }
@@ -211,6 +214,7 @@ class JustAudioOutput implements AudioOutput {
   @override
   Future<void> playFile(String path, {double playbackRate = 1.0}) async {
     _currentFilePath = path;
+    _loggedProgressMilestones.clear(); // Reset progress milestones for new file
     PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     PlaybackLog.progress('PLAY FILE REQUEST');
     PlaybackLog.progress('Path: $path');
