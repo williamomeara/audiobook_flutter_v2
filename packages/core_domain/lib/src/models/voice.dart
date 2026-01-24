@@ -91,7 +91,8 @@ class VoiceIds {
   ];
 
   // Kokoro voices (AF = American Female, AM = American Male, BF = British Female, BM = British Male)
-  static const kokoroAfDefault = 'kokoro_af';
+  // Using Kokoro v1.1 multi-lingual model voice names
+  static const kokoroAfAlloy = 'kokoro_af_alloy';
   static const kokoroAfBella = 'kokoro_af_bella';
   static const kokoroAfNicole = 'kokoro_af_nicole';
   static const kokoroAfSarah = 'kokoro_af_sarah';
@@ -104,7 +105,7 @@ class VoiceIds {
   static const kokoroBmLewis = 'kokoro_bm_lewis';
 
   static const kokoroVoices = [
-    kokoroAfDefault,
+    kokoroAfAlloy,
     kokoroAfBella,
     kokoroAfNicole,
     kokoroAfSarah,
@@ -117,19 +118,20 @@ class VoiceIds {
     kokoroBmLewis,
   ];
 
-  /// Speaker ID mapping for Kokoro (0-10).
+  /// Speaker ID mapping for Kokoro v1.1 multi-lingual model.
+  /// Based on https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
   static const kokoroSpeakerIds = <String, int>{
-    kokoroAfDefault: 0,
-    kokoroAfBella: 1,
-    kokoroAfNicole: 2,
-    kokoroAfSarah: 3,
-    kokoroAfSky: 4,
-    kokoroAmAdam: 5,
-    kokoroAmMichael: 6,
-    kokoroBfEmma: 7,
-    kokoroBfIsabella: 8,
-    kokoroBmGeorge: 9,
-    kokoroBmLewis: 10,
+    kokoroAfAlloy: 0,     // af_alloy - US English Female
+    kokoroAfBella: 2,     // af_bella - US English Female
+    kokoroAfNicole: 6,    // af_nicole - US English Female
+    kokoroAfSarah: 9,     // af_sarah - US English Female
+    kokoroAfSky: 10,      // af_sky - US English Female
+    kokoroAmAdam: 11,     // am_adam - US English Male
+    kokoroAmMichael: 16,  // am_michael - US English Male
+    kokoroBfEmma: 21,     // bf_emma - British English Female
+    kokoroBfIsabella: 22, // bf_isabella - British English Female
+    kokoroBmGeorge: 26,   // bm_george - British English Male
+    kokoroBmLewis: 27,    // bm_lewis - British English Male
   };
 
   // Piper voices
@@ -153,7 +155,8 @@ class VoiceIds {
   static bool isSupertonic(String voiceId) => supertonicVoices.contains(voiceId);
 
   /// Check if voice ID is a Kokoro voice.
-  static bool isKokoro(String voiceId) => kokoroVoices.contains(voiceId);
+  static bool isKokoro(String voiceId) => 
+    kokoroVoices.contains(voiceId) || voiceId.startsWith('kokoro_');
 
   /// Check if voice ID is a Piper voice.
   static bool isPiper(String voiceId) => voiceId.startsWith('piper:');

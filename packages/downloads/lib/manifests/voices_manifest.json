@@ -41,10 +41,10 @@
   ],
   "voices": [
     {
-      "id": "kokoro_af",
+      "id": "kokoro_af_alloy",
       "engineId": "kokoro",
-      "displayName": "Kokoro - AF (Default)",
-      "language": "en",
+      "displayName": "Kokoro - Alloy (US Female)",
+      "language": "en-US",
       "gender": "female",
       "speakerId": 0,
       "coreRequirements": ["kokoro_core_v1"]
@@ -52,91 +52,91 @@
     {
       "id": "kokoro_af_bella",
       "engineId": "kokoro",
-      "displayName": "Kokoro - AF Bella",
-      "language": "en",
-      "gender": "female",
-      "speakerId": 1,
-      "coreRequirements": ["kokoro_core_v1"]
-    },
-    {
-      "id": "kokoro_af_nicole",
-      "engineId": "kokoro",
-      "displayName": "Kokoro - AF Nicole",
-      "language": "en",
+      "displayName": "Kokoro - Bella (US Female)",
+      "language": "en-US",
       "gender": "female",
       "speakerId": 2,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
+      "id": "kokoro_af_nicole",
+      "engineId": "kokoro",
+      "displayName": "Kokoro - Nicole (US Female)",
+      "language": "en-US",
+      "gender": "female",
+      "speakerId": 6,
+      "coreRequirements": ["kokoro_core_v1"]
+    },
+    {
       "id": "kokoro_af_sarah",
       "engineId": "kokoro",
-      "displayName": "Kokoro - AF Sarah",
-      "language": "en",
+      "displayName": "Kokoro - Sarah (US Female)",
+      "language": "en-US",
       "gender": "female",
-      "speakerId": 3,
+      "speakerId": 9,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
       "id": "kokoro_af_sky",
       "engineId": "kokoro",
-      "displayName": "Kokoro - AF Sky",
-      "language": "en",
+      "displayName": "Kokoro - Sky (US Female)",
+      "language": "en-US",
       "gender": "female",
-      "speakerId": 4,
+      "speakerId": 10,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
       "id": "kokoro_am_adam",
       "engineId": "kokoro",
-      "displayName": "Kokoro - AM Adam",
-      "language": "en",
+      "displayName": "Kokoro - Adam (US Male)",
+      "language": "en-US",
       "gender": "male",
-      "speakerId": 5,
+      "speakerId": 11,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
       "id": "kokoro_am_michael",
       "engineId": "kokoro",
-      "displayName": "Kokoro - AM Michael",
-      "language": "en",
+      "displayName": "Kokoro - Michael (US Male)",
+      "language": "en-US",
       "gender": "male",
-      "speakerId": 6,
+      "speakerId": 16,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
       "id": "kokoro_bf_emma",
       "engineId": "kokoro",
-      "displayName": "Kokoro - BF Emma",
+      "displayName": "Kokoro - Emma (British Female)",
       "language": "en-GB",
       "gender": "female",
-      "speakerId": 7,
+      "speakerId": 21,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
       "id": "kokoro_bf_isabella",
       "engineId": "kokoro",
-      "displayName": "Kokoro - BF Isabella",
+      "displayName": "Kokoro - Isabella (British Female)",
       "language": "en-GB",
       "gender": "female",
-      "speakerId": 8,
+      "speakerId": 22,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
       "id": "kokoro_bm_george",
       "engineId": "kokoro",
-      "displayName": "Kokoro - BM George",
+      "displayName": "Kokoro - George (British Male)",
       "language": "en-GB",
       "gender": "male",
-      "speakerId": 9,
+      "speakerId": 26,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
       "id": "kokoro_bm_lewis",
       "engineId": "kokoro",
-      "displayName": "Kokoro - BM Lewis",
+      "displayName": "Kokoro - Lewis (British Male)",
       "language": "en-GB",
       "gender": "male",
-      "speakerId": 10,
+      "speakerId": 27,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {

@@ -11,6 +11,7 @@ import '../interfaces/segment_synth_request.dart';
 import '../interfaces/synth_request.dart';
 import '../interfaces/synth_result.dart';
 import '../interfaces/tts_state_machines.dart';
+import '../tts_log.dart';
 
 /// Kokoro TTS engine adapter.
 ///
@@ -181,78 +182,101 @@ class KokoroAdapter implements AiVoiceEngine {
     // Track for cancellation
     _activeRequests[request.opId] = request;
 
-    try {
-      // Check voice ready
-      final readiness = await checkVoiceReady(request.voiceId);
-      if (!readiness.isReady) {
-        return ExtendedSynthResult.failedWith(
-          code: EngineError.modelMissing,
-          message: readiness.nextActionUserShouldTake ??
-              'Voice not ready: ${readiness.state}',
-          stage: SynthStage.voiceReady,
+    // Retry loop instead of recursion to prevent stack overflow
+    while (true) {
+      try {
+        // Check voice ready
+        final readiness = await checkVoiceReady(request.voiceId);
+        if (!readiness.isReady) {
+          return ExtendedSynthResult.failedWith(
+            code: EngineError.modelMissing,
+            message: readiness.nextActionUserShouldTake ??
+                'Voice not ready: ${readiness.state}',
+            stage: SynthStage.voiceReady,
+          );
+        }
+
+        if (request.isCancelled) {
+          return ExtendedSynthResult.cancelled;
+        }
+
+        // Kokoro: load the voice model if not loaded
+        if (!_loadedVoices.containsKey(request.voiceId)) {
+          final modelPath = '${_coreDir.path}/kokoro/kokoro_core_v1';
+          TtsLog.info('Loading Kokoro voice from: $modelPath');
+          await _loadVoice(request.voiceId, modelPath, 
+            speakerId: VoiceIds.kokoroSpeakerId(request.voiceId));
+          TtsLog.info('Kokoro voice loaded: ${request.voiceId}');
+        }
+
+        // Write to temp file first (atomic pattern)
+        final tmpPath = '${request.outputFile.path}.tmp';
+
+        final nativeRequest = SynthesizeRequest(
+          engineType: NativeEngineType.kokoro,
+          voiceId: request.voiceId,
+          text: request.normalizedText,
+          outputPath: tmpPath,
+          requestId: request.opId,
+          speakerId: request.speakerId ?? VoiceIds.kokoroSpeakerId(request.voiceId),
+          speed: request.playbackRate,
         );
+
+        final result = await _nativeApi.synthesize(nativeRequest);
+
+        if (request.isCancelled) {
+          // Clean up temp file
+          await _deleteTempFile(tmpPath);
+          return ExtendedSynthResult.cancelled;
+        }
+
+        if (!result.success) {
+          _logger.severe('Native Kokoro synthesis failed: ${result.errorMessage} Code: ${result.errorCode}');
+          await _deleteTempFile(tmpPath);
+          
+          // Handle OOM with proper retry (not fire-and-forget)
+          final code = result.errorCode ?? NativeErrorCode.unknown;
+          if (code == NativeErrorCode.outOfMemory && request.canRetry) {
+            TtsLog.info('OOM detected, unloading models and retrying...');
+            await unloadLeastUsedModel();
+            await Future.delayed(const Duration(milliseconds: 200));
+            request.incrementRetry();
+            continue; // Retry in loop
+          }
+          
+          return _handleNativeError(result, request);
+        }
+
+        // Atomic rename: tmp -> final
+        final tmpFile = File(tmpPath);
+        if (await tmpFile.exists()) {
+          await tmpFile.rename(request.outputFile.path);
+        }
+
+        // Update LRU tracking
+        _loadedVoices[request.voiceId] = DateTime.now();
+
+        return ExtendedSynthResult.successWith(
+          outputFile: request.outputFile.path,
+          durationMs: result.durationMs ?? 0,
+          sampleRate: result.sampleRate ?? 24000,
+        );
+      } catch (e) {
+        // Handle retry for recoverable errors
+        if (request.canRetry && _isRecoverableError(e)) {
+          request.incrementRetry();
+          continue; // Retry in loop
+        }
+
+        return ExtendedSynthResult.failedWith(
+          code: _mapExceptionToError(e),
+          message: e.toString(),
+          stage: SynthStage.failed,
+          retryCount: request.retryAttempt,
+        );
+      } finally {
+        _activeRequests.remove(request.opId);
       }
-
-      if (request.isCancelled) {
-        return ExtendedSynthResult.cancelled;
-      }
-
-      // Write to temp file first (atomic pattern)
-      final tmpPath = '${request.outputFile.path}.tmp';
-
-      final nativeRequest = SynthesizeRequest(
-        engineType: NativeEngineType.kokoro,
-        voiceId: request.voiceId,
-        text: request.normalizedText,
-        outputPath: tmpPath,
-        requestId: request.opId,
-        speakerId: request.speakerId ?? VoiceIds.kokoroSpeakerId(request.voiceId),
-        speed: request.playbackRate,
-      );
-
-      final result = await _nativeApi.synthesize(nativeRequest);
-
-      if (request.isCancelled) {
-        // Clean up temp file
-        await _deleteTempFile(tmpPath);
-        return ExtendedSynthResult.cancelled;
-      }
-
-      if (!result.success) {
-        _logger.severe('Native Kokoro synthesis failed: ${result.errorMessage} Code: ${result.errorCode}');
-        await _deleteTempFile(tmpPath);
-        return _handleNativeError(result, request);
-      }
-
-      // Atomic rename: tmp -> final
-      final tmpFile = File(tmpPath);
-      if (await tmpFile.exists()) {
-        await tmpFile.rename(request.outputFile.path);
-      }
-
-      // Update LRU tracking
-      _loadedVoices[request.voiceId] = DateTime.now();
-
-      return ExtendedSynthResult.successWith(
-        outputFile: request.outputFile.path,
-        durationMs: result.durationMs ?? 0,
-        sampleRate: result.sampleRate ?? 24000,
-      );
-    } catch (e) {
-      // Handle retry for recoverable errors
-      if (request.canRetry && _isRecoverableError(e)) {
-        request.incrementRetry();
-        return synthesizeSegment(request);
-      }
-
-      return ExtendedSynthResult.failedWith(
-        code: _mapExceptionToError(e),
-        message: e.toString(),
-        stage: SynthStage.failed,
-        retryCount: request.retryAttempt,
-      );
-    } finally {
-      _activeRequests.remove(request.opId);
     }
   }
 
@@ -342,6 +366,17 @@ class KokoroAdapter implements AiVoiceEngine {
     _coreReadiness = CoreReadiness.readyFor('kokoro');
     _notifyReadinessChange('kokoro', _coreReadiness);
   }
+  
+  Future<void> _loadVoice(String voiceId, String modelPath, {int? speakerId}) async {
+    final request = LoadVoiceRequest(
+      engineType: NativeEngineType.kokoro,
+      voiceId: voiceId,
+      modelPath: modelPath,
+      speakerId: speakerId,
+    );
+    await _nativeApi.loadVoice(request);
+    _loadedVoices[voiceId] = DateTime.now();
+  }
 
   void _notifyReadinessChange(String coreId, CoreReadiness readiness) {
     _readinessControllers[coreId]?.add(readiness);
@@ -373,33 +408,13 @@ class KokoroAdapter implements AiVoiceEngine {
     final code = result.errorCode ?? NativeErrorCode.unknown;
     final engineError = _mapNativeError(code);
 
-    // Handle OOM with retry after unload
-    if (engineError == EngineError.inferenceFailed &&
-        code == NativeErrorCode.outOfMemory) {
-      if (request.canRetry) {
-        // Schedule unload and retry
-        unawaited(_unloadAndRetry(request));
-        return ExtendedSynthResult.failedWith(
-          code: engineError,
-          message: 'Out of memory, retrying after model unload...',
-          stage: SynthStage.inferencing,
-        );
-      }
-    }
-
+    // OOM is now handled in the main synthesis loop
     return ExtendedSynthResult.failedWith(
       code: engineError,
       message: result.errorMessage ?? 'Native synthesis failed',
       stage: SynthStage.inferencing,
       retryCount: request.retryAttempt,
     );
-  }
-
-  Future<void> _unloadAndRetry(SegmentSynthRequest request) async {
-    await unloadLeastUsedModel();
-    await Future.delayed(const Duration(milliseconds: 100));
-    request.incrementRetry();
-    await synthesizeSegment(request);
   }
 
   EngineError _mapNativeError(NativeErrorCode code) {

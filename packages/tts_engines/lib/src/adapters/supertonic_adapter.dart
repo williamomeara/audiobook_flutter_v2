@@ -245,6 +245,9 @@ class SupertonicAdapter implements AiVoiceEngine {
       );
 
       final result = await _nativeApi.synthesize(nativeRequest);
+      
+      // Debug: log synthesis result
+      _logger.info('Supertonic synthesis result: success=${result.success}, durationMs=${result.durationMs}, sampleRate=${result.sampleRate}');
 
       if (request.isCancelled) {
         await _deleteTempFile(tmpPath);
@@ -265,6 +268,7 @@ class SupertonicAdapter implements AiVoiceEngine {
 
       _loadedVoices[request.voiceId] = DateTime.now();
 
+      _logger.info('Supertonic synthesis complete: ${result.durationMs}ms to ${request.outputFile.path}');
       return ExtendedSynthResult.successWith(
         outputFile: request.outputFile.path,
         durationMs: result.durationMs ?? 0,

@@ -164,9 +164,10 @@ class _IosApiWrapper implements android.TtsNativeApi {
 
 /// Provider for Kokoro adapter.
 /// Checks granular download state to see if required cores are ready.
+/// Uses watch to reactively update when downloads complete.
 final kokoroAdapterProvider = FutureProvider<KokoroAdapter?>((ref) async {
   final paths = await ref.read(appPathsProvider.future);
-  final granularState = await ref.read(granularDownloadManagerProvider.future);
+  final granularState = await ref.watch(granularDownloadManagerProvider.future);
   
   // Check if Kokoro core is ready via granular system
   final isReady = granularState.cores['kokoro_core_v1']?.isReady ?? false;
@@ -182,9 +183,10 @@ final kokoroAdapterProvider = FutureProvider<KokoroAdapter?>((ref) async {
 
 /// Provider for Piper adapter.
 /// Piper voices are per-model cores, check if any Piper core is ready.
+/// Uses watch to reactively update when downloads complete.
 final piperAdapterProvider = FutureProvider<PiperAdapter?>((ref) async {
   final paths = await ref.read(appPathsProvider.future);
-  final granularState = await ref.read(granularDownloadManagerProvider.future);
+  final granularState = await ref.watch(granularDownloadManagerProvider.future);
   
   // Check if any Piper core is ready
   final piperCores = granularState.cores.values.where((c) => c.engineType == 'piper');
@@ -201,11 +203,21 @@ final piperAdapterProvider = FutureProvider<PiperAdapter?>((ref) async {
 
 /// Provider for Supertonic adapter.
 /// Checks granular download state to see if required cores are ready.
+/// Uses watch to reactively update when downloads complete.
 final supertonicAdapterProvider = FutureProvider<SupertonicAdapter?>((ref) async {
   final paths = await ref.read(appPathsProvider.future);
-  final granularState = await ref.read(granularDownloadManagerProvider.future);
+  final granularState = await ref.watch(granularDownloadManagerProvider.future);
   
-  // Check if Supertonic core is ready via granular system
+  // On iOS, Supertonic uses bundled CoreML models - always ready
+  if (Platform.isIOS) {
+    final nativeApi = ref.read(ttsNativeApiProvider);
+    return SupertonicAdapter(
+      nativeApi: nativeApi,
+      coreDir: paths.voiceAssetsDir,
+    );
+  }
+  
+  // On Android, check if Supertonic core is ready via granular system
   final isReady = granularState.cores['supertonic_core_v1']?.isReady ?? false;
   
   if (!isReady) return null;
@@ -218,11 +230,12 @@ final supertonicAdapterProvider = FutureProvider<SupertonicAdapter?>((ref) async
 });
 
 /// Provider for the routing engine with all adapters.
+/// Uses watch to reactively update when adapters become available.
 final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
   final cache = await ref.read(intelligentCacheManagerProvider.future);
-  final kokoro = await ref.read(kokoroAdapterProvider.future);
-  final piper = await ref.read(piperAdapterProvider.future);
-  final supertonic = await ref.read(supertonicAdapterProvider.future);
+  final kokoro = await ref.watch(kokoroAdapterProvider.future);
+  final piper = await ref.watch(piperAdapterProvider.future);
+  final supertonic = await ref.watch(supertonicAdapterProvider.future);
 
   return RoutingEngine(
     cache: cache,

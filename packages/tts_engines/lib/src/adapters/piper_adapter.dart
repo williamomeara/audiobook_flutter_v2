@@ -155,92 +155,96 @@ class PiperAdapter implements AiVoiceEngine {
     _activeRequests[request.opId] = request;
     TtsLog.info('synthesizeSegment: ${request.voiceId}');
 
-    try {
-      TtsLog.debug('Checking voice readiness...');
-      final readiness = await checkVoiceReady(request.voiceId);
-      TtsLog.debug('Voice readiness: ${readiness.state} - isReady: ${readiness.isReady}');
-      
-      if (!readiness.isReady) {
-        return ExtendedSynthResult.failedWith(
-          code: EngineError.modelMissing,
-          message: readiness.nextActionUserShouldTake ??
-              'Voice not ready: ${readiness.state}',
-          stage: SynthStage.voiceReady,
+    // Retry loop instead of recursion to prevent stack overflow
+    while (true) {
+      try {
+        TtsLog.debug('Checking voice readiness...');
+        final readiness = await checkVoiceReady(request.voiceId);
+        TtsLog.debug('Voice readiness: ${readiness.state} - isReady: ${readiness.isReady}');
+        
+        if (!readiness.isReady) {
+          return ExtendedSynthResult.failedWith(
+            code: EngineError.modelMissing,
+            message: readiness.nextActionUserShouldTake ??
+                'Voice not ready: ${readiness.state}',
+            stage: SynthStage.voiceReady,
+          );
+        }
+
+        if (request.isCancelled) {
+          return ExtendedSynthResult.cancelled;
+        }
+
+        // Piper-specific: need to load the voice model if not loaded
+        final modelKey = VoiceIds.piperModelKey(request.voiceId);
+        TtsLog.debug('modelKey: $modelKey, loaded voices: ${_loadedVoices.keys.toList()}');
+        
+        if (modelKey != null && !_loadedVoices.containsKey(request.voiceId)) {
+          final coreId = _getCoreIdForModelKey(modelKey);
+          final modelPath = '${_coreDir.path}/piper/$coreId';
+          TtsLog.info('Loading voice from: $modelPath');
+          await _loadVoice(request.voiceId, modelPath);
+          TtsLog.info('Voice loaded successfully');
+        }
+
+        final tmpPath = '${request.outputFile.path}.tmp';
+
+        TtsLog.debug('Calling native synthesize...');
+        final nativeRequest = SynthesizeRequest(
+          engineType: NativeEngineType.piper,
+          voiceId: request.voiceId,
+          text: request.normalizedText,
+          outputPath: tmpPath,
+          requestId: request.opId,
+          speed: request.playbackRate,
         );
+
+        final result = await _nativeApi.synthesize(nativeRequest);
+        TtsLog.debug('Native synthesize returned: success=${result.success}, error=${result.errorMessage}');
+
+        if (request.isCancelled) {
+          await _deleteTempFile(tmpPath);
+          return ExtendedSynthResult.cancelled;
+        }
+
+        if (!result.success) {
+          _logger.severe('Native Piper synthesis failed: ${result.errorMessage} Code: ${result.errorCode}');
+          await _deleteTempFile(tmpPath);
+          return _handleNativeError(result, request);
+        }
+
+        // Atomic rename
+        final tmpFile = File(tmpPath);
+        if (await tmpFile.exists()) {
+          await tmpFile.rename(request.outputFile.path);
+        }
+
+        _loadedVoices[request.voiceId] = DateTime.now();
+
+        return ExtendedSynthResult.successWith(
+          outputFile: request.outputFile.path,
+          durationMs: result.durationMs ?? 0,
+          sampleRate: result.sampleRate ?? 22050, // Piper typically uses 22050
+        );
+      } catch (e, stackTrace) {
+        _logger.severe('Piper synthesis exception', e, stackTrace);
+        
+        if (request.canRetry && _isRecoverableError(e)) {
+          _logger.info('Retrying synthesis (attempt ${request.retryAttempt + 1})');
+          request.incrementRetry();
+          // Loop continues to retry
+          continue;
+        }
+
+        return ExtendedSynthResult.failedWith(
+          code: _mapExceptionToError(e),
+          message: e.toString(),
+          stage: SynthStage.failed,
+          retryCount: request.retryAttempt,
+        );
+      } finally {
+        _activeRequests.remove(request.opId);
       }
-
-      if (request.isCancelled) {
-        return ExtendedSynthResult.cancelled;
-      }
-
-      // Piper-specific: need to load the voice model if not loaded
-      final modelKey = VoiceIds.piperModelKey(request.voiceId);
-      TtsLog.debug('modelKey: $modelKey, loaded voices: ${_loadedVoices.keys.toList()}');
-      
-      if (modelKey != null && !_loadedVoices.containsKey(request.voiceId)) {
-        final coreId = _getCoreIdForModelKey(modelKey);
-        final modelPath = '${_coreDir.path}/piper/$coreId';
-        TtsLog.info('Loading voice from: $modelPath');
-        await _loadVoice(request.voiceId, modelPath);
-        TtsLog.info('Voice loaded successfully');
-      }
-
-      final tmpPath = '${request.outputFile.path}.tmp';
-
-      TtsLog.debug('Calling native synthesize...');
-      final nativeRequest = SynthesizeRequest(
-        engineType: NativeEngineType.piper,
-        voiceId: request.voiceId,
-        text: request.normalizedText,
-        outputPath: tmpPath,
-        requestId: request.opId,
-        speed: request.playbackRate,
-      );
-
-      final result = await _nativeApi.synthesize(nativeRequest);
-      TtsLog.debug('Native synthesize returned: success=${result.success}, error=${result.errorMessage}');
-
-      if (request.isCancelled) {
-        await _deleteTempFile(tmpPath);
-        return ExtendedSynthResult.cancelled;
-      }
-
-      if (!result.success) {
-        _logger.severe('Native Piper synthesis failed: ${result.errorMessage} Code: ${result.errorCode}');
-        await _deleteTempFile(tmpPath);
-        return _handleNativeError(result, request);
-      }
-
-      // Atomic rename
-      final tmpFile = File(tmpPath);
-      if (await tmpFile.exists()) {
-        await tmpFile.rename(request.outputFile.path);
-      }
-
-      _loadedVoices[request.voiceId] = DateTime.now();
-
-      return ExtendedSynthResult.successWith(
-        outputFile: request.outputFile.path,
-        durationMs: result.durationMs ?? 0,
-        sampleRate: result.sampleRate ?? 22050, // Piper typically uses 22050
-      );
-    } catch (e, stackTrace) {
-      _logger.severe('Piper synthesis exception', e, stackTrace);
-      
-      if (request.canRetry && _isRecoverableError(e)) {
-        _logger.info('Retrying synthesis (attempt ${request.retryAttempt + 1})');
-        request.incrementRetry();
-        return synthesizeSegment(request);
-      }
-
-      return ExtendedSynthResult.failedWith(
-        code: _mapExceptionToError(e),
-        message: e.toString(),
-        stage: SynthStage.failed,
-        retryCount: request.retryAttempt,
-      );
-    } finally {
-      _activeRequests.remove(request.opId);
     }
   }
 
