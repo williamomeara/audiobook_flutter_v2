@@ -377,7 +377,15 @@ class AudiobookPlaybackController implements PlaybackController {
     _cancelSeekDebounce();
 
     // Already playing this track
-    if (_speakingTrackId == _state.currentTrack?.id) return;
+    if (_speakingTrackId == _state.currentTrack?.id && !_audioOutput.isPaused) return;
+
+    // If we're resuming the same paused track, just resume instead of re-synthesizing
+    if (_speakingTrackId == _state.currentTrack?.id && _audioOutput.isPaused && _audioOutput.hasSource) {
+      _logger.info('Resuming paused playback for track: $_speakingTrackId');
+      _updateState(_state.copyWith(isPlaying: true, isBuffering: false));
+      await _audioOutput.resume();
+      return;
+    }
 
     _updateState(_state.copyWith(isPlaying: true, isBuffering: true));
     await _speakCurrent(opId: opId);
@@ -389,7 +397,8 @@ class AudiobookPlaybackController implements PlaybackController {
     _playIntent = false;
     _cancelSeekDebounce();
 
-    await _stopPlayback();
+    // Pause audio instead of stopping - preserves position for resume
+    await _audioOutput.pause();
     _scheduler.reset();
 
     _updateState(_state.copyWith(isPlaying: false, isBuffering: false));
