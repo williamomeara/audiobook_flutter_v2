@@ -22,6 +22,9 @@ class PiperTtsService : Service() {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+    // Synthesis counter to prevent unload during active synthesis
+    private val synthesisCounter = SynthesisCounter()
+    
     // Model state - Piper has per-voice models
     private var isInitialized = false
     private val loadedModels = mutableMapOf<String, PiperVoiceModel>()
@@ -109,6 +112,9 @@ class PiperTtsService : Service() {
             )
         }
         
+        // Track active synthesis to prevent unload during operation
+        synthesisCounter.increment()
+        
         val job = scope.launch {
             try {
                 val tmpFile = File("$outputPath.tmp")
@@ -174,6 +180,7 @@ class PiperTtsService : Service() {
             )
         } finally {
             activeJobs.remove(requestId)
+            synthesisCounter.decrement()
         }
     }
     
@@ -187,8 +194,13 @@ class PiperTtsService : Service() {
     
     /**
      * Unload a specific voice.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadVoice(voiceId: String) {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("PiperTtsService", "Timeout waiting for synthesis to complete before unload")
+        }
         inferenceEngines[voiceId]?.dispose()
         inferenceEngines.remove(voiceId)
         loadedModels.remove(voiceId)
@@ -196,8 +208,14 @@ class PiperTtsService : Service() {
     
     /**
      * Unload all models and reset state.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadAllModels() {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("PiperTtsService", "Timeout waiting for synthesis to complete before unloadAll")
+        }
+        
         inferenceEngines.values.forEach { it.dispose() }
         inferenceEngines.clear()
         loadedModels.clear()

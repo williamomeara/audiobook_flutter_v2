@@ -20,6 +20,9 @@ class SupertonicTtsService : Service() {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+    // Synthesis counter to prevent unload during active synthesis
+    private val synthesisCounter = SynthesisCounter()
+    
     // Model state
     private var modelPath: String? = null
     private var isInitialized = false
@@ -129,6 +132,9 @@ class SupertonicTtsService : Service() {
             )
         }
         
+        // Track active synthesis to prevent unload during operation
+        synthesisCounter.increment()
+        
         // Get or create speaker
         val speaker = loadedSpeakers.getOrPut(voiceId) {
             SupertonicSpeaker(
@@ -215,6 +221,7 @@ class SupertonicTtsService : Service() {
             )
         } finally {
             activeJobs.remove(requestId)
+            synthesisCounter.decrement()
         }
     }
     
@@ -228,15 +235,26 @@ class SupertonicTtsService : Service() {
     
     /**
      * Unload a specific voice.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadVoice(voiceId: String) {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("SupertonicTtsService", "Timeout waiting for synthesis to complete before unload")
+        }
         loadedSpeakers.remove(voiceId)
     }
     
     /**
      * Unload all models and reset state.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadAllModels() {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("SupertonicTtsService", "Timeout waiting for synthesis to complete before unloadAll")
+        }
+        
         loadedSpeakers.clear()
         
         if (isInitialized) {

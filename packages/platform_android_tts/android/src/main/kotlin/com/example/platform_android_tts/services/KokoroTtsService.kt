@@ -23,6 +23,9 @@ class KokoroTtsService : Service() {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+    // Synthesis counter to prevent unload during active synthesis
+    private val synthesisCounter = SynthesisCounter()
+    
     // Model state - Kokoro uses single shared model
     private var modelPath: String? = null
     private var voicesPath: String? = null
@@ -150,6 +153,9 @@ class KokoroTtsService : Service() {
             )
         }
         
+        // Track active synthesis to prevent unload during operation
+        synthesisCounter.increment()
+        
         // Get speaker ID from loaded voice or use provided ID
         val voice = loadedVoices[voiceId]
         val actualSpeakerId = voice?.speakerId ?: speakerId
@@ -219,6 +225,7 @@ class KokoroTtsService : Service() {
             )
         } finally {
             activeJobs.remove(requestId)
+            synthesisCounter.decrement()
         }
     }
     
@@ -232,15 +239,26 @@ class KokoroTtsService : Service() {
     
     /**
      * Unload a specific voice (just removes from tracking).
+     * Waits for any active synthesis to complete first.
      */
     fun unloadVoice(voiceId: String) {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("KokoroTtsService", "Timeout waiting for synthesis to complete before unload")
+        }
         loadedVoices.remove(voiceId)
     }
     
     /**
      * Unload all models and reset state.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadAllModels() {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("KokoroTtsService", "Timeout waiting for synthesis to complete before unloadAll")
+        }
+        
         inference?.dispose()
         inference = null
         loadedVoices.clear()
