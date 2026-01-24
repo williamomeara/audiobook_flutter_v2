@@ -213,6 +213,7 @@ private fun ErrorCode.toPigeonError(): NativeErrorCode {
         ErrorCode.RUNTIME_CRASH -> NativeErrorCode.RUNTIME_CRASH
         ErrorCode.INVALID_INPUT -> NativeErrorCode.INVALID_INPUT
         ErrorCode.FILE_WRITE_ERROR -> NativeErrorCode.FILE_WRITE_ERROR
+        ErrorCode.BUSY -> NativeErrorCode.BUSY
         ErrorCode.UNKNOWN -> NativeErrorCode.UNKNOWN
     }
 }

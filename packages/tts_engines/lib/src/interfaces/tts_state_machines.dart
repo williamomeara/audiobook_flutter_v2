@@ -173,7 +173,10 @@ enum EngineError {
   /// SHA256 mismatch.
   modelCorrupted,
 
-  /// Model inference error (OOM, etc).
+  /// Out of memory during inference.
+  outOfMemory,
+
+  /// Model inference error.
   inferenceFailed,
 
   /// Native runtime crashed.
@@ -187,6 +190,12 @@ enum EngineError {
 
   /// File write failed.
   fileWriteError,
+
+  /// Too many concurrent requests.
+  busy,
+
+  /// Operation timed out.
+  timeout,
 
   /// Unknown error.
   unknown,

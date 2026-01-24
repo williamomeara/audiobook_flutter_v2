@@ -161,7 +161,9 @@ enum NativeErrorCode: Int {
   case runtimeCrash = 6
   case invalidInput = 7
   case fileWriteError = 8
-  case unknown = 9
+  case busy = 9
+  case timeout = 10
+  case unknown = 11
 }
 
 /// Request to initialize an engine.

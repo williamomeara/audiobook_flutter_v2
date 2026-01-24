@@ -41,6 +41,8 @@ enum NativeErrorCode {
   runtimeCrash,
   invalidInput,
   fileWriteError,
+  busy,
+  timeout,
   unknown,
 }
 

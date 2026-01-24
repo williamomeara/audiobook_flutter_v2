@@ -122,7 +122,9 @@ enum class NativeErrorCode(val raw: Int) {
   RUNTIME_CRASH(6),
   INVALID_INPUT(7),
   FILE_WRITE_ERROR(8),
-  UNKNOWN(9);
+  BUSY(9),
+  TIMEOUT(10),
+  UNKNOWN(11);
 
   companion object {
     fun ofRaw(raw: Int): NativeErrorCode? {

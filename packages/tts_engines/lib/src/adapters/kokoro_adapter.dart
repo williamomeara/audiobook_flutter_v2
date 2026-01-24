@@ -422,12 +422,14 @@ class KokoroAdapter implements AiVoiceEngine {
       NativeErrorCode.none => EngineError.unknown,
       NativeErrorCode.modelMissing => EngineError.modelMissing,
       NativeErrorCode.modelCorrupted => EngineError.modelCorrupted,
-      NativeErrorCode.outOfMemory => EngineError.inferenceFailed,
+      NativeErrorCode.outOfMemory => EngineError.outOfMemory,
       NativeErrorCode.inferenceFailed => EngineError.inferenceFailed,
       NativeErrorCode.cancelled => EngineError.cancelled,
       NativeErrorCode.runtimeCrash => EngineError.runtimeCrash,
       NativeErrorCode.invalidInput => EngineError.invalidInput,
       NativeErrorCode.fileWriteError => EngineError.fileWriteError,
+      NativeErrorCode.busy => EngineError.busy,
+      NativeErrorCode.timeout => EngineError.timeout,
       NativeErrorCode.unknown => EngineError.unknown,
     };
   }
@@ -437,8 +439,11 @@ class KokoroAdapter implements AiVoiceEngine {
     if (msg.contains('service_dead') || msg.contains('binder')) {
       return EngineError.runtimeCrash;
     }
-    if (msg.contains('memory')) {
-      return EngineError.inferenceFailed;
+    if (msg.contains('memory') || msg.contains('oom')) {
+      return EngineError.outOfMemory;
+    }
+    if (msg.contains('timeout')) {
+      return EngineError.timeout;
     }
     return EngineError.unknown;
   }
@@ -447,7 +452,8 @@ class KokoroAdapter implements AiVoiceEngine {
     final msg = e.toString().toLowerCase();
     return msg.contains('service_dead') ||
         msg.contains('binder') ||
-        msg.contains('timeout');
+        msg.contains('timeout') ||
+        msg.contains('busy');
   }
 
   Future<void> _deleteTempFile(String path) async {
