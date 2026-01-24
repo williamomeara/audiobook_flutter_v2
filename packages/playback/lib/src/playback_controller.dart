@@ -525,7 +525,7 @@ class AudiobookPlaybackController implements PlaybackController {
     final track = _state.currentTrack;
     if (track == null) {
       _logger.warning('_speakCurrent called but currentTrack is null');
-      _updateState(_state.copyWith(isBuffering: false));
+      _updateState(_state.copyWith(isPlaying: false, isBuffering: false));
       return;
     }
 

@@ -57,9 +57,9 @@ The playback screen manages audiobook playback, displaying the current segment, 
 |-------|-----------|--------------|
 | **IDLE** | queue.isEmpty, currentTrack == null | "Select a book" message |
 | **LOADING** | queue.isEmpty, loading chapter | Spinner + "Loading chapter..." |
-| **BUFFERING** | isBuffering == true | Play button shows spinner |
-| **PLAYING** | isPlaying == true, !isBuffering | Play button shows pause icon |
-| **PAUSED** | isPlaying == false, !isBuffering, currentTrack != null | Play button shows play icon |
+| **BUFFERING** | isBuffering == true (regardless of isPlaying) | Play button shows spinner |
+| **PLAYING** | isPlaying == true, isBuffering == false | Play button shows pause icon |
+| **PAUSED** | isPlaying == false, isBuffering == false, currentTrack != null | Play button shows play icon |
 | **ERROR** | error != null | Error banner + disabled controls |
 
 ---
@@ -308,8 +308,47 @@ Widget build() {
 
 ## State Invariants
 
-1. **isPlaying = true implies isBuffering = false** (can't be both)
-2. **isBuffering = true implies _playIntent = true** (only buffer if user wants to play)
-3. **currentTrack != null when PLAYING/PAUSED** (always have a track when active)
-4. **error != null clears on next successful operation**
-5. **_speakingTrackId tracks actual playing segment** (separate from currentTrack for transitions)
+1. **isBuffering = true implies _playIntent = true** (only buffer if user wants to play)
+2. **currentTrack != null when PLAYING/PAUSED** (always have a track when active)
+3. **error != null clears on next successful operation**
+4. **_speakingTrackId tracks actual playing segment** (separate from currentTrack for transitions)
+5. **isPlaying AND isBuffering can both be true** - represents "user wants to play, waiting for synthesis"
+
+---
+
+## Code Audit Findings
+
+### Verified Correct
+
+| Transition | Code Location | Status |
+|-----------|---------------|--------|
+| `play()` resume same track | L391-395 | ✅ Correct - checks `_speakingTrackId` and `isPaused` |
+| `play()` new track | L398-399 | ✅ Correct - sets `isPlaying: true, isBuffering: true` |
+| `pause()` | L403-412 | ✅ Correct - sets `isPlaying: false, isBuffering: false` |
+| `nextTrack()` more tracks | L449-464 | ✅ Correct - sets override, updates state, speaks |
+| `nextTrack()` end of queue | L465-467 | ✅ Correct - calls `pause()` |
+| `seekToTrack()` | L416-441 | ✅ Correct - debounces synthesis |
+| Error in synthesis | L619-631 | ✅ Correct - sets `isPlaying: false, isBuffering: false, error: msg` |
+| Voice not ready | L565-575 | ✅ Correct - sets error state |
+| Audio event completed | L162-166 | ✅ Correct - calls `nextTrack()` |
+| Audio event error | L173-180 | ✅ Correct - sets error state |
+
+### Minor Issue Found and Fixed
+
+**Location:** `_speakCurrent()` line 527-529
+
+**Original Issue:** Only set `isBuffering: false` but left `isPlaying` unchanged when track was null.
+
+**Fix Applied:** Now sets `isPlaying: false, isBuffering: false` for proper invalid state handling.
+
+### Transition Diagram Accuracy
+
+All transitions in the state machine diagram have been verified against the code:
+
+- ✅ Chapter loading flow matches `loadChapter()` implementation
+- ✅ Play/pause toggle matches `play()` and `pause()` implementations  
+- ✅ Segment navigation matches `nextTrack()`, `previousTrack()`, `seekToTrack()`
+- ✅ End of chapter matches `nextTrack()` end-of-queue handling
+- ✅ Error transitions match synthesis error handling and `_handleAudioEvent`
+- ✅ Prefetch states match `BufferScheduler` and `_startImmediateNextPrefetch()`
+- ✅ Media control integration matches `AudioServiceHandler` and `_onPlayIntentOverride`
