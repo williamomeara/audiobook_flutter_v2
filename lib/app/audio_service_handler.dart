@@ -32,6 +32,10 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
   
   /// Subscription to player events.
   StreamSubscription<dynamic>? _playerEventSub;
+  
+  /// Track last logged state to avoid duplicate logs
+  bool? _lastLoggedPlaying;
+  AudioProcessingState? _lastLoggedProcessingState;
 
   /// Callbacks for skip actions (to be set by PlaybackController).
   void Function()? onSkipToNextCallback;
@@ -64,6 +68,8 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
         player,
       );
       _log('Emitting initial state - playing: ${player.playing}, processingState: ${initialState.processingState}');
+      _lastLoggedPlaying = player.playing;
+      _lastLoggedProcessingState = initialState.processingState;
       playbackState.add(initialState);
       
       // Forward player state changes to the media session.
@@ -73,12 +79,22 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
         player.positionStream,
         (event, playing, position) {
           final state = _transformEvent(event, playing, position, player);
-          _log('Player state changed - playing: $playing, processingState: ${state.processingState}');
+          // Only log when playing or processingState actually changes (avoid spam from position updates)
+          if (playing != _lastLoggedPlaying || state.processingState != _lastLoggedProcessingState) {
+            _log('Player state changed - playing: $playing, processingState: ${state.processingState}');
+            _lastLoggedPlaying = playing;
+            _lastLoggedProcessingState = state.processingState;
+          }
           return state;
         },
       ).listen(
         (state) {
-          _log('Broadcasting playbackState - playing: ${state.playing}, processingState: ${state.processingState}');
+          // Only log when state actually changes (avoid spam from position updates)
+          if (state.playing != _lastLoggedPlaying || state.processingState != _lastLoggedProcessingState) {
+            _log('Broadcasting playbackState - playing: ${state.playing}, processingState: ${state.processingState}');
+            _lastLoggedPlaying = state.playing;
+            _lastLoggedProcessingState = state.processingState;
+          }
           playbackState.add(state);
         },
         onError: (error) {
