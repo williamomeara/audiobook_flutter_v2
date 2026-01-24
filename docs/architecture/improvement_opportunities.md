@@ -72,15 +72,24 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 
 ---
 
-### C3. Missing Error Handling in _startImmediatePrefetch()
+### ✅ C3. Missing Error Handling in _startImmediatePrefetch() - FIXED
 
-**Location:** `packages/playback/lib/src/playback_controller.dart` lines 313-320, 323-377
+**Location:** `packages/playback/lib/src/playback_controller.dart`
 
-**Problem:** `unawaited(_runImmediatePrefetch(...))` fires-and-forgets without error handling. If synthesis fails, no logging or recovery. Errors silently disappear.
+**Problem:** `unawaited()` calls fire-and-forget without error handling. If synthesis fails, no logging or recovery. Errors silently disappear.
 
-**Impact:** Silent failures during critical phase 2 prefetch. No debugging visibility.
+**Impact:** Silent failures during critical prefetch phases. No debugging visibility.
 
-**Recommendation:** Add try-catch with logging; implement error recovery strategy.
+**Fix Applied:** Wrapped all `unawaited()` calls with `.catchError()` handlers that log the error:
+- `_startImmediatePrefetch()` - C3 comment and catchError handler
+- `nextTrack()` - C3 comment and catchError handler
+- `_speakCurrent()` - C3 comment and catchError handler
+- `_scheduler.runPrefetch()` - C3 comment and catchError handler
+- `_scheduler.prefetchNextSegmentImmediately()` - C3 comment and catchError handler
+
+All handlers use `_logger.severe()` to ensure visibility in logs while allowing playback to continue.
+
+**Commit:** (pending)
 
 ---
 
@@ -126,13 +135,22 @@ The pattern in all files is:
 
 ## 🟠 HIGH PRIORITY ISSUES
 
-### H1. Prefetch Context Invalidation Not Enforced
+### ✅ H1. Prefetch Context Invalidation Not Enforced - FIXED
 
-**Location:** `packages/playback/lib/src/buffer_scheduler.dart` lines 219, 297
+**Location:** `packages/playback/lib/src/buffer_scheduler.dart`
 
 **Problem:** When book/voice/chapter changes, prefetch continues until it explicitly checks `_contextKey`. There's a window where multiple chapters are being synthesized simultaneously.
 
-**Recommendation:** Add immediate cancellation mechanism when context changes.
+**Fix Applied:**
+- Added `_CancellationToken` class for coordinating prefetch operations
+- Token is cancelled immediately in `reset()` and `updateContext()` when context changes
+- All prefetch methods (`runPrefetch`, `bufferUntilReady`, `prefetchNextSegmentImmediately`) now:
+  - Capture the cancellation token at start
+  - Check `cancellationToken.isCancelled` before expensive operations
+  - Check again after synthesis completes to discard stale results
+- On context change, in-progress synthesis operations detect cancellation immediately
+
+**Commit:** (pending)
 
 ---
 
@@ -204,23 +222,33 @@ Both `FileAudioCache` and `IntelligentCacheManager` implementations updated:
 
 ---
 
-### H6. PlayFile Called Without Voice Check
+### ✅ H6. PlayFile Called Without Voice Check - FIXED
 
 **Location:** `packages/playback/lib/src/playback_controller.dart` lines 240-283
 
 **Problem:** Pre-synthesis calls `prepareForPlayback()` without checking voice readiness first. If voice model is downloading, synthesis starts but voice isn't ready.
 
-**Recommendation:** Check voice readiness BEFORE starting pre-synthesis.
+**Fix Applied:**
+- Added `engine.checkVoiceReady(voiceId)` call at the start of the pre-synthesis block in `loadChapter()`
+- If voice is not ready, updates state with error message (using `readiness.nextActionUserShouldTake` or default message)
+- Returns early without starting synthesis
+
+**Commit:** (pending)
 
 ---
 
-### H7. Prefetch After playFile Timing Issue
+### ✅ H7. Prefetch After playFile Timing Issue - FIXED
 
 **Location:** `packages/playback/lib/src/playback_controller.dart` lines 603-618
 
 **Problem:** `_startImmediateNextPrefetch()` is called BEFORE `_audioOutput.playFile()` completes. If playFile fails, synthesis starts but audio never plays.
 
-**Recommendation:** Move prefetch start to AFTER successful playFile call.
+**Fix Applied:**
+- Moved `_startImmediateNextPrefetch()` call to AFTER `await _audioOutput.playFile()` completes successfully
+- Now prefetch only starts after audio playback is confirmed working
+- Prevents wasted synthesis when playFile fails
+
+**Commit:** (pending)
 
 ---
 
@@ -650,34 +678,34 @@ All 322 tests in the suite now pass.
 
 ### Phase 1 - Critical Fixes (1-2 sprints)
 
-| Issue | Effort | Risk |
-|-------|--------|------|
-| C1. BufferScheduler race condition | Medium | High |
-| C3. Error handling in immediate prefetch | Low | Medium |
-| C4. Null _contextKey protection | Low | Low |
-| H4. Error state not cleared | Low | Medium |
-| H10. Add state machine tests | High | Low |
+| Issue | Effort | Risk | Status |
+|-------|--------|------|--------|
+| ~~C1. BufferScheduler race condition~~ | ~~Medium~~ | ~~High~~ | ✅ FIXED |
+| ~~C3. Error handling in immediate prefetch~~ | ~~Low~~ | ~~Medium~~ | ✅ FIXED |
+| ~~C4. Null _contextKey protection~~ | ~~Low~~ | ~~Low~~ | ✅ FIXED |
+| ~~H4. Error state not cleared~~ | ~~Low~~ | ~~Medium~~ | ✅ VERIFIED |
+| ~~H10. Add state machine tests~~ | ~~High~~ | ~~Low~~ | ✅ FIXED |
 
 ### Phase 2 - High-Impact Improvements (2-3 sprints)
 
-| Issue | Effort | Risk |
-|-------|--------|------|
-| C2. _readinessControllers memory leak | Medium | Medium |
-| C5. _activeRequests cleanup | Low | Low |
-| H2. Cache eviction coordination | Medium | Medium |
-| H3. Synthesis timeout | Medium | Low |
-| H6. Voice readiness check | Low | Low |
-| H7. Prefetch timing fix | Low | Low |
+| Issue | Effort | Risk | Status |
+|-------|--------|------|--------|
+| ~~C2. _readinessControllers memory leak~~ | ~~Medium~~ | ~~Medium~~ | ✅ FIXED |
+| ~~C5. _activeRequests cleanup~~ | ~~Low~~ | ~~Low~~ | ✅ VERIFIED |
+| ~~H2. Cache eviction coordination~~ | ~~Medium~~ | ~~Medium~~ | ✅ FIXED |
+| H3. Synthesis timeout | Medium | Low | TODO |
+| ~~H6. Voice readiness check~~ | ~~Low~~ | ~~Low~~ | ✅ FIXED |
+| ~~H7. Prefetch timing fix~~ | ~~Low~~ | ~~Low~~ | ✅ FIXED |
 
 ### Phase 3 - Robustness (3-4 sprints)
 
-| Issue | Effort | Risk |
-|-------|--------|------|
-| H1. Context invalidation cancellation | Medium | Medium |
-| H8. opId cancellation | Medium | Medium |
-| H9. Error classification/retry | High | Low |
-| M6. Prefetch deduplication | Medium | Low |
-| M13. Synthesis cancellation | High | Medium |
+| Issue | Effort | Risk | Status |
+|-------|--------|------|--------|
+| ~~H1. Context invalidation cancellation~~ | ~~Medium~~ | ~~Medium~~ | ✅ FIXED |
+| H8. opId cancellation | Medium | Medium | TODO |
+| H9. Error classification/retry | High | Low | TODO |
+| M6. Prefetch deduplication | Medium | Low | TODO |
+| M13. Synthesis cancellation | High | Medium | TODO |
 
 ### Phase 4 - Polish (ongoing)
 
@@ -685,6 +713,23 @@ All 322 tests in the suite now pass.
 - Configuration flexibility (F1-F5)
 - Edge case handling (E1-E6)
 - Observability and metrics (Q11)
+
+---
+
+## 📊 PROGRESS SUMMARY
+
+**Completed:** 13 issues
+- C1, C2, C3, C4 (Critical race conditions & error handling)
+- C5, H4 (Verified not issues)
+- H1, H2, H6, H7, H10 (High priority fixes)
+
+**Remaining High Priority:** 2 issues
+- H3: Synthesis timeout (Medium effort)
+- H8: opId cancellation (Medium effort)
+
+**Recommended Next Steps:**
+1. **H3 - Synthesis timeout** (Medium effort, Prevents hanging playback)
+2. **H8 - opId cancellation** (Medium effort, Complements H1 fix)
 
 ---
 
