@@ -33,12 +33,26 @@ class KokoroTtsService: TtsServiceProtocol {
         lock.lock()
         defer { lock.unlock() }
         
-        guard FileManager.default.fileExists(atPath: modelPath) else {
+        // modelPath is the directory containing the model files
+        let modelDir = modelPath
+        
+        guard FileManager.default.fileExists(atPath: modelDir) else {
             throw TtsError.voiceNotLoaded(voiceId)
         }
         
-        // Find required files in model directory
-        let modelDir = (modelPath as NSString).deletingLastPathComponent
+        // Find the ONNX model file in the directory
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(atPath: modelDir) else {
+            throw TtsError.invalidInput("Cannot read model directory: \(modelDir)")
+        }
+        
+        // Find .onnx file (not .onnx.json)
+        let onnxFile = contents.first { $0.hasSuffix(".onnx") && !$0.hasSuffix(".onnx.json") }
+        guard let onnxFile = onnxFile else {
+            throw TtsError.invalidInput("No ONNX model found in: \(modelDir)")
+        }
+        
+        let fullModelPath = (modelDir as NSString).appendingPathComponent(onnxFile)
         
         // Kokoro requires: model.onnx, voices.bin, tokens.txt
         let voicesPath = (modelDir as NSString).appendingPathComponent("voices.bin")
@@ -56,9 +70,14 @@ class KokoroTtsService: TtsServiceProtocol {
         let dataDir = (modelDir as NSString).appendingPathComponent("espeak-ng-data")
         let dataDirPath = FileManager.default.fileExists(atPath: dataDir) ? dataDir : nil
         
+        print("[KokoroTtsService] Loading model from: \(fullModelPath)")
+        print("[KokoroTtsService] Voices file: \(voicesPath)")
+        print("[KokoroTtsService] Tokens file: \(tokensPath)")
+        print("[KokoroTtsService] Data dir: \(dataDirPath ?? "none")")
+        
         // Load the model
         try inference.loadModel(
-            modelPath: modelPath,
+            modelPath: fullModelPath,
             voicesPath: voicesPath,
             tokensPath: tokensPath,
             dataDir: dataDirPath
@@ -66,7 +85,7 @@ class KokoroTtsService: TtsServiceProtocol {
         
         loadedVoices[voiceId] = VoiceInfo(
             voiceId: voiceId,
-            modelPath: modelPath,
+            modelPath: fullModelPath,
             speakerId: speakerId,
             lastUsed: Date()
         )

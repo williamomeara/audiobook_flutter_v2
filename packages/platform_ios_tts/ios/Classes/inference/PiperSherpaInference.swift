@@ -42,10 +42,11 @@ class PiperSherpaInference {
         )
         
         // Model config with VITS
+        // Use CPU provider to avoid memory pressure when CoreML is used for Supertonic
         let modelConfig = sherpaOnnxOfflineTtsModelConfig(
             vits: vitsConfig,
-            numThreads: 2,
-            provider: "coreml"  // Use CoreML for Metal acceleration
+            numThreads: 4,
+            provider: "cpu"  // Use CPU to avoid CoreML memory conflicts with Supertonic
         )
         
         // TTS config

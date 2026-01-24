@@ -37,19 +37,22 @@ class KokoroSherpaInference {
         }
         
         // Configure Kokoro model
+        // For multi-lingual Kokoro v1.0+, specify English language
         let kokoroConfig = sherpaOnnxOfflineTtsKokoroModelConfig(
             model: modelPath,
             voices: voicesPath,
             tokens: tokensPath,
             dataDir: dataDir ?? "",
-            lengthScale: 1.0
+            lengthScale: 1.0,
+            lang: "en"  // Required for multi-lingual Kokoro >= v1.0
         )
         
         // Model config with Kokoro
+        // Use CPU provider to avoid CoreML memory conflicts with Supertonic
         let modelConfig = sherpaOnnxOfflineTtsModelConfig(
             kokoro: kokoroConfig,
-            numThreads: 2,
-            provider: "coreml"  // Use CoreML for Metal acceleration
+            numThreads: 4,
+            provider: "cpu"
         )
         
         // TTS config

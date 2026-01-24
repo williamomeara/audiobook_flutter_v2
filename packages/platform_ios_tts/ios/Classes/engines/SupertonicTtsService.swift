@@ -1,20 +1,23 @@
 import Foundation
-import SherpaOnnxCApi
+import CoreML
 
 /// Supertonic TTS engine service.
-/// Uses sherpa-onnx for VITS-based synthesis.
+/// Uses CoreML for 4-stage pipeline synthesis (bundled models).
 class SupertonicTtsService: TtsServiceProtocol {
     let engineType: NativeEngineType = .supertonic
     
-    private var inference = SupertonicSherpaInference()
+    private var coremlInference = SupertonicCoreMLInference()
     private var loadedVoices: [String: VoiceInfo] = [:]
     private let lock = NSLock()
     private let synthesisCounter = SynthesisCounter()
     
+    /// Marker path indicating bundled CoreML models should be used
+    private static let bundledCoreMLMarker = "__BUNDLED_COREML__"
+    
     var isReady: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return inference.isModelLoaded
+        return coremlInference.isModelLoaded
     }
     
     func loadCore(corePath: String, configPath: String?) async throws {
@@ -23,51 +26,21 @@ class SupertonicTtsService: TtsServiceProtocol {
         
         NSLog("[SupertonicTtsService] loadCore called with corePath: %@", corePath)
         
-        guard FileManager.default.fileExists(atPath: corePath) else {
-            NSLog("[SupertonicTtsService] ERROR: corePath does not exist: %@", corePath)
-            throw TtsError.modelNotLoaded
+        // Check if already loaded
+        if coremlInference.isModelLoaded {
+            NSLog("[SupertonicTtsService] CoreML models already loaded")
+            return
         }
         
-        // Load the model if not already loaded
-        if !inference.isModelLoaded {
-            // Find model.onnx in onnx subdirectory
-            let onnxDir = (corePath as NSString).appendingPathComponent("onnx")
-            let modelPath = (onnxDir as NSString).appendingPathComponent("model.onnx")
-            let tokensPath = (onnxDir as NSString).appendingPathComponent("tokens.txt")
-            
-            NSLog("[SupertonicTtsService] Looking for model at: %@", modelPath)
-            NSLog("[SupertonicTtsService] Looking for tokens at: %@", tokensPath)
-            
-            guard FileManager.default.fileExists(atPath: modelPath) else {
-                NSLog("[SupertonicTtsService] ERROR: model.onnx not found at: %@", modelPath)
-                // List contents of corePath to debug
-                if let contents = try? FileManager.default.contentsOfDirectory(atPath: corePath) {
-                    NSLog("[SupertonicTtsService] Contents of corePath: %@", contents)
-                }
-                if FileManager.default.fileExists(atPath: onnxDir) {
-                    if let onnxContents = try? FileManager.default.contentsOfDirectory(atPath: onnxDir) {
-                        NSLog("[SupertonicTtsService] Contents of onnx dir: %@", onnxContents)
-                    }
-                } else {
-                    NSLog("[SupertonicTtsService] onnx subdirectory does not exist")
-                }
-                throw TtsError.modelNotLoaded
-            }
-            
-            guard FileManager.default.fileExists(atPath: tokensPath) else {
-                NSLog("[SupertonicTtsService] ERROR: tokens.txt not found at: %@", tokensPath)
-                throw TtsError.invalidInput("Tokens file not found at: \(tokensPath)")
-            }
-            
-            // Find espeak-ng-data directory if exists
-            let dataDir = (onnxDir as NSString).appendingPathComponent("espeak-ng-data")
-            let dataDirPath = FileManager.default.fileExists(atPath: dataDir) ? dataDir : nil
-            
-            NSLog("[SupertonicTtsService] Loading model...")
-            try inference.loadModel(modelPath: modelPath, tokensPath: tokensPath, dataDir: dataDirPath)
-            NSLog("[SupertonicTtsService] Model loaded successfully from: %@", modelPath)
+        // Load CoreML models from bundle
+        if corePath == Self.bundledCoreMLMarker {
+            NSLog("[SupertonicTtsService] Loading bundled CoreML models...")
+            try coremlInference.loadFromBundle(corePath)
+            NSLog("[SupertonicTtsService] CoreML models loaded successfully")
         } else {
-            NSLog("[SupertonicTtsService] Core already loaded")
+            // Legacy path - not supported for iOS CoreML
+            NSLog("[SupertonicTtsService] ERROR: Non-bundled CoreML not supported. Use __BUNDLED_COREML__ marker.")
+            throw TtsError.modelNotLoaded
         }
     }
     
@@ -83,7 +56,7 @@ class SupertonicTtsService: TtsServiceProtocol {
             speakerId: speakerId,
             lastUsed: Date()
         )
-        print("[SupertonicTtsService] Voice registered: \(voiceId) with speakerId: \(speakerId ?? 0)")
+        NSLog("[SupertonicTtsService] Voice registered: %@ with speakerId: %d", voiceId, speakerId ?? 0)
     }
     
     func synthesize(text: String, voiceId: String, outputPath: String, speakerId: Int?, speed: Double) async throws -> SynthesizeResult {
@@ -103,12 +76,20 @@ class SupertonicTtsService: TtsServiceProtocol {
             throw TtsError.invalidInput("Text is empty")
         }
         
-        // Synthesize using sherpa-onnx
-        let (samples, sampleRate) = try inference.synthesize(
+        NSLog("[SupertonicTtsService] Synthesizing with CoreML: voiceId=%@, speakerId=%d, text length=%d", voiceId, speakerId ?? 0, text.count)
+        NSLog("[SupertonicTtsService] isModelLoaded=%@", coremlInference.isModelLoaded ? "YES" : "NO")
+        
+        // Synthesize using CoreML 4-stage pipeline
+        let startTime = CFAbsoluteTimeGetCurrent()
+        let (samples, sampleRate) = try coremlInference.synthesize(
             text: text,
+            voiceName: voiceId,
             speakerId: speakerId ?? 0,
             speed: Float(speed)
         )
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        
+        NSLog("[SupertonicTtsService] Synthesis complete: %d samples at %dHz in %.2fs", samples.count, sampleRate, elapsed)
         
         // Write WAV file
         try AudioConverter.writeWav(samples: samples, sampleRate: sampleRate, to: outputPath)
@@ -125,7 +106,7 @@ class SupertonicTtsService: TtsServiceProtocol {
     }
     
     func cancelSynthesis(requestId: String) {
-        print("[SupertonicTtsService] Cancel requested for: \(requestId)")
+        NSLog("[SupertonicTtsService] Cancel requested for: %@", requestId)
     }
     
     func unloadVoice(voiceId: String) {
@@ -135,8 +116,8 @@ class SupertonicTtsService: TtsServiceProtocol {
         lock.lock()
         defer { lock.unlock() }
         loadedVoices.removeValue(forKey: voiceId)
-        inference.unload()
-        print("[SupertonicTtsService] Voice unloaded: \(voiceId)")
+        coremlInference.unload()
+        NSLog("[SupertonicTtsService] Voice unloaded: %@", voiceId)
     }
     
     func unloadAll() {
@@ -146,7 +127,7 @@ class SupertonicTtsService: TtsServiceProtocol {
         lock.lock()
         defer { lock.unlock() }
         loadedVoices.removeAll()
-        inference.unload()
-        print("[SupertonicTtsService] All resources unloaded")
+        coremlInference.unload()
+        NSLog("[SupertonicTtsService] All resources unloaded")
     }
 }

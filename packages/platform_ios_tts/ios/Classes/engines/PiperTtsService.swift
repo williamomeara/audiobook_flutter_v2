@@ -34,12 +34,26 @@ class PiperTtsService: TtsServiceProtocol {
         lock.lock()
         defer { lock.unlock() }
         
-        guard FileManager.default.fileExists(atPath: modelPath) else {
+        // modelPath is the directory containing the model files
+        let modelDir = modelPath
+        
+        guard FileManager.default.fileExists(atPath: modelDir) else {
             throw TtsError.voiceNotLoaded(voiceId)
         }
         
-        // Find tokens file (should be in same directory or specified in config)
-        let modelDir = (modelPath as NSString).deletingLastPathComponent
+        // Find the ONNX model file in the directory
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(atPath: modelDir) else {
+            throw TtsError.invalidInput("Cannot read model directory: \(modelDir)")
+        }
+        
+        // Find .onnx file (not .onnx.json)
+        let onnxFile = contents.first { $0.hasSuffix(".onnx") && !$0.hasSuffix(".onnx.json") }
+        guard let onnxFile = onnxFile else {
+            throw TtsError.invalidInput("No ONNX model found in: \(modelDir)")
+        }
+        
+        let fullModelPath = (modelDir as NSString).appendingPathComponent(onnxFile)
         let tokensPath = (modelDir as NSString).appendingPathComponent("tokens.txt")
         
         guard FileManager.default.fileExists(atPath: tokensPath) else {
@@ -50,12 +64,16 @@ class PiperTtsService: TtsServiceProtocol {
         let dataDir = (modelDir as NSString).appendingPathComponent("espeak-ng-data")
         let dataDirPath = FileManager.default.fileExists(atPath: dataDir) ? dataDir : nil
         
+        print("[PiperTtsService] Loading model from: \(fullModelPath)")
+        print("[PiperTtsService] Tokens file: \(tokensPath)")
+        print("[PiperTtsService] Data dir: \(dataDirPath ?? "none")")
+        
         // Load the model
-        try inference.loadModel(modelPath: modelPath, tokensPath: tokensPath, dataDir: dataDirPath)
+        try inference.loadModel(modelPath: fullModelPath, tokensPath: tokensPath, dataDir: dataDirPath)
         
         loadedVoices[voiceId] = VoiceInfo(
             voiceId: voiceId,
-            modelPath: modelPath,
+            modelPath: fullModelPath,
             speakerId: speakerId,
             lastUsed: Date()
         )
