@@ -469,13 +469,15 @@ All 322 tests in the suite now pass.
 
 ## 🔵 CODE QUALITY ISSUES
 
-### Q1. Duplicated Segment Synthesis Callbacks
+### ✅ Q1. Duplicated Segment Synthesis Callbacks - FIXED
 
-**Location:** `packages/playback/lib/src/playback_controller.dart` lines 675-680, 711-716
+**Location:** `packages/playback/lib/src/playback_controller.dart`
 
 **Problem:** `onSynthesisStarted/Complete` callbacks constructed identically in two places.
 
-**Recommendation:** Extract to a helper method.
+**Fix Applied:** Extracted `_createSynthesisCallbacks()` helper method that returns a record with `onStarted` and `onComplete` callbacks. Both `_startPrefetchIfNeeded()` and `_startImmediateNextPrefetch()` now use this helper.
+
+**Commit:** 5de2911
 
 ---
 
@@ -489,13 +491,20 @@ All 322 tests in the suite now pass.
 
 ---
 
-### Q3. Magic Numbers Scattered Throughout
+### ✅ Q3. Magic Numbers Scattered Throughout - PARTIALLY FIXED
 
 **Location:** Various files
 
 **Problem:** Hardcoded values (50 char limit, 44 byte header, regex patterns) with no explanation.
 
-**Recommendation:** Extract to named constants.
+**Fix Applied:** Added `kWavHeaderSize = 44` constant in `audio_cache.dart` and updated:
+- `audio_cache.dart` - uses constant for isReady check
+- `intelligent_cache_manager.dart` - uses constant for isReady and duration estimation
+- `cache_compression.dart` - uses constant for WAV parsing
+
+Note: Log truncation at 50 chars left as-is (not critical).
+
+**Commit:** 5de2911
 
 ---
 
@@ -579,13 +588,13 @@ All 322 tests in the suite now pass.
 
 ---
 
-### Q12. No Validation of Prefetch Target Index
+### ✅ Q12. No Validation of Prefetch Target Index - VERIFIED FIXED
 
-**Location:** `packages/playback/lib/src/buffer_scheduler.dart` lines 133-164
+**Location:** `packages/playback/lib/src/buffer_scheduler.dart`
 
 **Problem:** `calculateTargetIndex()` can return index beyond `queue.length - 1`.
 
-**Recommendation:** Add explicit bounds checking before the loop.
+**Status:** Already fixed - line 255 has `.clamp(0, queue.length - 1)` which ensures bounds.
 
 ---
 
