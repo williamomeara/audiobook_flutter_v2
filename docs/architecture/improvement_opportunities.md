@@ -102,15 +102,25 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 
 ---
 
-### C5. _activeRequests Map Cleanup Not Guaranteed
+### ✅ C5. _activeRequests Map Cleanup Not Guaranteed - VERIFIED NOT AN ISSUE
 
-**Location:** `packages/tts_engines/lib/src/routing_engine.dart` lines 202-235
+**Location:** `packages/tts_engines/lib/src/adapters/routing_engine.dart` and other adapters
 
-**Problem:** In `synthesizeSegment()`, if an exception is thrown before the try block, `_activeRequests` isn't cleaned up. If called concurrently, entries could accumulate indefinitely.
+**Original Concern:** In `synthesizeSegment()`, if an exception is thrown before the try block, `_activeRequests` isn't cleaned up.
 
-**Impact:** Memory leak; incorrect request tracking.
+**Verification:** Code review confirms ALL adapters already have proper cleanup:
+- `routing_engine.dart` line 243: `finally { _activeRequests.remove(request.opId); }`
+- `kokoro_adapter.dart` line 290: `finally { _activeRequests.remove(request.opId); }`
+- `piper_adapter.dart` line 257: `finally { _activeRequests.remove(request.opId); }`
+- `supertonic_adapter.dart` line 283: `finally { _activeRequests.remove(request.opId); }`
+- `synthesis_pool.dart` line 177: `finally { _cleanup(request); }` which calls `_activeRequests.remove()`
 
-**Recommendation:** Wrap entire method body or move cleanup to finally block.
+The pattern in all files is:
+1. Add to `_activeRequests` immediately before try block
+2. Enter `try` block (no code between add and try)
+3. `finally` block guarantees cleanup regardless of how try exits
+
+**Status:** NOT AN ISSUE - Implementation was already correct.
 
 ---
 
