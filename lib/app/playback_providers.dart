@@ -237,6 +237,46 @@ playback.PrefetchMode _convertPrefetchMode(app_config.PrefetchMode appMode) {
   };
 }
 
+/// Provider for the synthesis strategy manager.
+///
+/// Bridges the app's RuntimePlaybackConfig to the playback package's
+/// SynthesisStrategyManager. Initializes strategy from persisted state
+/// and type from PrefetchMode (which maps to strategy types).
+final synthesisStrategyManagerProvider = Provider<SynthesisStrategyManager>((ref) {
+  final runtimeConfig = ref.watch(runtimePlaybackConfigProvider).value;
+  
+  // Create strategy from persisted state or default based on prefetch mode
+  SynthesisStrategy strategy;
+  
+  if (runtimeConfig?.synthesisStrategyState != null) {
+    // Restore from persisted state (includes learned RTF values)
+    strategy = SynthesisStrategy.fromJson(runtimeConfig!.synthesisStrategyState!);
+  } else {
+    // Create new strategy based on prefetch mode
+    strategy = _createStrategyFromPrefetchMode(
+      runtimeConfig?.prefetchMode ?? app_config.PrefetchMode.adaptive,
+    );
+  }
+  
+  return SynthesisStrategyManager(strategy: strategy);
+});
+
+/// Create a SynthesisStrategy from the app's PrefetchMode.
+///
+/// Maps:
+/// - adaptive -> AdaptiveSynthesisStrategy
+/// - aggressive -> AggressiveSynthesisStrategy  
+/// - conservative -> ConservativeSynthesisStrategy
+/// - off -> ConservativeSynthesisStrategy (minimal prefetch)
+SynthesisStrategy _createStrategyFromPrefetchMode(app_config.PrefetchMode mode) {
+  return switch (mode) {
+    app_config.PrefetchMode.adaptive => AdaptiveSynthesisStrategy(),
+    app_config.PrefetchMode.aggressive => AggressiveSynthesisStrategy(),
+    app_config.PrefetchMode.conservative => ConservativeSynthesisStrategy(),
+    app_config.PrefetchMode.off => ConservativeSynthesisStrategy(),
+  };
+}
+
 /// Provider for the audio service handler (system media controls).
 /// Uses lazy initialization to avoid blocking app startup.
 final audioServiceHandlerProvider = FutureProvider<AudioServiceHandler>((ref) async {

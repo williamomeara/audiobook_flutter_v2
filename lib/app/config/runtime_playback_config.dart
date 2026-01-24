@@ -51,6 +51,7 @@ class RuntimePlaybackConfig {
     this.parallelSynthesisThreads,
     this.resumeDelayMs = 500,
     this.rateIndependentSynthesis = true,
+    this.synthesisStrategyState,
     DateTime? lastModified,
   }) : lastModified = lastModified ?? DateTime.now();
 
@@ -111,6 +112,17 @@ class RuntimePlaybackConfig {
   /// When false, the requested playback rate is baked into synthesis,
   /// which invalidates cache entries when rate changes.
   final bool rateIndependentSynthesis;
+
+  /// Persisted state for the synthesis strategy (e.g., learned RTF values).
+  ///
+  /// This is an opaque JSON map that the playback package's SynthesisStrategy
+  /// uses to persist learned parameters across app restarts.
+  ///
+  /// For AdaptiveSynthesisStrategy, this includes:
+  /// - Average RTF (real-time factor)
+  /// - Number of completed synthesis operations
+  /// - Adjusted preSynthesizeCount
+  final Map<String, dynamic>? synthesisStrategyState;
 
   // ═══════════════════════════════════════════════════════════════════
   // Metadata
@@ -188,6 +200,7 @@ class RuntimePlaybackConfig {
     int? parallelSynthesisThreads,
     int? resumeDelayMs,
     bool? rateIndependentSynthesis,
+    Map<String, dynamic>? synthesisStrategyState,
   }) {
     // Log significant changes
     _logChanges(
@@ -209,6 +222,8 @@ class RuntimePlaybackConfig {
       resumeDelayMs: resumeDelayMs ?? this.resumeDelayMs,
       rateIndependentSynthesis:
           rateIndependentSynthesis ?? this.rateIndependentSynthesis,
+      synthesisStrategyState:
+          synthesisStrategyState ?? this.synthesisStrategyState,
       lastModified: DateTime.now(),
     );
   }
@@ -251,6 +266,7 @@ class RuntimePlaybackConfig {
         'parallelSynthesisThreads': parallelSynthesisThreads,
         'resumeDelayMs': resumeDelayMs,
         'rateIndependentSynthesis': rateIndependentSynthesis,
+        'synthesisStrategyState': synthesisStrategyState,
         'lastModified': lastModified.toIso8601String(),
       };
 
@@ -263,6 +279,8 @@ class RuntimePlaybackConfig {
       resumeDelayMs: json['resumeDelayMs'] as int? ?? 500,
       rateIndependentSynthesis:
           json['rateIndependentSynthesis'] as bool? ?? true,
+      synthesisStrategyState:
+          json['synthesisStrategyState'] as Map<String, dynamic>?,
       lastModified: json['lastModified'] != null
           ? DateTime.tryParse(json['lastModified'] as String)
           : null,
@@ -315,7 +333,8 @@ class RuntimePlaybackConfig {
         'prefetchMode: ${prefetchMode.name}, '
         'parallelSynthesisThreads: $parallelSynthesisThreads, '
         'resumeDelayMs: $resumeDelayMs, '
-        'rateIndependentSynthesis: $rateIndependentSynthesis)';
+        'rateIndependentSynthesis: $rateIndependentSynthesis, '
+        'hasStrategyState: ${synthesisStrategyState != null})';
   }
 
   @override
@@ -327,7 +346,18 @@ class RuntimePlaybackConfig {
         other.prefetchMode == prefetchMode &&
         other.parallelSynthesisThreads == parallelSynthesisThreads &&
         other.resumeDelayMs == resumeDelayMs &&
-        other.rateIndependentSynthesis == rateIndependentSynthesis;
+        other.rateIndependentSynthesis == rateIndependentSynthesis &&
+        _mapEquals(other.synthesisStrategyState, synthesisStrategyState);
+  }
+
+  static bool _mapEquals(Map<String, dynamic>? a, Map<String, dynamic>? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || a[key] != b[key]) return false;
+    }
+    return true;
   }
 
   @override
@@ -338,5 +368,6 @@ class RuntimePlaybackConfig {
         parallelSynthesisThreads,
         resumeDelayMs,
         rateIndependentSynthesis,
+        synthesisStrategyState?.hashCode,
       );
 }
