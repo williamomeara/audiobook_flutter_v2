@@ -16,6 +16,7 @@ export 'src/adapters/kokoro_adapter.dart';
 export 'src/adapters/piper_adapter.dart';
 export 'src/adapters/supertonic_adapter.dart';
 export 'src/synthesis_pool.dart';
+export 'src/core_paths.dart';
 
 // Smart synthesis management for eliminating buffering
 export 'src/smart_synthesis/smart_synthesis_manager.dart';

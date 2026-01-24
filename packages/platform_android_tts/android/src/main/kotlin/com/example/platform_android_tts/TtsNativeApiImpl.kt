@@ -3,6 +3,7 @@ package com.example.platform_android_tts
 import com.example.platform_android_tts.generated.*
 import com.example.platform_android_tts.services.*
 import kotlinx.coroutines.*
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Implementation of Pigeon-generated TtsNativeApi.
@@ -15,6 +16,9 @@ class TtsNativeApiImpl(
 ) : TtsNativeApi {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    
+    // Track which engine owns each request for efficient cancellation
+    private val requestOwners = ConcurrentHashMap<String, NativeEngineType>()
     
     override fun initEngine(request: InitEngineRequest, callback: (Result<Unit>) -> Unit) {
         scope.launch {
@@ -52,48 +56,62 @@ class TtsNativeApiImpl(
         request: SynthesizeRequest,
         callback: (Result<SynthesizeResult>) -> Unit
     ) {
+        // Track request ownership for efficient cancellation
+        requestOwners[request.requestId] = request.engineType
+        
         scope.launch {
-            val result = when (request.engineType) {
-                NativeEngineType.KOKORO -> kokoroService.synthesize(
-                    voiceId = request.voiceId,
-                    text = request.text,
-                    outputPath = request.outputPath,
-                    requestId = request.requestId,
-                    speakerId = request.speakerId?.toInt() ?: 0,
-                    speed = request.speed.toFloat()
-                )
-                NativeEngineType.PIPER -> piperService.synthesize(
-                    voiceId = request.voiceId,
-                    text = request.text,
-                    outputPath = request.outputPath,
-                    requestId = request.requestId,
-                    speed = request.speed.toFloat()
-                )
-                NativeEngineType.SUPERTONIC -> supertonicService.synthesize(
-                    voiceId = request.voiceId,
-                    text = request.text,
-                    outputPath = request.outputPath,
-                    requestId = request.requestId,
-                    speakerId = request.speakerId?.toInt() ?: 0,
-                    speed = request.speed.toFloat()
-                )
+            try {
+                val result = when (request.engineType) {
+                    NativeEngineType.KOKORO -> kokoroService.synthesize(
+                        voiceId = request.voiceId,
+                        text = request.text,
+                        outputPath = request.outputPath,
+                        requestId = request.requestId,
+                        speakerId = request.speakerId?.toInt() ?: 0,
+                        speed = request.speed.toFloat()
+                    )
+                    NativeEngineType.PIPER -> piperService.synthesize(
+                        voiceId = request.voiceId,
+                        text = request.text,
+                        outputPath = request.outputPath,
+                        requestId = request.requestId,
+                        speed = request.speed.toFloat()
+                    )
+                    NativeEngineType.SUPERTONIC -> supertonicService.synthesize(
+                        voiceId = request.voiceId,
+                        text = request.text,
+                        outputPath = request.outputPath,
+                        requestId = request.requestId,
+                        speakerId = request.speakerId?.toInt() ?: 0,
+                        speed = request.speed.toFloat()
+                    )
+                }
+                
+                callback(Result.success(SynthesizeResult(
+                    success = result.success,
+                    durationMs = result.durationMs?.toLong(),
+                    sampleRate = result.sampleRate?.toLong(),
+                    errorCode = result.errorCode?.toPigeonError(),
+                    errorMessage = result.errorMessage
+                )))
+            } finally {
+                // Clean up request ownership tracking
+                requestOwners.remove(request.requestId)
             }
-            
-            callback(Result.success(SynthesizeResult(
-                success = result.success,
-                durationMs = result.durationMs?.toLong(),
-                sampleRate = result.sampleRate?.toLong(),
-                errorCode = result.errorCode?.toPigeonError(),
-                errorMessage = result.errorMessage
-            )))
         }
     }
     
     override fun cancelSynthesis(requestId: String, callback: (Result<Unit>) -> Unit) {
-        // Cancel on all services (we don't track which engine owns the request)
-        kokoroService.cancelSynthesis(requestId)
-        piperService.cancelSynthesis(requestId)
-        supertonicService.cancelSynthesis(requestId)
+        // Cancel only on the service that owns the request (more efficient)
+        when (requestOwners.remove(requestId)) {
+            NativeEngineType.KOKORO -> kokoroService.cancelSynthesis(requestId)
+            NativeEngineType.PIPER -> piperService.cancelSynthesis(requestId)
+            NativeEngineType.SUPERTONIC -> supertonicService.cancelSynthesis(requestId)
+            null -> {
+                // Request not found or already completed - no-op
+                android.util.Log.d("TtsNativeApiImpl", "Cancel: requestId=$requestId not found (already completed?)")
+            }
+        }
         callback(Result.success(Unit))
     }
     
