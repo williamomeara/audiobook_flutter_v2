@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:core_domain/core_domain.dart';
 
 import '../interfaces/ai_voice_engine.dart';
+import '../interfaces/engine_memory_manager.dart';
 import '../interfaces/segment_synth_request.dart';
 import '../interfaces/synth_request.dart';
 import '../interfaces/synth_result.dart';
@@ -16,13 +17,15 @@ import '../tts_log.dart';
 /// 1. Checks the cache for existing audio
 /// 2. Routes to the correct engine based on voice ID
 /// 3. Caches the result for future use
+/// 4. Manages engine memory using the Active Engine Pattern
 class RoutingEngine implements AiVoiceEngine {
   RoutingEngine({
     required this.cache,
     this.piperEngine,
     this.supertonicEngine,
     this.kokoroEngine,
-  });
+    EngineMemoryManager? memoryManager,
+  }) : _memoryManager = memoryManager ?? EngineMemoryManager();
 
   /// Audio cache for storing synthesized files.
   final AudioCache cache;
@@ -35,9 +38,18 @@ class RoutingEngine implements AiVoiceEngine {
 
   /// Kokoro TTS engine adapter.
   final AiVoiceEngine? kokoroEngine;
+  
+  /// Memory manager for engine lifecycle.
+  final EngineMemoryManager _memoryManager;
 
   /// Track active requests for cancellation.
   final Map<String, String> _activeRequests = {};
+  
+  /// Cached stream controllers for core readiness (prevents memory leak).
+  final Map<String, StreamController<CoreReadiness>> _readinessControllers = {};
+  
+  /// Stream subscriptions for core readiness aggregation.
+  final Map<String, List<StreamSubscription<CoreReadiness>>> _readinessSubscriptions = {};
 
   @override
   EngineType get engineType => EngineType.device; // Router has no specific type
@@ -71,12 +83,28 @@ class RoutingEngine implements AiVoiceEngine {
 
   @override
   Stream<CoreReadiness> watchCoreReadiness(String coreId) {
-    // Aggregate from all engines
-    final controller = StreamController<CoreReadiness>.broadcast();
+    // Return existing controller if already created (prevents memory leak)
+    if (_readinessControllers.containsKey(coreId)) {
+      return _readinessControllers[coreId]!.stream;
+    }
+    
+    // Create new controller and track subscriptions
+    final controller = StreamController<CoreReadiness>.broadcast(
+      onCancel: () {
+        // Cleanup when all listeners gone
+        _cleanupReadinessSubscriptions(coreId);
+      },
+    );
+    _readinessControllers[coreId] = controller;
+    _readinessSubscriptions[coreId] = [];
     
     void addFromEngine(AiVoiceEngine? engine) {
       if (engine != null) {
-        engine.watchCoreReadiness(coreId).listen(controller.add);
+        final subscription = engine.watchCoreReadiness(coreId).listen(
+          controller.add,
+          onError: controller.addError,
+        );
+        _readinessSubscriptions[coreId]!.add(subscription);
       }
     }
     
@@ -85,6 +113,18 @@ class RoutingEngine implements AiVoiceEngine {
     addFromEngine(supertonicEngine);
     
     return controller.stream;
+  }
+  
+  /// Cleanup subscriptions for a core ID.
+  void _cleanupReadinessSubscriptions(String coreId) {
+    final subscriptions = _readinessSubscriptions.remove(coreId);
+    if (subscriptions != null) {
+      for (final sub in subscriptions) {
+        sub.cancel();
+      }
+    }
+    final controller = _readinessControllers.remove(coreId);
+    controller?.close();
   }
 
   @override
@@ -124,8 +164,8 @@ class RoutingEngine implements AiVoiceEngine {
       return SynthResult(file: file, durationMs: durationMs);
     }
 
-    // Route to appropriate engine
-    final engine = _engineForVoice(voiceId);
+    // Prepare engine (unloads others if needed for memory)
+    final engine = await _prepareEngineForVoice(voiceId);
     TtsLog.debug('Engine for $voiceId: $engine');
     if (engine == null) {
       throw VoiceNotAvailableException(
@@ -179,7 +219,8 @@ class RoutingEngine implements AiVoiceEngine {
         );
       }
 
-      final engine = _engineForVoice(voiceId);
+      // Prepare engine (unloads others if needed for memory)
+      final engine = await _prepareEngineForVoice(voiceId);
       if (engine == null) {
         return ExtendedSynthResult.failedWith(
           code: EngineError.modelMissing,
@@ -251,6 +292,11 @@ class RoutingEngine implements AiVoiceEngine {
 
   @override
   Future<void> dispose() async {
+    // Clean up all readiness stream controllers
+    for (final coreId in _readinessControllers.keys.toList()) {
+      _cleanupReadinessSubscriptions(coreId);
+    }
+    
     await Future.wait([
       if (piperEngine != null) piperEngine!.dispose(),
       if (supertonicEngine != null) supertonicEngine!.dispose(),
@@ -265,6 +311,56 @@ class RoutingEngine implements AiVoiceEngine {
     if (VoiceIds.isSupertonic(voiceId)) return supertonicEngine;
     if (VoiceIds.isKokoro(voiceId)) return kokoroEngine;
     return null;
+  }
+  
+  /// Get the engine type for a voice ID.
+  EngineType? _engineTypeForVoice(String voiceId) {
+    if (VoiceIds.isPiper(voiceId)) return EngineType.piper;
+    if (VoiceIds.isSupertonic(voiceId)) return EngineType.supertonic;
+    if (VoiceIds.isKokoro(voiceId)) return EngineType.kokoro;
+    return null;
+  }
+  
+  /// Get engine adapter by type.
+  AiVoiceEngine? _engineByType(EngineType type) {
+    switch (type) {
+      case EngineType.piper:
+        return piperEngine;
+      case EngineType.supertonic:
+        return supertonicEngine;
+      case EngineType.kokoro:
+        return kokoroEngine;
+      default:
+        return null;
+    }
+  }
+  
+  /// Prepare engine for synthesis with memory management.
+  /// 
+  /// Unloads other engines if needed to stay within memory limits.
+  Future<AiVoiceEngine?> _prepareEngineForVoice(String voiceId) async {
+    final engineType = _engineTypeForVoice(voiceId);
+    if (engineType == null) return null;
+    
+    final engine = _engineByType(engineType);
+    if (engine == null) return null;
+    
+    // Prepare memory - may unload other engines
+    await _memoryManager.prepareForEngine(
+      engineType,
+      unloadCallback: _unloadEngine,
+    );
+    
+    return engine;
+  }
+  
+  /// Unload an engine by type to free memory.
+  Future<void> _unloadEngine(EngineType engineType) async {
+    final engine = _engineByType(engineType);
+    if (engine == null) return;
+    
+    TtsLog.info('RoutingEngine: Unloading ${engineType.name} engine to free memory');
+    await engine.clearAllModels();
   }
 
   /// Synthesize with caching support (convenience method).
