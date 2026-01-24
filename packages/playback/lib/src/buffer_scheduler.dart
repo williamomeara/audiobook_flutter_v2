@@ -55,7 +55,9 @@ class BufferScheduler {
   int _prefetchedThroughIndex = -1;
 
   /// Context key for invalidation on voice/book change.
-  String? _contextKey;
+  /// Initialized to a sentinel value to ensure explicit context setup is required.
+  static const _uninitializedContext = '__uninitialized__';
+  String _contextKey = _uninitializedContext;
 
   /// Whether prefetch is temporarily suspended.
   bool _isSuspended = false;
@@ -76,7 +78,7 @@ class BufferScheduler {
   void reset() {
     _isRunning = false;
     _prefetchedThroughIndex = -1;
-    _contextKey = null;
+    _contextKey = _uninitializedContext;
   }
 
   /// Dispose resources.
@@ -228,6 +230,12 @@ class BufferScheduler {
     void Function(int segmentIndex)? onSynthesisStarted,
     void Function(int segmentIndex)? onSynthesisComplete,
   }) async {
+    // Guard: context must be initialized before prefetch
+    if (_contextKey == _uninitializedContext) {
+      PlaybackLog.warning('Prefetch called without context initialization, skipping');
+      return;
+    }
+    
     PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     PlaybackLog.progress('PREFETCH START');
     PlaybackLog.progress('Target index: $targetIndex');
@@ -328,6 +336,12 @@ class BufferScheduler {
     required bool Function() shouldContinue,
   }) async {
     if (queue.isEmpty || currentIndex < 0) return;
+    
+    // Guard: context must be initialized before buffering
+    if (_contextKey == _uninitializedContext) {
+      PlaybackLog.warning('BufferUntilReady called without context initialization, skipping');
+      return;
+    }
 
     var aheadMs = 0;
     var i = currentIndex;
@@ -380,6 +394,12 @@ class BufferScheduler {
     void Function(int segmentIndex)? onSynthesisStarted,
     void Function(int segmentIndex)? onSynthesisComplete,
   }) async {
+    // Guard: context must be initialized
+    if (_contextKey == _uninitializedContext) {
+      PlaybackLog.debug('Immediate prefetch called without context, skipping');
+      return;
+    }
+    
     final nextIndex = currentIndex + 1;
     
     // No next segment

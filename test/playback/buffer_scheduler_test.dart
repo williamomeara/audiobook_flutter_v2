@@ -448,5 +448,97 @@ void main() {
         expect(completed, contains(1));
       });
     });
+    
+    group('uninitialized context protection', () {
+      test('runPrefetch skips if context not initialized', () async {
+        // Don't call updateContext - scheduler is in uninitialized state
+        
+        await scheduler.runPrefetch(
+          engine: engine,
+          cache: cache,
+          queue: queue,
+          voiceId: 'voice1',
+          playbackRate: 1.0,
+          targetIndex: 3,
+          shouldContinue: () => true,
+        );
+        
+        // Should not have synthesized anything
+        expect(engine.synthesizeCalls, equals(0));
+        expect(scheduler.prefetchedThroughIndex, equals(-1));
+      });
+      
+      test('prefetchNextSegmentImmediately skips if context not initialized', () async {
+        // Don't call updateContext
+        
+        await scheduler.prefetchNextSegmentImmediately(
+          engine: engine,
+          cache: cache,
+          queue: queue,
+          voiceId: 'voice1',
+          playbackRate: 1.0,
+          currentIndex: 0,
+          shouldContinue: () => true,
+        );
+        
+        // Should not have synthesized anything
+        expect(engine.synthesizeCalls, equals(0));
+      });
+      
+      test('bufferUntilReady skips if context not initialized', () async {
+        // Don't call updateContext
+        
+        await scheduler.bufferUntilReady(
+          engine: engine,
+          queue: queue,
+          voiceId: 'voice1',
+          playbackRate: 1.0,
+          currentIndex: 0,
+          shouldContinue: () => true,
+        );
+        
+        // Should not have synthesized anything
+        expect(engine.synthesizeCalls, equals(0));
+      });
+      
+      test('reset returns to uninitialized state', () async {
+        // First initialize context
+        scheduler.updateContext(
+          bookId: 'book1',
+          chapterIndex: 0,
+          voiceId: 'voice1',
+          playbackRate: 1.0,
+          currentIndex: 0,
+        );
+        
+        // Verify prefetch works
+        await scheduler.prefetchNextSegmentImmediately(
+          engine: engine,
+          cache: cache,
+          queue: queue,
+          voiceId: 'voice1',
+          playbackRate: 1.0,
+          currentIndex: 0,
+          shouldContinue: () => true,
+        );
+        expect(engine.synthesizeCalls, equals(1));
+        
+        // Reset
+        scheduler.reset();
+        
+        // Verify prefetch skips (back to uninitialized)
+        await scheduler.prefetchNextSegmentImmediately(
+          engine: engine,
+          cache: cache,
+          queue: queue,
+          voiceId: 'voice1',
+          playbackRate: 1.0,
+          currentIndex: 0,
+          shouldContinue: () => true,
+        );
+        // Still 1 call (not 2) because second prefetch was skipped
+        expect(engine.synthesizeCalls, equals(1));
+      });
+    });
   });
 }
