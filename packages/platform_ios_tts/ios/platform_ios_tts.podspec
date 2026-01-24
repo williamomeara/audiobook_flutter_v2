@@ -21,6 +21,14 @@ Supports Kokoro, Piper, and Supertonic TTS engines.
   # Vendored xcframeworks for TTS inference
   s.vendored_frameworks = 'Frameworks/onnxruntime.xcframework', 'Frameworks/sherpa-onnx.xcframework'
   
+  # Download ONNX Runtime binaries from GitHub releases (too large for git)
+  s.prepare_command = <<-CMD
+    cd "$(dirname "$0")/../../.." && \
+    if [ -x scripts/download_onnx_ios_binaries.sh ]; then
+      ./scripts/download_onnx_ios_binaries.sh
+    fi
+  CMD
+  
   # Supertonic CoreML models and resources (bundled with app)
   # Each mlpackage needs its own bundle to preserve internal structure
   s.resource_bundles = {
