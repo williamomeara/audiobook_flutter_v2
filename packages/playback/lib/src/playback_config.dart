@@ -30,6 +30,11 @@ class PlaybackConfig {
   /// Debounce delay for seek operations with AI synthesis.
   static const Duration seekDebounce = Duration(milliseconds: 200);
 
+  /// Timeout for individual synthesis operations.
+  /// If synthesis takes longer than this, it's considered hung and is cancelled.
+  /// Default is 120 seconds which is generous for most segments.
+  static const Duration synthesisTimeout = Duration(seconds: 120);
+
   // Rate-independent synthesis
   /// When true, synthesis is always done at 1.0x and playback rate
   /// is adjusted in the audio player. This maximizes cache hits.

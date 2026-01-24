@@ -383,13 +383,20 @@ class AudiobookPlaybackController implements PlaybackController {
       
       _onSegmentSynthesisStarted?.call(bookId, chapterIndex, i);
       try {
+        // H3: Add timeout to prevent hung synthesis from blocking
         await engine.synthesizeToWavFile(
           voiceId: voiceId,
           text: track.text,
           playbackRate: _state.playbackRate,
+        ).timeout(
+          PlaybackConfig.synthesisTimeout,
+          onTimeout: () => throw SynthesisTimeoutException(i, PlaybackConfig.synthesisTimeout),
         );
         _onSegmentSynthesisComplete?.call(bookId, chapterIndex, i);
         _logger.info('[Phase 2] ✓ Prefetched segment $i');
+      } on SynthesisTimeoutException catch (e) {
+        _logger.warning('[Phase 2] Segment $i timed out: $e');
+        // Continue with other segments
       } catch (e) {
         _logger.warning('[Phase 2] Failed to prefetch segment $i: $e');
         // Continue with other segments
@@ -604,11 +611,17 @@ class AudiobookPlaybackController implements PlaybackController {
       _logger.info('Voice is ready, starting synthesis...');
       final synthStart = DateTime.now();
       
-      // Synthesize current segment
+      // Synthesize current segment (H3: with timeout to prevent hung playback)
       final result = await engine.synthesizeToWavFile(
         voiceId: voiceId,
         text: track.text,
         playbackRate: _state.playbackRate,
+      ).timeout(
+        PlaybackConfig.synthesisTimeout,
+        onTimeout: () => throw SynthesisTimeoutException(
+          _state.currentIndex,
+          PlaybackConfig.synthesisTimeout,
+        ),
       );
 
       final synthDuration = DateTime.now().difference(synthStart);
@@ -642,6 +655,17 @@ class AudiobookPlaybackController implements PlaybackController {
 
       // Start background prefetch for additional segments
       _startPrefetchIfNeeded();
+    } on SynthesisTimeoutException catch (e) {
+      _logger.severe('Synthesis timed out: $e');
+      _onPlayIntentOverride?.call(false);
+      
+      if (!_isCurrentOp(opId)) return;
+      
+      _updateState(_state.copyWith(
+        isPlaying: false,
+        isBuffering: false,
+        error: 'Synthesis timed out. Try skipping to the next segment.',
+      ));
     } catch (e, stackTrace) {
       _logger.severe('Synthesis failed for track ${track.id}', e, stackTrace);
       

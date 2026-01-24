@@ -7,6 +7,18 @@ import 'playback_config.dart';
 import 'playback_log.dart';
 import 'resource_monitor.dart';
 
+/// Exception thrown when synthesis operation times out.
+class SynthesisTimeoutException implements Exception {
+  const SynthesisTimeoutException(this.segmentIndex, this.timeout);
+  
+  final int segmentIndex;
+  final Duration timeout;
+  
+  @override
+  String toString() => 
+      'SynthesisTimeoutException: Segment $segmentIndex timed out after ${timeout.inSeconds}s';
+}
+
 /// Simple async lock for protecting shared state.
 ///
 /// Ensures only one async operation can hold the lock at a time.
@@ -347,7 +359,7 @@ class BufferScheduler {
           return;
         }
 
-        // Synthesize
+        // Synthesize with timeout (H3)
         PlaybackLog.debug('🔄 [$i] Synthesizing (not in cache)...');
         onSynthesisStarted?.call(i);  // Notify UI
         final synthStart = DateTime.now();
@@ -356,6 +368,9 @@ class BufferScheduler {
             voiceId: voiceId,
             text: track.text,
             playbackRate: playbackRate,
+          ).timeout(
+            PlaybackConfig.synthesisTimeout,
+            onTimeout: () => throw SynthesisTimeoutException(i, PlaybackConfig.synthesisTimeout),
           );
           
           // H1: Check cancellation after synthesis - discard result if cancelled
@@ -369,6 +384,10 @@ class BufferScheduler {
           onSynthesisComplete?.call(i);  // Notify UI
           await _updatePrefetchedIndex(i);
           synthesized++;
+        } on SynthesisTimeoutException catch (e) {
+          PlaybackLog.error('[$i] Synthesis timed out: $e');
+          failed++;
+          // Continue with next segment - don't block on hung synthesis
         } catch (e, stackTrace) {
           final synthDuration = DateTime.now().difference(synthStart);
           PlaybackLog.error('[$i] Synthesis failed after ${synthDuration.inMilliseconds}ms: $e');
@@ -427,10 +446,14 @@ class BufferScheduler {
       final track = queue[i];
 
       try {
+        // H3: Add timeout to prevent hung synthesis from blocking
         await engine.synthesizeToWavFile(
           voiceId: voiceId,
           text: track.text,
           playbackRate: playbackRate,
+        ).timeout(
+          PlaybackConfig.synthesisTimeout,
+          onTimeout: () => throw SynthesisTimeoutException(i, PlaybackConfig.synthesisTimeout),
         );
         
         // H1: Check cancellation after synthesis
@@ -440,6 +463,9 @@ class BufferScheduler {
         }
         
         await _updatePrefetchedIndex(i);
+      } on SynthesisTimeoutException catch (e) {
+        PlaybackLog.error('BufferUntilReady: $e');
+        // Continue with next segment
       } catch (e) {
         // Continue trying
       }
@@ -539,10 +565,14 @@ class BufferScheduler {
     
     try {
       final synthStart = DateTime.now();
+      // H3: Add timeout to prevent hung synthesis from blocking
       await engine.synthesizeToWavFile(
         voiceId: voiceId,
         text: track.text,
         playbackRate: playbackRate,
+      ).timeout(
+        PlaybackConfig.synthesisTimeout,
+        onTimeout: () => throw SynthesisTimeoutException(nextIndex, PlaybackConfig.synthesisTimeout),
       );
       
       // H1: Check cancellation after synthesis - discard result if cancelled
@@ -557,6 +587,9 @@ class BufferScheduler {
       
       // Update prefetched index atomically
       await _updatePrefetchedIndex(nextIndex);
+    } on SynthesisTimeoutException catch (e) {
+      PlaybackLog.error('Priority prefetch timed out: $e');
+      // Regular prefetch may retry or user can skip
     } catch (e) {
       PlaybackLog.error('Priority prefetch failed for segment [$nextIndex]: $e');
       // Don't fail silently - regular prefetch may retry
