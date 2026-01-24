@@ -15,12 +15,21 @@ abstract interface class AudioOutput {
   /// Get the underlying AudioPlayer for system media controls integration.
   /// Returns null if the implementation doesn't use just_audio.
   AudioPlayer? get player;
+  
+  /// Whether audio is currently paused (vs stopped/idle).
+  bool get isPaused;
+  
+  /// Whether there is an active audio source loaded.
+  bool get hasSource;
 
   /// Play an audio file at the specified rate.
   Future<void> playFile(String path, {double playbackRate = 1.0});
 
-  /// Pause playback.
+  /// Pause playback (preserves position for resume).
   Future<void> pause();
+  
+  /// Resume playback from paused position.
+  Future<void> resume();
 
   /// Stop playback and reset.
   Future<void> stop();
@@ -49,9 +58,16 @@ class JustAudioOutput implements AudioOutput {
   StreamSubscription<Duration?>? _durationSub;
   bool _sessionConfigured = false;
   String? _currentFilePath;
+  bool _isPaused = false;
   
   @override
   AudioPlayer? get player => _player;
+  
+  @override
+  bool get isPaused => _isPaused;
+  
+  @override
+  bool get hasSource => _currentFilePath != null && _player.processingState != ProcessingState.idle;
 
   /// Initialize audio session with proper configuration for audiobook playback.
   Future<void> _initAudioSession() async {
@@ -251,13 +267,27 @@ class JustAudioOutput implements AudioOutput {
   Future<void> pause() async {
     PlaybackLog.progress('⏸ PAUSE requested');
     await _player.pause();
+    _isPaused = true;
     PlaybackLog.progress('⏸ Paused at position: ${_player.position}');
+  }
+  
+  @override
+  Future<void> resume() async {
+    PlaybackLog.progress('▶ RESUME requested');
+    if (!hasSource) {
+      PlaybackLog.warning('Cannot resume: no audio source loaded');
+      return;
+    }
+    await _player.play();
+    _isPaused = false;
+    PlaybackLog.progress('▶ Resumed from position: ${_player.position}');
   }
 
   @override
   Future<void> stop() async {
     PlaybackLog.progress('⏹ STOP requested');
     await _player.stop();
+    _isPaused = false;
     _eventController.add(AudioEvent.cancelled);
     PlaybackLog.progress('⏹ Stopped and cancelled');
   }
