@@ -85,59 +85,89 @@ For iOS, the CoreML models are bundled directly with the app binary instead of d
 2. Add iOS-specific entries to voices_manifest.json
 3. Modify Dart adapter to check `Platform.isIOS` for different core paths
 
-### Phase 3: Rewrite SupertonicTtsService for CoreML (4-6 hours)
+### Phase 3: Rewrite SupertonicTtsService for CoreML (4-6 hours) ✅ COMPLETED
 
-- [ ] **3.1** Replace `SupertonicSherpaInference.swift` with `SupertonicCoreMLInference.swift`
-  - Port TTSService from [Nooder/supertonic-2-coreml](https://github.com/Nooder/supertonic-2-coreml)
+- [x] **3.1** Created `SupertonicCoreMLInference.swift`
+  - New file: `packages/platform_ios_tts/ios/Classes/inference/SupertonicCoreMLInference.swift`
+  - Ported TTSService from [Nooder/supertonic-2-coreml](https://github.com/Nooder/supertonic-2-coreml)
   - Key components:
-    - `loadResources()` - loads embeddings, unicode indexer, config
+    - `loadFromBundle()` - loads models, embeddings, unicode indexer, config
     - `loadModelsConcurrently()` - loads 4 CoreML models in parallel
     - `runDurationPredictor()` - stage 1
     - `runTextEncoder()` - stage 2
     - `runVectorEstimator()` - stage 3 (iterative denoising)
     - `runVocoder()` - stage 4
+    - 600+ lines of Swift
 
-- [ ] **3.2** Update `SupertonicTtsService.swift`
-  - Replace `SupertonicSherpaInference` with `SupertonicCoreMLInference`
-  - Update `loadCore()` to:
-    1. Locate CoreML `.mlpackage` directories
-    2. Load all 4 models
-    3. Load embeddings and configs
-  - Update `synthesize()` to use the 4-stage pipeline
+- [x] **3.2** Updated `SupertonicTtsService.swift`
+  - Replaced `SupertonicSherpaInference` with `SupertonicCoreMLInference`
+  - Updated `loadCore()` to detect `__BUNDLED_COREML__` marker
+  - Calls `coremlInference.loadFromBundle()` for iOS bundled models
+  - Updated `synthesize()` to use CoreML 4-stage pipeline
 
-- [ ] **3.3** Handle voice styles
-  - Load voice style JSON files (M1.json, F1.json, M2.json, etc.)
-  - Map voice IDs (supertonic_m1 → M1, supertonic_f3 → F3)
+- [x] **3.3** Voice styles handled in CoreMLInference
+  - Loads voice style JSON files (M1.json, F1.json, etc.) from bundle
+  - Maps voice IDs via speakerId (0-4 → M1-M5, 5-9 → F1-F5)
+  - Caches loaded voice styles for reuse
 
-### Phase 4: Update Xcode Project Configuration (30 min)
+### Phase 4: Update Xcode Project Configuration (30 min) ✅ COMPLETED
 
-- [ ] **4.1** Remove unused dependencies
-  - Remove sherpa-onnx VITS dependency (if not used by Piper/Kokoro)
+- [x] **4.1** sherpa-onnx dependency kept
+  - Cannot remove - still needed by Piper and Kokoro TTS services
+  - SupertonicSherpaInference.swift kept for reference (unused by SupertonicTtsService now)
   
-- [ ] **4.2** Add CoreML model bundles to project
-  - Configure `.mlpackage` folders as bundle resources
-  - Ensure models are included in app binary
+- [x] **4.2** CoreML model bundles configured via podspec
+  - `s.resources = 'Assets/supertonic_coreml/**/*'` already added in Phase 2
+  - Assets verified at `packages/platform_ios_tts/ios/Assets/supertonic_coreml/`
+  - Models will be bundled with app at build time via pod install
 
-### Phase 5: Update Dart Adapter (1 hour)
+### Phase 5: Update Dart Adapter (1 hour) ✅ COMPLETED IN PHASE 2
 
-- [ ] **5.1** Update `supertonic_adapter.dart`
-  - Modify `ensureCoreReady()` to check for iOS-specific CoreML models
-  - Update path logic: `{coreDir}/supertonic/coreml_ios18/` or similar
+- [x] **5.1** Updated `supertonic_adapter.dart` for iOS
+  - Added `_isIosBundled` flag: `bool get _isIosBundled => Platform.isIOS;`
+  - `probe()` returns `EngineAvailability.available` for iOS (line 54-57)
+  - `ensureCoreReady()` passes `'__BUNDLED_COREML__'` marker for iOS (line 72-79)
+  - `checkVoiceReady()` returns `VoiceReadyState.voiceReady` for iOS (line 128-135)
   
-- [ ] **5.2** Update `_initEngine()` and `_loadVoice()`
-  - CoreML models don't need separate "voice loading"
-  - Voice styles are loaded from JSON files
+- [x] **5.2** iOS-specific behavior
+  - No download required for iOS - models bundled with app
+  - CoreML models loaded from app bundle on first synthesis
+  - Voice styles loaded from bundled JSON files
 
 ### Phase 6: Testing and Validation (2 hours)
 
-- [ ] **6.1** Test model loading
-  - Verify all 4 CoreML models load without errors
-  - Check memory usage
+**Code Review Verification (Completed):**
+- ✅ All required Swift files exist:
+  - `SupertonicCoreMLInference.swift` (650+ lines) - CoreML 4-stage pipeline
+  - `SupertonicTtsService.swift` (135 lines) - Service wrapper
+  - `TtsServiceProtocol.swift` - TtsError, VoiceInfo, SynthesisCounter
+  - `AudioConverter.swift` - writeWav, durationMs
+- ✅ All required CoreML assets bundled using `resource_bundles` in podspec:
+  - `SupertonicDurationPredictor.bundle`
+  - `SupertonicTextEncoder.bundle`
+  - `SupertonicVectorEstimator.bundle`
+  - `SupertonicVocoder.bundle`
+  - `SupertonicResources.bundle` (embeddings, config, voice styles)
+- ✅ Podspec updated with separate resource_bundles for each model
+- ✅ Dart adapter updated with iOS-specific `__BUNDLED_COREML__` handling
 
-- [ ] **6.2** Test synthesis
-  - Test with various text inputs
-  - Test all voice styles (M1-M5, F1-F5)
-  - Test language selection (en, ko, es, pt, fr)
+**Bug Fixes Applied:**
+- Fixed `.mlpackage` bundle conflicts by using separate `resource_bundles`
+- Fixed Float16 availability check for iOS 16+
+- Fixed `readScalar()` to handle Float16 dataType (CoreML int8 models use Float16)
+
+**Manual Testing Results:**
+- [x] **6.1** Test model loading
+  - ✅ All 4 CoreML models load from separate bundles
+  - ✅ Model compilation takes ~30 seconds on first load
+  - ✅ `maxTextLen=300, latentDim=144, latentLenMax=288`
+
+- [x] **6.2** Test synthesis
+  - ✅ Developer menu synthesis works
+  - ✅ Voice M1 tested successfully
+  - ✅ 51 character text produced ~2.4s audio in 0.61s (RTF ~0.25)
+  - [ ] Test all voice styles (M1-M5, F1-F5)
+  - [ ] Test in book playback context
 
 - [ ] **6.3** Performance testing
   - Measure RTF (Real-Time Factor)
@@ -207,3 +237,119 @@ If immediate fixes are needed, disable Supertonic on iOS:
 - [Nooder/supertonic-2-coreml](https://github.com/Nooder/supertonic-2-coreml) - CoreML port
 - [HuggingFace: Nooder/supertonic-2-coreml](https://huggingface.co/Nooder/supertonic-2-coreml) - Model downloads
 - [HuggingFace: Supertone/supertonic-2](https://huggingface.co/Supertone/supertonic-2) - Original ONNX models
+
+---
+
+## Lessons Learned
+
+### Architecture Differences (Critical Discovery)
+
+The root cause of the iOS Supertonic failure was a fundamental architecture mismatch:
+
+| Platform | Inference Engine | Model Format | Approach |
+|----------|------------------|--------------|----------|
+| **Android** | Custom JNI/ONNX Runtime | 4 ONNX models | `supertonic_native.cpp` (1400+ lines C++) |
+| **iOS (OLD - WRONG)** | sherpa-onnx VITS wrapper | Expected single `model.onnx` | SupertonicSherpaInference.swift |
+| **iOS (NEW - CORRECT)** | Native CoreML | 4 CoreML .mlpackage models | SupertonicCoreMLInference.swift |
+
+**Lesson**: Supertonic is NOT a VITS model. It uses a 4-stage diffusion-based pipeline:
+1. Duration Predictor → estimates audio length
+2. Text Encoder → linguistic embedding
+3. Vector Estimator → diffusion denoising (iterative, ~20 steps)
+4. Vocoder → latent → audio waveform
+
+### CoreML vs ONNX Runtime Trade-offs
+
+| Factor | CoreML | ONNX Runtime |
+|--------|--------|--------------|
+| **Dependencies** | None (native) | `onnxruntime-objc` pod |
+| **Neural Engine** | Full support | Limited support |
+| **Quantization** | int8, compressed variants | fp32 or custom |
+| **Model format** | .mlpackage (folder) | .onnx (single file) |
+| **iOS 18 optimization** | Dedicated variants | N/A |
+
+**Decision**: CoreML was chosen for better Neural Engine support and no external dependencies.
+
+### Bundle vs Download Trade-off
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Bundle with app** | Offline-first, simpler, faster startup | +77MB app size |
+| **Download on demand** | Smaller app install | Requires hosting, network handling |
+
+**Decision**: Bundle for simplicity. Can optimize later with on-demand download if app size becomes an issue.
+
+### Voice ID Mapping
+
+Supertonic uses speaker IDs (0-9) that map to voice files:
+- speakerId 0-4 → M1.json, M2.json, M3.json, M4.json, M5.json (male voices)
+- speakerId 5-9 → F1.json, F2.json, F3.json, F4.json, F5.json (female voices)
+
+Voice IDs in the app (e.g., `supertonic_m4`) encode the speaker ID. The CoreML inference extracts this and loads the corresponding style JSON.
+
+### Diffusion Steps Trade-off
+
+Vector Estimator uses iterative diffusion denoising:
+- **More steps** (40): Higher quality, slower
+- **Fewer steps** (8-20): Faster, slightly lower quality
+- **Default**: 20 steps (good balance)
+
+The implementation allows runtime configuration via `speed` parameter adjustment.
+
+### MLMultiArray Memory Layout
+
+CoreML MLMultiArray data can be non-contiguous. The `getContiguousData()` helper ensures safe access:
+```swift
+func getContiguousData() -> [Float] {
+    // Creates a contiguous copy if needed
+    // Handles both contiguous and strided layouts
+}
+```
+
+### iOS 18 Specific Models
+
+The `coreml_ios18_int8_both` variant is optimized for iOS 18's enhanced Neural Engine:
+- Uses int8 quantization for speed
+- Targets Apple A17/M3+ chips
+- Not backward compatible with iOS 15-17 (would need fallback)
+
+---
+
+## Testing Checklist (Phase 6)
+
+Before merging, verify:
+
+- [ ] `pod install` succeeds without errors
+- [ ] Xcode project opens and builds without Swift errors
+- [ ] CoreML models are copied to app bundle (check `Runner.app/Contents/Resources/`)
+- [ ] App launches on iOS device
+- [ ] Supertonic voice appears in voice picker
+- [ ] Test synthesis with short text (< 50 chars)
+- [ ] Test synthesis with medium text (100-300 chars)
+- [ ] Test all 10 voice styles (M1-M5, F1-F5)
+- [ ] Verify audio quality is acceptable
+- [ ] Check memory usage during synthesis
+- [ ] Measure RTF (Real-Time Factor)
+
+---
+
+## Files Changed Summary
+
+| File | Action | Lines Changed |
+|------|--------|---------------|
+| `packages/platform_ios_tts/ios/Classes/inference/SupertonicCoreMLInference.swift` | **Created** | 600+ lines |
+| `packages/platform_ios_tts/ios/Classes/engines/SupertonicTtsService.swift` | **Rewritten** | ~130 lines |
+| `packages/tts_engines/lib/src/adapters/supertonic_adapter.dart` | **Modified** | ~20 lines added |
+| `packages/platform_ios_tts/ios/platform_ios_tts.podspec` | **Modified** | 2 lines added |
+| `packages/platform_ios_tts/ios/Assets/supertonic_coreml/` | **Created** | 77MB assets |
+| `docs/features/ios-supertonic-integration/PLAN.md` | **Created** | This document |
+
+---
+
+## Next Steps (Post-Testing)
+
+1. **Commit & Push**: Once tests pass, commit with descriptive message
+2. **App Size Review**: Check if 77MB CoreML bundle is acceptable
+3. **iOS 15-17 Fallback**: Consider adding older CoreML variant for backward compatibility
+4. **On-Demand Download**: Implement if app size needs reduction
+5. **Performance Tuning**: Adjust diffusion steps if needed
