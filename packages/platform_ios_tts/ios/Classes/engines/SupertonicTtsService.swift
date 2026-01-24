@@ -32,16 +32,11 @@ class SupertonicTtsService: TtsServiceProtocol {
             return
         }
         
-        // Load CoreML models from bundle
-        if corePath == Self.bundledCoreMLMarker {
-            NSLog("[SupertonicTtsService] Loading bundled CoreML models...")
-            try coremlInference.loadFromBundle(corePath)
-            NSLog("[SupertonicTtsService] CoreML models loaded successfully")
-        } else {
-            // Legacy path - not supported for iOS CoreML
-            NSLog("[SupertonicTtsService] ERROR: Non-bundled CoreML not supported. Use __BUNDLED_COREML__ marker.")
-            throw TtsError.modelNotLoaded
-        }
+        // Load CoreML models - supports both bundled and downloaded paths
+        // __BUNDLED_COREML__ loads from app bundle, file paths load from downloaded directory
+        NSLog("[SupertonicTtsService] Loading CoreML models from: %@", corePath)
+        try coremlInference.loadFromBundle(corePath)
+        NSLog("[SupertonicTtsService] CoreML models loaded successfully")
     }
     
     func loadVoice(voiceId: String, modelPath: String, speakerId: Int?, configPath: String?) async throws {

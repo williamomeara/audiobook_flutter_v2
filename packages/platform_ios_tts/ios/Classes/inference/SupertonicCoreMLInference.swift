@@ -73,59 +73,24 @@ final class SupertonicCoreMLInference {
     // MARK: - Loading
     
     /// Load CoreML models from the app bundle.
-    /// - Parameter bundlePath: "__BUNDLED_COREML__" to load from app bundle, or a directory path
+    /// - Parameter bundlePath: "__BUNDLED_COREML__" to load from app bundle, or a directory path to downloaded models
     func loadFromBundle(_ bundlePath: String) throws {
         lock.lock()
         defer { lock.unlock() }
         
-        NSLog("[SupertonicCoreML] Loading models from bundle...")
+        NSLog("[SupertonicCoreML] Loading models from: %@", bundlePath)
         
-        let frameworkBundle = Bundle(for: SupertonicCoreMLInference.self)
-        
-        // Find resource bundles for models and resources
-        // Podspec creates separate bundles: SupertonicDurationPredictor, SupertonicTextEncoder, etc.
-        guard let resourcesURL = frameworkBundle.url(forResource: "SupertonicResources", withExtension: "bundle"),
-              let resourcesBundle = Bundle(url: resourcesURL) else {
-            NSLog("[SupertonicCoreML] ERROR: SupertonicResources.bundle not found")
-            throw TtsError.modelNotLoaded
-        }
-        
-        let resourcesDir = resourcesBundle.bundleURL
-        NSLog("[SupertonicCoreML] Found resources bundle at: %@", resourcesDir.path)
-        
-        // Load config from resources bundle
-        let configURL = resourcesDir.appendingPathComponent("tts.json")
-        let config = try loadConfig(configURL)
-        sampleRate = config.ae.sample_rate
-        baseChunkSize = config.ae.base_chunk_size
-        chunkCompressFactor = config.ttl.chunk_compress_factor
-        
-        // Load unicode indexer
-        let indexerURL = resourcesDir.appendingPathComponent("unicode_indexer.json")
-        unicodeIndexer = try loadIndexer(indexerURL)
-        
-        // Load embeddings
-        embeddingDP = try loadEmbedding(
-            dataURL: resourcesDir.appendingPathComponent("char_embedder_dp.fp32.bin"),
-            shapeURL: resourcesDir.appendingPathComponent("char_embedder_dp.shape.json")
-        )
-        embeddingTE = try loadEmbedding(
-            dataURL: resourcesDir.appendingPathComponent("char_embedder_te.fp32.bin"),
-            shapeURL: resourcesDir.appendingPathComponent("char_embedder_te.shape.json")
-        )
-        
-        // Voice styles are in the resources bundle
-        voiceDir = resourcesDir
-        
-        // Load CoreML models from their respective bundles
         let mlConfig = MLModelConfiguration()
         mlConfig.computeUnits = .all
         mlConfig.allowLowPrecisionAccumulationOnGPU = true
         
-        dpModel = try loadMLModelFromBundle("SupertonicDurationPredictor", frameworkBundle: frameworkBundle, config: mlConfig)
-        teModel = try loadMLModelFromBundle("SupertonicTextEncoder", frameworkBundle: frameworkBundle, config: mlConfig)
-        veModel = try loadMLModelFromBundle("SupertonicVectorEstimator", frameworkBundle: frameworkBundle, config: mlConfig)
-        vocModel = try loadMLModelFromBundle("SupertonicVocoder", frameworkBundle: frameworkBundle, config: mlConfig)
+        if bundlePath == "__BUNDLED_COREML__" {
+            // Load from app bundle (legacy bundled mode)
+            try loadFromAppBundle(config: mlConfig)
+        } else {
+            // Load from downloaded directory path
+            try loadFromDirectory(URL(fileURLWithPath: bundlePath), config: mlConfig)
+        }
         
         // Extract model limits from input constraints
         if let teModel = teModel,
@@ -149,6 +114,105 @@ final class SupertonicCoreMLInference {
         
         NSLog("[SupertonicCoreML] Models loaded. maxTextLen=%d, latentDim=%d, latentLenMax=%d", 
               maxTextLen, latentDim, latentLenMax)
+    }
+    
+    /// Load models from app bundle (bundled with app)
+    private func loadFromAppBundle(config: MLModelConfiguration) throws {
+        let frameworkBundle = Bundle(for: SupertonicCoreMLInference.self)
+        
+        // Find resource bundles for models and resources
+        guard let resourcesURL = frameworkBundle.url(forResource: "SupertonicResources", withExtension: "bundle"),
+              let resourcesBundle = Bundle(url: resourcesURL) else {
+            NSLog("[SupertonicCoreML] ERROR: SupertonicResources.bundle not found")
+            throw TtsError.modelNotLoaded
+        }
+        
+        let resourcesDir = resourcesBundle.bundleURL
+        NSLog("[SupertonicCoreML] Found resources bundle at: %@", resourcesDir.path)
+        
+        // Load shared resources
+        try loadResources(from: resourcesDir)
+        
+        // Load CoreML models from their respective bundles
+        dpModel = try loadMLModelFromBundle("SupertonicDurationPredictor", frameworkBundle: frameworkBundle, config: config)
+        teModel = try loadMLModelFromBundle("SupertonicTextEncoder", frameworkBundle: frameworkBundle, config: config)
+        veModel = try loadMLModelFromBundle("SupertonicVectorEstimator", frameworkBundle: frameworkBundle, config: config)
+        vocModel = try loadMLModelFromBundle("SupertonicVocoder", frameworkBundle: frameworkBundle, config: config)
+    }
+    
+    /// Load models from a downloaded directory
+    private func loadFromDirectory(_ baseDir: URL, config: MLModelConfiguration) throws {
+        NSLog("[SupertonicCoreML] Loading from downloaded directory: %@", baseDir.path)
+        
+        // Load shared resources
+        try loadResources(from: baseDir)
+        
+        // Load CoreML models from the directory
+        dpModel = try loadMLModel("duration_predictor_mlprogram", in: baseDir, config: config)
+        teModel = try loadMLModel("text_encoder_mlprogram", in: baseDir, config: config)
+        veModel = try loadMLModel("vector_estimator_mlprogram", in: baseDir, config: config)
+        vocModel = try loadMLModel("vocoder_mlprogram", in: baseDir, config: config)
+    }
+    
+    /// Load shared resources (config, indexer, embeddings, voice styles)
+    private func loadResources(from resourcesDir: URL) throws {
+        // Load config
+        let configURL = resourcesDir.appendingPathComponent("tts.json")
+        if FileManager.default.fileExists(atPath: configURL.path) {
+            let config = try loadConfig(configURL)
+            sampleRate = config.ae.sample_rate
+            baseChunkSize = config.ae.base_chunk_size
+            chunkCompressFactor = config.ttl.chunk_compress_factor
+        } else {
+            // Try in onnx subdirectory (downloaded archive structure)
+            let onnxConfigURL = resourcesDir.appendingPathComponent("onnx/tts.json")
+            if FileManager.default.fileExists(atPath: onnxConfigURL.path) {
+                let config = try loadConfig(onnxConfigURL)
+                sampleRate = config.ae.sample_rate
+                baseChunkSize = config.ae.base_chunk_size
+                chunkCompressFactor = config.ttl.chunk_compress_factor
+            }
+        }
+        
+        // Load unicode indexer
+        let indexerURL = resourcesDir.appendingPathComponent("unicode_indexer.json")
+        let onnxIndexerURL = resourcesDir.appendingPathComponent("onnx/unicode_indexer.json")
+        if FileManager.default.fileExists(atPath: indexerURL.path) {
+            unicodeIndexer = try loadIndexer(indexerURL)
+        } else if FileManager.default.fileExists(atPath: onnxIndexerURL.path) {
+            unicodeIndexer = try loadIndexer(onnxIndexerURL)
+        }
+        
+        // Load embeddings
+        let embDir = resourcesDir.appendingPathComponent("embeddings")
+        if FileManager.default.fileExists(atPath: embDir.path) {
+            embeddingDP = try loadEmbedding(
+                dataURL: embDir.appendingPathComponent("char_embedder_dp.fp32.bin"),
+                shapeURL: embDir.appendingPathComponent("char_embedder_dp.shape.json")
+            )
+            embeddingTE = try loadEmbedding(
+                dataURL: embDir.appendingPathComponent("char_embedder_te.fp32.bin"),
+                shapeURL: embDir.appendingPathComponent("char_embedder_te.shape.json")
+            )
+        } else {
+            // Try flat structure (bundled resources)
+            embeddingDP = try loadEmbedding(
+                dataURL: resourcesDir.appendingPathComponent("char_embedder_dp.fp32.bin"),
+                shapeURL: resourcesDir.appendingPathComponent("char_embedder_dp.shape.json")
+            )
+            embeddingTE = try loadEmbedding(
+                dataURL: resourcesDir.appendingPathComponent("char_embedder_te.fp32.bin"),
+                shapeURL: resourcesDir.appendingPathComponent("char_embedder_te.shape.json")
+            )
+        }
+        
+        // Voice styles directory
+        let voiceStylesDir = resourcesDir.appendingPathComponent("voice_styles")
+        if FileManager.default.fileExists(atPath: voiceStylesDir.path) {
+            voiceDir = voiceStylesDir
+        } else {
+            voiceDir = resourcesDir
+        }
     }
     
     /// Synthesize text to audio samples.

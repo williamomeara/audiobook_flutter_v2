@@ -29,19 +29,8 @@ Supports Kokoro, Piper, and Supertonic TTS engines.
     fi
   CMD
   
-  # Supertonic CoreML models and resources (bundled with app)
-  # Each mlpackage needs its own bundle to preserve internal structure
-  s.resource_bundles = {
-    'SupertonicDurationPredictor' => ['Assets/supertonic_coreml/duration_predictor_mlprogram.mlpackage/**/*'],
-    'SupertonicTextEncoder' => ['Assets/supertonic_coreml/text_encoder_mlprogram.mlpackage/**/*'],
-    'SupertonicVectorEstimator' => ['Assets/supertonic_coreml/vector_estimator_mlprogram.mlpackage/**/*'],
-    'SupertonicVocoder' => ['Assets/supertonic_coreml/vocoder_mlprogram.mlpackage/**/*'],
-    'SupertonicResources' => [
-      'Assets/supertonic_coreml/embeddings/**/*',
-      'Assets/supertonic_coreml/onnx/**/*',
-      'Assets/supertonic_coreml/voice_styles/**/*'
-    ]
-  }
+  # Note: Supertonic CoreML models are now downloaded at runtime by the app
+  # (reduces app size by ~77MB). See GranularDownloadManager for download logic.
   
   # Preserve module map folder
   s.preserve_paths = 'SherpaOnnxCApi'

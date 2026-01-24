@@ -32,11 +32,22 @@
     {
       "id": "supertonic_core_v1",
       "engineType": "supertonic",
-      "displayName": "Supertonic TTS Core",
+      "displayName": "Supertonic TTS Core (Android)",
       "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_core.tar.gz",
       "sizeBytes": 245464350,
       "required": true,
-      "extractType": "tar.gz"
+      "extractType": "tar.gz",
+      "platform": "android"
+    },
+    {
+      "id": "supertonic_core_ios_v1",
+      "engineType": "supertonic",
+      "displayName": "Supertonic TTS Core (iOS)",
+      "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_coreml.tar.gz",
+      "sizeBytes": 64000000,
+      "required": true,
+      "extractType": "tar.gz",
+      "platform": "ios"
     }
   ],
   "voices": [

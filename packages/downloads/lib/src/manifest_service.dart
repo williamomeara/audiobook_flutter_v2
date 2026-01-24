@@ -16,8 +16,14 @@ class ManifestService {
   late final Map<String, List<VoiceSpec>> _voicesByEngine;
   late final Map<String, List<CoreRequirement>> _coresByEngine;
 
+  /// Current platform name for filtering
+  static String get _currentPlatform =>
+      Platform.isIOS ? 'ios' : (Platform.isAndroid ? 'android' : 'other');
+
   void _buildIndices() {
-    _coresById = {for (var c in manifest.cores) c.id: c};
+    // Filter cores to only include those available on this platform
+    final platformCores = manifest.cores.where(_isPlatformMatch).toList();
+    _coresById = {for (var c in platformCores) c.id: c};
     _voicesById = {for (var v in manifest.voices) v.id: v};
 
     _voicesByEngine = {};
@@ -26,9 +32,15 @@ class ManifestService {
     }
 
     _coresByEngine = {};
-    for (final c in manifest.cores) {
+    for (final c in platformCores) {
       _coresByEngine.putIfAbsent(c.engineType, () => []).add(c);
     }
+  }
+
+  /// Check if a core matches the current platform
+  bool _isPlatformMatch(CoreRequirement core) {
+    if (core.platform == null) return true;
+    return core.platform == _currentPlatform;
   }
 
   // Core queries
@@ -37,7 +49,7 @@ class ManifestService {
   List<CoreRequirement> getCoresForEngine(String engineId) =>
       _coresByEngine[engineId] ?? [];
 
-  List<CoreRequirement> get allCores => manifest.cores;
+  List<CoreRequirement> get allCores => _coresById.values.toList();
 
   // Voice queries
   VoiceSpec? getVoice(String voiceId) => _voicesById[voiceId];
@@ -51,19 +63,36 @@ class ManifestService {
   List<CoreRequirement> getRequiredCores(String voiceId) {
     final voice = getVoice(voiceId);
     if (voice == null) return [];
+    
     return voice.coreRequirements
-        .map((id) => _coresById[id])
+        .map((id) => _resolvePlatformCore(id))
         .whereType<CoreRequirement>()
         .toList();
+  }
+
+  /// Resolve a core ID to the platform-specific version if available.
+  /// For example, 'supertonic_core_v1' on iOS becomes 'supertonic_core_ios_v1'
+  CoreRequirement? _resolvePlatformCore(String coreId) {
+    // First, try exact match in platform-filtered cores
+    if (_coresById.containsKey(coreId)) {
+      return _coresById[coreId];
+    }
+    
+    // For supertonic on iOS, try the iOS-specific core
+    if (coreId == 'supertonic_core_v1' && _currentPlatform == 'ios') {
+      return _coresById['supertonic_core_ios_v1'];
+    }
+    
+    return null;
   }
 
   /// Get unique cores required for multiple voices.
   Set<String> getUniqueCoreIds(List<String> voiceIds) {
     final coreIds = <String>{};
     for (final voiceId in voiceIds) {
-      final voice = getVoice(voiceId);
-      if (voice != null) {
-        coreIds.addAll(voice.coreRequirements);
+      final cores = getRequiredCores(voiceId);
+      for (final core in cores) {
+        coreIds.add(core.id);
       }
     }
     return coreIds;
