@@ -1,5 +1,3 @@
-import 'dart:math';
-
 /// Classification for chapter/section content type
 enum ContentType {
   /// Front matter: cover, title, copyright, dedication, TOC, etc.
