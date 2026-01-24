@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:opus_dart/opus_dart.dart';
 import 'package:opus_flutter/opus_flutter.dart' as opus_flutter;
 
+import 'audio_cache.dart' show kWavHeaderSize;
+
 /// Audio compression strategy for long-term cache storage.
 ///
 /// Compresses WAV files to Opus format for storage efficiency.
@@ -209,9 +211,8 @@ class CacheCompressor {
   Future<Int16List> _readWavAsPcm(File wavFile) async {
     final bytes = await wavFile.readAsBytes();
     
-    // WAV header is 44 bytes for standard PCM format
-    // Skip header and read audio data
-    if (bytes.length < 44) {
+    // Q3: Use constant for WAV header size
+    if (bytes.length < kWavHeaderSize) {
       throw Exception('Invalid WAV file: too short');
     }
     
@@ -222,9 +223,8 @@ class CacheCompressor {
       throw Exception('Invalid WAV file: not RIFF/WAVE format');
     }
     
-    // Find data chunk (skip header)
     // Standard WAV: data starts at byte 44
-    final audioData = bytes.sublist(44);
+    final audioData = bytes.sublist(kWavHeaderSize);
     
     // Convert bytes to Int16 samples
     final samples = Int16List(audioData.length ~/ 2);

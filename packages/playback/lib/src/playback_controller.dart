@@ -581,6 +581,27 @@ class AudiobookPlaybackController implements PlaybackController {
     await _audioOutput.stop();
     _speakingTrackId = null;
   }
+  
+  /// Q1: Helper to create synthesis callbacks with current context.
+  /// Returns null callbacks if the corresponding field callback is null.
+  ({
+    void Function(int)? onStarted,
+    void Function(int)? onComplete,
+  }) _createSynthesisCallbacks() {
+    final bookId = _state.bookId ?? '';
+    final chapterIndex = _state.queue.isNotEmpty 
+        ? _state.queue.first.chapterIndex 
+        : 0;
+    
+    return (
+      onStarted: _onSegmentSynthesisStarted != null
+          ? (segmentIndex) => _onSegmentSynthesisStarted(bookId, chapterIndex, segmentIndex)
+          : null,
+      onComplete: _onSegmentSynthesisComplete != null
+          ? (segmentIndex) => _onSegmentSynthesisComplete(bookId, chapterIndex, segmentIndex)
+          : null,
+    );
+  }
 
   Future<void> _speakCurrent({required int opId}) async {
     final track = _state.currentTrack;
@@ -738,12 +759,7 @@ class AudiobookPlaybackController implements PlaybackController {
     if (targetIdx <= _scheduler.prefetchedThroughIndex) return;
 
     final opId = _opId;
-    
-    // Get context for synthesis callbacks
-    final bookId = _state.bookId ?? '';
-    final chapterIndex = _state.queue.isNotEmpty 
-        ? _state.queue.first.chapterIndex 
-        : 0;
+    final callbacks = _createSynthesisCallbacks(); // Q1: Use helper
 
     // C3: Wrap in error handler to catch unexpected errors
     unawaited(_scheduler.runPrefetch(
@@ -755,12 +771,8 @@ class AudiobookPlaybackController implements PlaybackController {
       targetIndex: targetIdx,
       // H8: Include cancellation check in shouldContinue
       shouldContinue: () => _isCurrentOp(opId) && !_isOpCancelled && _playIntent && !_disposed,
-      onSynthesisStarted: _onSegmentSynthesisStarted != null
-          ? (segmentIndex) => _onSegmentSynthesisStarted(bookId, chapterIndex, segmentIndex)
-          : null,
-      onSynthesisComplete: _onSegmentSynthesisComplete != null
-          ? (segmentIndex) => _onSegmentSynthesisComplete(bookId, chapterIndex, segmentIndex)
-          : null,
+      onSynthesisStarted: callbacks.onStarted,
+      onSynthesisComplete: callbacks.onComplete,
     ).catchError((error, stackTrace) {
       _logger.severe('Background prefetch failed', error, stackTrace);
     }));
@@ -778,12 +790,7 @@ class AudiobookPlaybackController implements PlaybackController {
     if (currentIdx < 0 || _state.queue.isEmpty) return;
 
     final opId = _opId;
-    
-    // Get context for synthesis callbacks
-    final bookId = _state.bookId ?? '';
-    final chapterIndex = _state.queue.isNotEmpty 
-        ? _state.queue.first.chapterIndex 
-        : 0;
+    final callbacks = _createSynthesisCallbacks(); // Q1: Use helper
 
     // C3: Wrap in error handler to catch unexpected errors
     unawaited(_scheduler.prefetchNextSegmentImmediately(
@@ -795,12 +802,8 @@ class AudiobookPlaybackController implements PlaybackController {
       currentIndex: currentIdx,
       // H8: Include cancellation check in shouldContinue
       shouldContinue: () => _isCurrentOp(opId) && !_isOpCancelled && _playIntent && !_disposed,
-      onSynthesisStarted: _onSegmentSynthesisStarted != null
-          ? (segmentIndex) => _onSegmentSynthesisStarted(bookId, chapterIndex, segmentIndex)
-          : null,
-      onSynthesisComplete: _onSegmentSynthesisComplete != null
-          ? (segmentIndex) => _onSegmentSynthesisComplete(bookId, chapterIndex, segmentIndex)
-          : null,
+      onSynthesisStarted: callbacks.onStarted,
+      onSynthesisComplete: callbacks.onComplete,
     ).catchError((error, stackTrace) {
       _logger.severe('Immediate next prefetch failed', error, stackTrace);
     }));

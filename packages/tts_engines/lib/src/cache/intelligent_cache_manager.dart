@@ -341,7 +341,7 @@ class IntelligentCacheManager implements AudioCache {
     }
 
     final stat = await file.stat();
-    if (stat.size <= 44) {
+    if (stat.size <= kWavHeaderSize) {
       _misses++;
       return false;
     }
@@ -391,10 +391,13 @@ class IntelligentCacheManager implements AudioCache {
     return 'unknown';
   }
 
+  /// Q3: Bytes per second for WAV at 22050Hz mono 16-bit.
+  static const _wavBytesPerSecond = 44100;
+
   /// Estimate duration from file size (WAV at 22050Hz mono 16-bit ≈ 44100 bytes/sec).
   int _estimateDurationFromSize(int bytes) {
-    // Subtract WAV header (44 bytes), divide by bytes per second
-    return ((bytes - 44) / 44100 * 1000).round().clamp(0, 3600000);
+    // Subtract WAV header, divide by bytes per second
+    return ((bytes - kWavHeaderSize) / _wavBytesPerSecond * 1000).round().clamp(0, 3600000);
   }
 
   @override

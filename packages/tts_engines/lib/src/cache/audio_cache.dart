@@ -2,6 +2,10 @@ import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
 
+/// Q3: WAV header size constant (standard PCM format).
+/// Used for checking if audio files are complete (must be > header size).
+const kWavHeaderSize = 44;
+
 /// Budget configuration for audio cache.
 class CacheBudget {
   const CacheBudget({
@@ -79,7 +83,7 @@ class FileAudioCache implements AudioCache {
     
     // Check file has content (not empty or incomplete)
     final stat = await file.stat();
-    return stat.size > 44; // WAV header is at least 44 bytes
+    return stat.size > kWavHeaderSize;
   }
 
   @override
