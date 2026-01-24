@@ -10,6 +10,8 @@ export 'src/segment_readiness.dart'; // Segment readiness UI feedback
 export 'src/engine_config.dart';     // Phase 4: Auto-tuning device tier configs
 export 'src/device_profiler.dart';   // Phase 4: Device performance profiling
 export 'src/engine_config_manager.dart'; // Phase 4: Config persistence
+export 'src/adaptive_prefetch.dart'; // Configuration flexibility: Adaptive prefetch
+export 'src/prefetch_resume_controller.dart'; // Configuration flexibility: Resume control
 
 // Re-export SmartSynthesisManager for convenience
 export 'package:tts_engines/tts_engines.dart' show SmartSynthesisManager;

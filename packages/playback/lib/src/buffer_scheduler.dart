@@ -268,6 +268,38 @@ class BufferScheduler {
     });
   }
 
+  /// Suspend prefetch with configurable delay.
+  ///
+  /// This is an enhanced version of [suspend] that allows custom resume delay.
+  /// Used when integrating with RuntimePlaybackConfig.
+  void suspendWithDelay({
+    required void Function() onResume,
+    required Duration resumeDelay,
+  }) {
+    _isSuspended = true;
+    _resumeTimer?.cancel();
+    _resumeTimer = Timer(resumeDelay, () {
+      _isSuspended = false;
+      onResume();
+    });
+    PlaybackLog.debug(
+      'BufferScheduler: Suspended with ${resumeDelay.inMilliseconds}ms delay',
+    );
+  }
+
+  /// Resume prefetch immediately, bypassing the timer.
+  ///
+  /// Use when user action indicates they're done seeking:
+  /// - Seek bar released (onChangeEnd)
+  /// - Play button pressed
+  void resumeImmediately({required void Function() onResume}) {
+    _resumeTimer?.cancel();
+    _resumeTimer = null;
+    _isSuspended = false;
+    PlaybackLog.debug('BufferScheduler: Resume immediately');
+    onResume();
+  }
+
   /// Run prefetch loop.
   /// 
   /// [onSynthesisStarted] is called when synthesis begins for a segment.

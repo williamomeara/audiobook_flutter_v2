@@ -3,11 +3,14 @@ import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:playback/playback.dart';
+import 'package:playback/playback.dart' hide PrefetchMode;
+import 'package:playback/playback.dart' as playback show PrefetchMode, AdaptivePrefetchConfig;
 import 'package:tts_engines/tts_engines.dart';
 
 import 'app_paths.dart';
 import 'audio_service_handler.dart';
+import 'config/config_providers.dart';
+import 'config/runtime_playback_config.dart' as app_config show PrefetchMode;
 import 'settings_controller.dart';
 import 'tts_providers.dart';
 import '../main.dart' show initAudioService;
@@ -204,6 +207,35 @@ final engineConfigManagerProvider = Provider<DeviceEngineConfigManager>((ref) {
 final deviceProfilerProvider = Provider<DevicePerformanceProfiler>((ref) {
   return DevicePerformanceProfiler();
 });
+
+/// Provider for adaptive prefetch configuration.
+///
+/// Bridges the app's RuntimePlaybackConfig to the playback package's
+/// AdaptivePrefetchConfig. Converts PrefetchMode enums between packages.
+final adaptivePrefetchConfigProvider = Provider<playback.AdaptivePrefetchConfig>((ref) {
+  final runtimeConfig = ref.watch(runtimePlaybackConfigProvider).value;
+  
+  // Convert app's PrefetchMode to playback's PrefetchMode
+  final prefetchMode = _convertPrefetchMode(
+    runtimeConfig?.prefetchMode ?? app_config.PrefetchMode.adaptive,
+  );
+  
+  return playback.AdaptivePrefetchConfig(prefetchMode: prefetchMode);
+});
+
+/// Convert between the two PrefetchMode enums.
+///
+/// The app defines PrefetchMode in runtime_playback_config.dart,
+/// while the playback package defines it in adaptive_prefetch.dart.
+/// They have the same values but are different types due to package boundaries.
+playback.PrefetchMode _convertPrefetchMode(app_config.PrefetchMode appMode) {
+  return switch (appMode) {
+    app_config.PrefetchMode.adaptive => playback.PrefetchMode.adaptive,
+    app_config.PrefetchMode.aggressive => playback.PrefetchMode.aggressive,
+    app_config.PrefetchMode.conservative => playback.PrefetchMode.conservative,
+    app_config.PrefetchMode.off => playback.PrefetchMode.off,
+  };
+}
 
 /// Provider for the audio service handler (system media controls).
 /// Uses lazy initialization to avoid blocking app startup.
