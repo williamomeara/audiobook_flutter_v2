@@ -1,23 +1,35 @@
 /// Logging utility for the tts_engines package.
 ///
-/// Uses dart:developer log which doesn't trigger avoid_print lint.
+/// Uses debugPrint for output to flutter logs (adb logcat).
 library;
 
-import 'dart:developer' as developer;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
 /// Logger for TTS engines package.
 class TtsLog {
   static const String _name = 'TTS';
 
   static void info(String message) {
-    developer.log(message, name: _name);
+    _log('[$_name] $message');
   }
 
   static void debug(String message) {
-    developer.log('[DEBUG] $message', name: _name);
+    _log('[$_name] [DEBUG] $message');
   }
 
   static void error(String message, {Object? error, StackTrace? stackTrace}) {
-    developer.log('✗ $message', name: _name, error: error, stackTrace: stackTrace);
+    _log('[$_name] ✗ $message');
+    if (error != null) {
+      _log('[$_name] Error: $error');
+    }
+    if (stackTrace != null) {
+      _log('[$_name] StackTrace: $stackTrace');
+    }
+  }
+
+  static void _log(String message) {
+    if (kDebugMode) {
+      debugPrint(message);
+    }
   }
 }
