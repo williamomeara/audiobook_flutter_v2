@@ -84,15 +84,21 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 
 ---
 
-### C4. No Protection Against Null _contextKey
+### ✅ C4. No Protection Against Null _contextKey - FIXED
 
-**Location:** `packages/playback/lib/src/buffer_scheduler.dart` lines 219, 297
+**Location:** `packages/playback/lib/src/buffer_scheduler.dart`
 
 **Problem:** Comparisons like `_contextKey != startContext` assume key is initialized. If `updateContext()` is never called, `_contextKey` stays null and all context checks fail silently.
 
 **Impact:** Prefetch doesn't abort properly on context changes.
 
-**Recommendation:** Add explicit null checks or initialize with a sentinel value.
+**Fix Applied:**
+- Changed `_contextKey` from nullable `String?` to non-null `String` with sentinel value `'__uninitialized__'`
+- Added guard checks at start of `runPrefetch()`, `bufferUntilReady()`, and `prefetchNextSegmentImmediately()` to skip execution if context not initialized
+- `reset()` returns state to uninitialized sentinel
+- Added 4 unit tests verifying protection behavior
+
+**Commit:** 1ce2b47
 
 ---
 
