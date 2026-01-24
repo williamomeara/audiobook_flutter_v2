@@ -134,6 +134,11 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Current operation ID for cancellation.
   int _opId = 0;
+  
+  /// H8: Cancellation completer for the current operation.
+  /// When a new operation starts, this completer is completed to signal
+  /// cancellation to any in-flight synthesis operations.
+  Completer<void>? _opCancellation;
 
   /// User's play intent (true even if auto-paused for buffering).
   bool _playIntent = false;
@@ -191,8 +196,19 @@ class AudiobookPlaybackController implements PlaybackController {
     _onStateChange?.call(newState);
   }
 
-  int _newOp() => ++_opId;
+  /// H8: Create a new operation, cancelling any previous operation.
+  /// Returns the new operation ID.
+  int _newOp() {
+    // Cancel any in-flight operation from the previous opId
+    _opCancellation?.complete();
+    _opCancellation = Completer<void>();
+    return ++_opId;
+  }
+  
   bool _isCurrentOp(int id) => id == _opId;
+  
+  /// H8: Check if the current operation has been cancelled.
+  bool get _isOpCancelled => _opCancellation?.isCompleted ?? false;
 
   @override
   Future<void> loadChapter({
@@ -210,7 +226,8 @@ class AudiobookPlaybackController implements PlaybackController {
 
     final opId = _newOp();
     await _stopPlayback();
-    if (!_isCurrentOp(opId)) {
+    // H8: Check both opId and cancellation token
+    if (!_isCurrentOp(opId) || _isOpCancelled) {
       _logger.warning('loadChapter interrupted by new operation');
       return;
     }
@@ -261,7 +278,8 @@ class AudiobookPlaybackController implements PlaybackController {
           startIndex: startIndex,
         );
 
-        if (!_isCurrentOp(opId)) {
+        // H8: Check both opId and cancellation token
+        if (!_isCurrentOp(opId) || _isOpCancelled) {
           _logger.warning('Pre-synthesis completed but operation was cancelled');
           return;
         }
@@ -343,6 +361,7 @@ class AudiobookPlaybackController implements PlaybackController {
   }
 
   /// Phase 2: Run the immediate prefetch loop.
+  /// H8: Checks both opId and cancellation token.
   Future<void> _runImmediatePrefetch({
     required List<AudioTrack> tracks,
     required int startIndex,
@@ -362,8 +381,8 @@ class AudiobookPlaybackController implements PlaybackController {
     
     // Skip first segment (already pre-synthesized), start from second
     for (var i = startIndex + 1; i <= endIndex; i++) {
-      // Check if operation is still valid
-      if (!_isCurrentOp(opId) || _disposed) {
+      // H8: Check both opId and cancellation token for immediate abort
+      if (!_isCurrentOp(opId) || _isOpCancelled || _disposed) {
         _logger.info('[Phase 2] Immediate prefetch cancelled (operation changed)');
         return;
       }
@@ -392,6 +411,13 @@ class AudiobookPlaybackController implements PlaybackController {
           PlaybackConfig.synthesisTimeout,
           onTimeout: () => throw SynthesisTimeoutException(i, PlaybackConfig.synthesisTimeout),
         );
+        
+        // H8: Check cancellation after synthesis - discard if operation changed
+        if (!_isCurrentOp(opId) || _isOpCancelled) {
+          _logger.info('[Phase 2] Discarding prefetch result - operation changed');
+          return;
+        }
+        
         _onSegmentSynthesisComplete?.call(bookId, chapterIndex, i);
         _logger.info('[Phase 2] ✓ Prefetched segment $i');
       } on SynthesisTimeoutException catch (e) {
@@ -451,7 +477,8 @@ class AudiobookPlaybackController implements PlaybackController {
     _cancelSeekDebounce();
 
     await _stopPlayback();
-    if (!_isCurrentOp(opId)) return;
+    // H8: Check both opId and cancellation token
+    if (!_isCurrentOp(opId) || _isOpCancelled) return;
 
     _scheduler.reset();
     final track = _state.queue[index];
@@ -466,7 +493,8 @@ class AudiobookPlaybackController implements PlaybackController {
 
     // Debounce AI synthesis on rapid seeks
     _seekDebounceTimer = Timer(PlaybackConfig.seekDebounce, () {
-      if (!_isCurrentOp(opId) || !_playIntent) return;
+      // H8: Check both opId and cancellation token
+      if (!_isCurrentOp(opId) || _isOpCancelled || !_playIntent) return;
       // C3: Wrap in error handler to catch unexpected errors
       unawaited(_speakCurrent(opId: opId).catchError((error, stackTrace) {
         _logger.severe('_speakCurrent failed after seek', error, stackTrace);
@@ -629,7 +657,8 @@ class AudiobookPlaybackController implements PlaybackController {
       _logger.info('Audio file: ${result.file.path}');
       _logger.info('Duration: ${result.durationMs}ms');
 
-      if (!_isCurrentOp(opId) || !_playIntent) {
+      // H8: Check both opId and cancellation token
+      if (!_isCurrentOp(opId) || _isOpCancelled || !_playIntent) {
         _logger.info('Synthesis completed but operation was cancelled or play intent changed');
         return;
       }
@@ -659,7 +688,8 @@ class AudiobookPlaybackController implements PlaybackController {
       _logger.severe('Synthesis timed out: $e');
       _onPlayIntentOverride?.call(false);
       
-      if (!_isCurrentOp(opId)) return;
+      // H8: Check cancellation token
+      if (!_isCurrentOp(opId) || _isOpCancelled) return;
       
       _updateState(_state.copyWith(
         isPlaying: false,
@@ -672,7 +702,8 @@ class AudiobookPlaybackController implements PlaybackController {
       // Clear override on error
       _onPlayIntentOverride?.call(false);
       
-      if (!_isCurrentOp(opId)) return;
+      // H8: Check cancellation token
+      if (!_isCurrentOp(opId) || _isOpCancelled) return;
 
       _updateState(_state.copyWith(
         isPlaying: false,
@@ -722,7 +753,8 @@ class AudiobookPlaybackController implements PlaybackController {
       voiceId: voiceId,
       playbackRate: _state.playbackRate,
       targetIndex: targetIdx,
-      shouldContinue: () => _isCurrentOp(opId) && _playIntent && !_disposed,
+      // H8: Include cancellation check in shouldContinue
+      shouldContinue: () => _isCurrentOp(opId) && !_isOpCancelled && _playIntent && !_disposed,
       onSynthesisStarted: _onSegmentSynthesisStarted != null
           ? (segmentIndex) => _onSegmentSynthesisStarted(bookId, chapterIndex, segmentIndex)
           : null,
@@ -761,7 +793,8 @@ class AudiobookPlaybackController implements PlaybackController {
       voiceId: voiceId,
       playbackRate: _state.playbackRate,
       currentIndex: currentIdx,
-      shouldContinue: () => _isCurrentOp(opId) && _playIntent && !_disposed,
+      // H8: Include cancellation check in shouldContinue
+      shouldContinue: () => _isCurrentOp(opId) && !_isOpCancelled && _playIntent && !_disposed,
       onSynthesisStarted: _onSegmentSynthesisStarted != null
           ? (segmentIndex) => _onSegmentSynthesisStarted(bookId, chapterIndex, segmentIndex)
           : null,
