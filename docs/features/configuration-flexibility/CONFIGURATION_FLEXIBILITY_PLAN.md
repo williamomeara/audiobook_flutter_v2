@@ -1673,7 +1673,7 @@ class RateChangeHandler {
 
 ## Implementation Plan
 
-### Phase 1: Foundation (1 sprint)
+### Phase 1: Foundation (1 sprint) ✅ COMPLETE
 
 **Goal:** Establish the configuration persistence layer that all other phases depend on.
 
@@ -1689,11 +1689,11 @@ class RateChangeHandler {
 **Deliverable:** Runtime-configurable cache budget with persistence across app restarts.
 
 **Acceptance Criteria:**
-- [ ] Config persists to SharedPreferences
-- [ ] Config loads on app start
-- [ ] Config changes logged with before/after values
-- [ ] Cache budget can be updated at runtime
-- [ ] Budget changes trigger pruning when smaller
+- [x] Config persists to SharedPreferences
+- [x] Config loads on app start
+- [x] Config changes logged with before/after values
+- [x] Cache budget can be updated at runtime
+- [x] Budget changes trigger pruning when smaller
 
 **Validation:**
 ```dart
@@ -1708,7 +1708,7 @@ final reloaded = await RuntimePlaybackConfig.load();
 assert(reloaded.cacheBudgetBytes == 1024 * 1024 * 1024);
 ```
 
-### Phase 2: Adaptive Prefetch (1-2 sprints)
+### Phase 2: Adaptive Prefetch (1-2 sprints) ✅ COMPLETE
 
 **Goal:** Replace static prefetch window with intelligent, context-aware calculation.
 
@@ -1724,19 +1724,19 @@ assert(reloaded.cacheBudgetBytes == 1024 * 1024 * 1024);
 **Deliverable:** Prefetch window adapts to queue length, RTF, charging state, and memory pressure.
 
 **Acceptance Criteria:**
-- [ ] Prefetch window never exceeds remaining queue length
-- [ ] Fast RTF (< 0.3) increases prefetch window by 1.5x
-- [ ] Charging increases prefetch window by 1.25x
-- [ ] Memory pressure reduces prefetch window
-- [ ] Resume delay configurable via RuntimePlaybackConfig
-- [ ] Manual resume works from seek bar onChangeEnd
+- [x] Prefetch window never exceeds remaining queue length
+- [x] Fast RTF (< 0.3) increases prefetch window by 1.5x
+- [x] Charging increases prefetch window by 1.25x
+- [x] Memory pressure reduces prefetch window
+- [x] Resume delay configurable via RuntimePlaybackConfig
+- [x] Manual resume works from seek bar onChangeEnd
 
 **Validation:**
 - Test with 3-segment chapter → window ≤ 3
 - Test on fast device (RTF 0.2) → window increases
 - Test on battery → window normal; charging → window larger
 
-### Phase 3: Synthesis Strategy (1 sprint)
+### Phase 3: Synthesis Strategy (1 sprint) ✅ COMPLETE
 
 **Goal:** Replace hardcoded synthesis behavior with pluggable strategy pattern.
 
@@ -1752,12 +1752,12 @@ assert(reloaded.cacheBudgetBytes == 1024 * 1024 * 1024);
 **Deliverable:** Synthesis strategy can be changed at runtime based on device state.
 
 **Acceptance Criteria:**
-- [ ] Strategy persists across restarts (via RuntimePlaybackConfig)
-- [ ] Auto-selection considers charging, low-power mode, RTF
-- [ ] Adaptive strategy learns from observed RTF
-- [ ] Strategy change logged for debugging
+- [x] Strategy persists across restarts (via RuntimePlaybackConfig)
+- [x] Auto-selection considers charging, low-power mode, RTF
+- [x] Adaptive strategy learns from observed RTF
+- [x] Strategy change logged for debugging
 
-### Phase 4: Parallel Synthesis (2 sprints)
+### Phase 4: Parallel Synthesis (2 sprints) ✅ COMPLETE
 
 **Goal:** Enable optional parallel synthesis on capable devices with memory safety.
 
@@ -1779,11 +1779,11 @@ assert(reloaded.cacheBudgetBytes == 1024 * 1024 * 1024);
 - Graceful degradation to sequential on memory pressure
 
 **Acceptance Criteria:**
-- [ ] Parallel synthesis respects semaphore limit
-- [ ] Memory pressure pauses new synthesis starts
-- [ ] Results stream to cache immediately
-- [ ] Works correctly with concurrency 1 (sequential)
-- [ ] No memory growth with increasing concurrency
+- [x] Parallel synthesis respects semaphore limit
+- [x] Memory pressure pauses new synthesis starts
+- [x] Results stream to cache immediately
+- [x] Works correctly with concurrency 1 (sequential)
+- [x] No memory growth with increasing concurrency
 
 ### Phase 5: Edge Case Handlers (1 sprint)
 
@@ -1829,7 +1829,7 @@ class AutoTuneRollback {
 }
 ```
 
-### Phase 6: User Settings (1 sprint)
+### Phase 6: User Settings (1 sprint) ✅ COMPLETE
 
 **Goal:** Expose appropriate controls to users who want fine-tuning.
 
@@ -1846,11 +1846,11 @@ class AutoTuneRollback {
 **Deliverable:** Power user controls for cache and synthesis behavior.
 
 **Acceptance Criteria:**
-- [ ] Default settings work without user intervention
-- [ ] Advanced settings hidden behind "Advanced" section
-- [ ] Each setting has explanatory subtitle
-- [ ] Changes apply immediately
-- [ ] "Reset to Defaults" available
+- [x] Default settings work without user intervention
+- [x] Advanced settings hidden behind "Advanced" section
+- [x] Each setting has explanatory subtitle
+- [x] Changes apply immediately
+- [x] "Reset to Defaults" available
 
 ---
 

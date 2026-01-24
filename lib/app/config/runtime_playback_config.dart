@@ -52,6 +52,7 @@ class RuntimePlaybackConfig {
     this.resumeDelayMs = 500,
     this.rateIndependentSynthesis = true,
     this.synthesisStrategyState,
+    this.engineCalibration,
     DateTime? lastModified,
   }) : lastModified = lastModified ?? DateTime.now();
 
@@ -123,6 +124,32 @@ class RuntimePlaybackConfig {
   /// - Number of completed synthesis operations
   /// - Adjusted preSynthesizeCount
   final Map<String, dynamic>? synthesisStrategyState;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Engine Calibration Settings (Phase 2)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Calibration results for each TTS engine.
+  ///
+  /// Maps engine type (e.g., 'kokoro', 'piper') to calibration data.
+  /// Each entry contains:
+  /// - 'optimalConcurrency': int - optimal parallel concurrency for this device
+  /// - 'speedup': double - measured speedup factor vs sequential
+  /// - 'rtf': double - real-time factor at optimal concurrency
+  /// - 'calibratedAt': ISO8601 string - when calibration was performed
+  ///
+  /// Example:
+  /// ```json
+  /// {
+  ///   "kokoro": {
+  ///     "optimalConcurrency": 3,
+  ///     "speedup": 1.65,
+  ///     "rtf": 2.1,
+  ///     "calibratedAt": "2026-01-24T10:30:00Z"
+  ///   }
+  /// }
+  /// ```
+  final Map<String, Map<String, dynamic>>? engineCalibration;
 
   // ═══════════════════════════════════════════════════════════════════
   // Metadata
@@ -201,6 +228,7 @@ class RuntimePlaybackConfig {
     int? resumeDelayMs,
     bool? rateIndependentSynthesis,
     Map<String, dynamic>? synthesisStrategyState,
+    Map<String, Map<String, dynamic>>? engineCalibration,
   }) {
     // Log significant changes
     _logChanges(
@@ -224,6 +252,7 @@ class RuntimePlaybackConfig {
           rateIndependentSynthesis ?? this.rateIndependentSynthesis,
       synthesisStrategyState:
           synthesisStrategyState ?? this.synthesisStrategyState,
+      engineCalibration: engineCalibration ?? this.engineCalibration,
       lastModified: DateTime.now(),
     );
   }
@@ -267,6 +296,7 @@ class RuntimePlaybackConfig {
         'resumeDelayMs': resumeDelayMs,
         'rateIndependentSynthesis': rateIndependentSynthesis,
         'synthesisStrategyState': synthesisStrategyState,
+        'engineCalibration': engineCalibration,
         'lastModified': lastModified.toIso8601String(),
       };
 
@@ -281,10 +311,26 @@ class RuntimePlaybackConfig {
           json['rateIndependentSynthesis'] as bool? ?? true,
       synthesisStrategyState:
           json['synthesisStrategyState'] as Map<String, dynamic>?,
+      engineCalibration: _parseEngineCalibration(json['engineCalibration']),
       lastModified: json['lastModified'] != null
           ? DateTime.tryParse(json['lastModified'] as String)
           : null,
     );
+  }
+
+  static Map<String, Map<String, dynamic>>? _parseEngineCalibration(
+    dynamic value,
+  ) {
+    if (value == null) return null;
+    if (value is! Map<String, dynamic>) return null;
+
+    final result = <String, Map<String, dynamic>>{};
+    for (final entry in value.entries) {
+      if (entry.value is Map<String, dynamic>) {
+        result[entry.key] = entry.value as Map<String, dynamic>;
+      }
+    }
+    return result.isEmpty ? null : result;
   }
 
   static PrefetchMode _parsePrefetchMode(dynamic value) {
@@ -325,6 +371,88 @@ class RuntimePlaybackConfig {
   /// Whether prefetch is enabled.
   bool get isPrefetchEnabled => prefetchMode != PrefetchMode.off;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Engine Calibration Methods
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Check if an engine has been calibrated.
+  bool isEngineCalibrated(String engineType) {
+    return engineCalibration?.containsKey(engineType.toLowerCase()) ?? false;
+  }
+
+  /// Get the optimal concurrency for an engine (from calibration or default).
+  ///
+  /// Returns calibrated value if available, otherwise falls back to
+  /// PlaybackConfig defaults.
+  int getOptimalConcurrency(String engineType) {
+    final key = engineType.toLowerCase();
+    if (engineCalibration != null && engineCalibration!.containsKey(key)) {
+      final data = engineCalibration![key]!;
+      return data['optimalConcurrency'] as int? ?? _defaultConcurrency(key);
+    }
+    return _defaultConcurrency(key);
+  }
+
+  /// Get calibration speedup for an engine (null if not calibrated).
+  double? getCalibrationSpeedup(String engineType) {
+    final key = engineType.toLowerCase();
+    if (engineCalibration != null && engineCalibration!.containsKey(key)) {
+      return engineCalibration![key]!['speedup'] as double?;
+    }
+    return null;
+  }
+
+  /// Get calibration RTF for an engine (null if not calibrated).
+  double? getCalibrationRtf(String engineType) {
+    final key = engineType.toLowerCase();
+    if (engineCalibration != null && engineCalibration!.containsKey(key)) {
+      return engineCalibration![key]!['rtf'] as double?;
+    }
+    return null;
+  }
+
+  /// Get when an engine was calibrated (null if not calibrated).
+  DateTime? getCalibrationTime(String engineType) {
+    final key = engineType.toLowerCase();
+    if (engineCalibration != null && engineCalibration!.containsKey(key)) {
+      final timestamp = engineCalibration![key]!['calibratedAt'] as String?;
+      if (timestamp != null) {
+        return DateTime.tryParse(timestamp);
+      }
+    }
+    return null;
+  }
+
+  /// Update calibration for a specific engine.
+  ///
+  /// Returns a new config with the calibration added/updated.
+  RuntimePlaybackConfig withEngineCalibration({
+    required String engineType,
+    required int optimalConcurrency,
+    required double speedup,
+    required double rtf,
+  }) {
+    final key = engineType.toLowerCase();
+    final existing = engineCalibration ?? {};
+    final updated = Map<String, Map<String, dynamic>>.from(existing);
+    updated[key] = {
+      'optimalConcurrency': optimalConcurrency,
+      'speedup': speedup,
+      'rtf': rtf,
+      'calibratedAt': DateTime.now().toIso8601String(),
+    };
+    return copyWith(engineCalibration: updated);
+  }
+
+  static int _defaultConcurrency(String engineType) {
+    return switch (engineType) {
+      'kokoro' => 2,
+      'piper' => 2,
+      'supertonic' => 2,
+      _ => 1,
+    };
+  }
+
   @override
   String toString() {
     return 'RuntimePlaybackConfig('
@@ -334,7 +462,8 @@ class RuntimePlaybackConfig {
         'parallelSynthesisThreads: $parallelSynthesisThreads, '
         'resumeDelayMs: $resumeDelayMs, '
         'rateIndependentSynthesis: $rateIndependentSynthesis, '
-        'hasStrategyState: ${synthesisStrategyState != null})';
+        'hasStrategyState: ${synthesisStrategyState != null}, '
+        'calibratedEngines: ${engineCalibration?.keys.toList()})';
   }
 
   @override
@@ -347,7 +476,8 @@ class RuntimePlaybackConfig {
         other.parallelSynthesisThreads == parallelSynthesisThreads &&
         other.resumeDelayMs == resumeDelayMs &&
         other.rateIndependentSynthesis == rateIndependentSynthesis &&
-        _mapEquals(other.synthesisStrategyState, synthesisStrategyState);
+        _mapEquals(other.synthesisStrategyState, synthesisStrategyState) &&
+        _nestedMapEquals(other.engineCalibration, engineCalibration);
   }
 
   static bool _mapEquals(Map<String, dynamic>? a, Map<String, dynamic>? b) {
@@ -356,6 +486,19 @@ class RuntimePlaybackConfig {
     if (a.length != b.length) return false;
     for (final key in a.keys) {
       if (!b.containsKey(key) || a[key] != b[key]) return false;
+    }
+    return true;
+  }
+
+  static bool _nestedMapEquals(
+    Map<String, Map<String, dynamic>>? a,
+    Map<String, Map<String, dynamic>>? b,
+  ) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || !_mapEquals(a[key], b[key])) return false;
     }
     return true;
   }
@@ -369,5 +512,6 @@ class RuntimePlaybackConfig {
         resumeDelayMs,
         rateIndependentSynthesis,
         synthesisStrategyState?.hashCode,
+        engineCalibration?.hashCode,
       );
 }

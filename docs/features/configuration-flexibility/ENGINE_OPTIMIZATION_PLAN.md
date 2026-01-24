@@ -1,7 +1,7 @@
 # Engine Optimization: Auto-Tuning and User Controls Plan
 
 **Date:** 2026-01-24  
-**Status:** Proposed  
+**Status:** ✅ Complete  
 **Related:** Phase 4 Parallel Synthesis, Configuration Flexibility
 
 ## Background
@@ -141,30 +141,31 @@ class RuntimePlaybackConfig {
 
 ## Implementation Tasks
 
-### Phase 1: Enable Defaults (1 day)
-- [ ] Set `parallelSynthesisEnabled = true` in PlaybackConfig
-- [ ] Set `kokoroConcurrency = 2` as default
-- [ ] Test on multiple devices
+### Phase 1: Enable Defaults (1 day) ✅ COMPLETE
+- [x] Set `parallelSynthesisEnabled = true` in PlaybackConfig
+- [x] Set `kokoroConcurrency = 2` as default
+- [x] Test on multiple devices
 
-### Phase 2: Calibration Service (3-4 days)
-- [ ] Create `EngineCalibrationService` class
-- [ ] Add quick calibration method (3 segments × 3 concurrency levels)
-- [ ] Store results in RuntimePlaybackConfig
-- [ ] Add calibration dialog UI
-- [ ] Hook into first-use voice selection
+### Phase 2: Calibration Service (3-4 days) ✅ COMPLETE
+- [x] Create `EngineCalibrationService` class
+- [x] Add quick calibration method (3 segments × 3 concurrency levels)
+- [x] Store results in RuntimePlaybackConfig
+- [x] Add calibration dialog UI
+- [x] Hook into first-use voice selection
 
-### Phase 3: Settings UI (2-3 days)
-- [ ] Add "Audio Performance" section to Settings
-- [ ] Show calibration status per engine
-- [ ] Add "Optimize" button for uncalibrated engines
-- [ ] Add collapsible "Advanced" section
-- [ ] Add manual concurrency pickers
-- [ ] Add "Reset to Defaults" button
+### Phase 3: Settings UI (2-3 days) ✅ COMPLETE
+- [x] Add "Audio Performance" section to Settings
+- [x] Show calibration status per engine
+- [x] Add "Optimize" button for uncalibrated engines
+- [x] Add collapsible "Advanced" section
+- [x] Add manual concurrency pickers
+- [x] Add "Reset to Defaults" button
+- [x] Display RTF results with recommendation (RTF < 1 = recommended)
 
-### Phase 4: Integration (1-2 days)
-- [ ] Wire BufferScheduler to use stored concurrency
-- [ ] Update ParallelSynthesisOrchestrator to read config
-- [ ] Add logging for debugging
+### Phase 4: Integration (1-2 days) ✅ COMPLETE
+- [x] Wire BufferScheduler to use stored concurrency
+- [x] Update ParallelSynthesisOrchestrator to read config
+- [x] Add logging for debugging
 
 ---
 

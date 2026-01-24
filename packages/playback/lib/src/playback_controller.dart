@@ -82,6 +82,7 @@ class AudiobookPlaybackController implements PlaybackController {
     SegmentSynthesisCallback? onSegmentSynthesisComplete,
     PlayIntentOverrideCallback? onPlayIntentOverride,
     MemoryMonitor? memoryMonitor,
+    int? parallelConcurrency,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _smartSynthesisManager = smartSynthesisManager,
@@ -92,7 +93,7 @@ class AudiobookPlaybackController implements PlaybackController {
         _scheduler = BufferScheduler(resourceMonitor: resourceMonitor),
         _parallelOrchestrator = PlaybackConfig.parallelSynthesisEnabled
             ? ParallelSynthesisOrchestrator(
-                maxConcurrency: PlaybackConfig.kokoroConcurrency, // Default to Kokoro
+                maxConcurrency: parallelConcurrency ?? PlaybackConfig.kokoroConcurrency,
                 memoryMonitor: memoryMonitor ?? MockMemoryMonitor(),
               )
             : null {
@@ -572,6 +573,18 @@ class AudiobookPlaybackController implements PlaybackController {
         _startPrefetchIfNeeded();
       },
     );
+  }
+
+  /// Update parallel synthesis concurrency (e.g., after engine calibration).
+  ///
+  /// This is called when calibration completes or when the user switches
+  /// to a different TTS engine with different optimal settings.
+  void updateParallelConcurrency(int concurrency, {String? source}) {
+    _parallelOrchestrator?.updateConcurrency(
+      concurrency,
+      source: source,
+    );
+    _logger.info('Parallel concurrency updated to $concurrency (source: ${source ?? "unknown"})');
   }
 
   @override

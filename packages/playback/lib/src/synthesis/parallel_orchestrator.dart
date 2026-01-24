@@ -75,12 +75,20 @@ class ParallelSynthesisOrchestrator {
         _memoryMonitor = memoryMonitor,
         _memoryThresholdBytes =
             memoryThresholdBytes ?? PlatformMemoryMonitor.defaultThresholdBytes,
-        _semaphore = Semaphore(maxConcurrency.clamp(1, 4));
+        _semaphore = Semaphore(maxConcurrency.clamp(1, 4)) {
+    developer.log(
+      '[ParallelOrchestrator] Created with maxConcurrency=$_maxConcurrency '
+      '(source: ${_concurrencySource ?? "constructor"})',
+    );
+  }
 
-  final int _maxConcurrency;
+  int _maxConcurrency;
   final MemoryMonitor _memoryMonitor;
   final int _memoryThresholdBytes;
-  final Semaphore _semaphore;
+  Semaphore _semaphore;
+  
+  /// Source of the concurrency setting for debugging.
+  String? _concurrencySource;
 
   /// Track in-flight synthesis operations.
   final Set<int> _inFlightIndices = {};
@@ -91,6 +99,56 @@ class ParallelSynthesisOrchestrator {
   int get maxConcurrency => _maxConcurrency;
   int get activeCount => _inFlightIndices.length;
   bool get hasCapacity => _semaphore.hasAvailable;
+
+  /// Update the maximum concurrency (e.g., after engine calibration).
+  ///
+  /// This takes effect for the next batch of synthesis operations.
+  /// **Important**: Will not update if synthesis operations are in-flight to
+  /// avoid orphaned semaphore waiters that could hang indefinitely.
+  void updateConcurrency(int newConcurrency, {String? source}) {
+    final clamped = newConcurrency.clamp(1, 4);
+    if (clamped == _maxConcurrency) return;
+    
+    // Prevent update if synthesis is active to avoid orphaning waiters
+    if (_inFlightIndices.isNotEmpty) {
+      developer.log(
+        '[ParallelOrchestrator] Cannot update concurrency during active synthesis '
+        '(${_inFlightIndices.length} in-flight). Will apply on next batch.',
+      );
+      // Store pending update to apply when synthesis completes
+      _pendingConcurrencyUpdate = clamped;
+      _pendingConcurrencySource = source;
+      return;
+    }
+    
+    _applyNewConcurrency(clamped, source);
+  }
+  
+  /// Pending concurrency update to apply when current synthesis completes.
+  int? _pendingConcurrencyUpdate;
+  String? _pendingConcurrencySource;
+  
+  /// Apply a concurrency update (called when safe to do so).
+  void _applyNewConcurrency(int newConcurrency, String? source) {
+    final oldConcurrency = _maxConcurrency;
+    _maxConcurrency = newConcurrency;
+    _concurrencySource = source;
+    _semaphore = Semaphore(newConcurrency);
+    
+    developer.log(
+      '[ParallelOrchestrator] Concurrency updated: $oldConcurrency -> $newConcurrency '
+      '(source: ${source ?? "unknown"})',
+    );
+  }
+  
+  /// Apply any pending concurrency update after synthesis completes.
+  void _applyPendingConcurrencyUpdate() {
+    if (_pendingConcurrencyUpdate != null) {
+      _applyNewConcurrency(_pendingConcurrencyUpdate!, _pendingConcurrencySource);
+      _pendingConcurrencyUpdate = null;
+      _pendingConcurrencySource = null;
+    }
+  }
 
   /// Synthesize multiple segments with controlled parallelism.
   ///
@@ -283,6 +341,11 @@ class ParallelSynthesisOrchestrator {
     } finally {
       _inFlightIndices.remove(index);
       _semaphore.release();
+      
+      // Apply any pending concurrency update if all synthesis is complete
+      if (_inFlightIndices.isEmpty) {
+        _applyPendingConcurrencyUpdate();
+      }
     }
   }
 

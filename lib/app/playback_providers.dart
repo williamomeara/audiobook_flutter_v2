@@ -322,6 +322,13 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       final resourceMonitor = ref.read(resourceMonitorProvider);
       PlaybackLogger.info('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
 
+      // Phase 2: Get calibrated parallel concurrency
+      final selectedVoice = ref.read(settingsProvider).selectedVoice;
+      final engineType = VoiceIds.engineFor(selectedVoice);
+      final runtimeConfig = await ref.read(runtimePlaybackConfigProvider.future);
+      final parallelConcurrency = runtimeConfig.getOptimalConcurrency(engineType.name);
+      PlaybackLogger.info('[PlaybackProvider] Parallel concurrency for ${engineType.name}: $parallelConcurrency');
+
       // Create audio output externally so we can access its player
       // for audio service integration (system media controls)
       PlaybackLogger.info('[PlaybackProvider] Creating audio output...');
@@ -336,6 +343,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
         smartSynthesisManager: smartSynthesisManager,
         resourceMonitor: resourceMonitor,  // Phase 2
+        parallelConcurrency: parallelConcurrency, // Phase 2: Calibrated concurrency
         onStateChange: (newState) {
           // Update Riverpod state when controller state changes
           state = AsyncData(newState);

@@ -14,13 +14,26 @@ class KokoroSherpaInference {
         return tts != nil
     }
     
+    /// Determine optimal thread count based on device CPU cores.
+    /// Kokoro benefits from more threads (up to 4) on high-core devices.
+    static func getOptimalThreadCount() -> Int32 {
+        let cpuCores = ProcessInfo.processInfo.processorCount
+        switch cpuCores {
+        case 8...: return 4  // High-end devices: use 4 threads
+        case 6..<8: return 3  // Mid-range: use 3 threads
+        case 4..<6: return 2  // Budget: use 2 threads
+        default: return 1     // Low-end: single thread
+        }
+    }
+    
     /// Load a Kokoro model.
     /// - Parameters:
     ///   - modelPath: Path to the kokoro model.onnx file
     ///   - voicesPath: Path to the voices.bin file
     ///   - tokensPath: Path to the tokens.txt file
     ///   - dataDir: Optional path to data directory (for espeak-ng)
-    func loadModel(modelPath: String, voicesPath: String, tokensPath: String, dataDir: String? = nil) throws {
+    ///   - numThreads: Optional thread count override (nil = auto-detect)
+    func loadModel(modelPath: String, voicesPath: String, tokensPath: String, dataDir: String? = nil, numThreads: Int32? = nil) throws {
         // Unload any existing model
         unload()
         
@@ -35,6 +48,10 @@ class KokoroSherpaInference {
         guard FileManager.default.fileExists(atPath: tokensPath) else {
             throw TtsError.invalidInput("Tokens file not found: \(tokensPath)")
         }
+        
+        // Use configured threads or auto-detect optimal count
+        let threads = numThreads ?? Self.getOptimalThreadCount()
+        print("[KokoroSherpaInference] CPU cores: \(ProcessInfo.processInfo.processorCount), using \(threads) threads")
         
         // Configure Kokoro model
         // For multi-lingual Kokoro v1.0+, specify English language
@@ -51,7 +68,7 @@ class KokoroSherpaInference {
         // Use CPU provider to avoid CoreML memory conflicts with Supertonic
         let modelConfig = sherpaOnnxOfflineTtsModelConfig(
             kokoro: kokoroConfig,
-            numThreads: 4,
+            numThreads: threads,
             provider: "cpu"
         )
         

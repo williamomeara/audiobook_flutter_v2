@@ -97,6 +97,30 @@ class RuntimePlaybackConfigNotifier
         (config) => config.copyWith(rateIndependentSynthesis: enabled));
   }
 
+  /// Save calibration result for an engine.
+  ///
+  /// Updates the stored calibration data for the specified engine type.
+  Future<void> saveCalibration({
+    required String engineType,
+    required int optimalConcurrency,
+    required double speedup,
+    required double rtf,
+  }) async {
+    await updateConfig(
+      (config) => config.withEngineCalibration(
+        engineType: engineType,
+        optimalConcurrency: optimalConcurrency,
+        speedup: speedup,
+        rtf: rtf,
+      ),
+    );
+    developer.log(
+      'RuntimePlaybackConfig: Saved calibration for $engineType '
+      '(concurrency: $optimalConcurrency, speedup: ${speedup.toStringAsFixed(2)}x)',
+      name: 'RuntimePlaybackConfigNotifier',
+    );
+  }
+
   /// Reset configuration to defaults.
   ///
   /// Clears all customizations and saves the default configuration.

@@ -16,8 +16,24 @@ import java.io.File
  * (model.onnx + model.onnx.json) and sherpa-onnx format (model.onnx + tokens.txt + espeak-ng-data).
  */
 class PiperSherpaInference(
-    private val modelPath: String
+    private val modelPath: String,
+    private val numThreads: Int? = null  // null = auto-detect (usually 2 is optimal for fast Piper)
 ) {
+    companion object {
+        /**
+         * Optimal thread count for Piper.
+         * Piper is already very fast - 2 threads is usually sufficient.
+         * Using more threads may not improve performance significantly.
+         */
+        fun getOptimalThreadCount(): Int {
+            val cpuCores = Runtime.getRuntime().availableProcessors()
+            return when {
+                cpuCores >= 8 -> 2  // Piper is fast - 2 is enough
+                cpuCores >= 4 -> 2
+                else -> 1
+            }
+        }
+    }
     private var tts: OfflineTts? = null
     
     /**
@@ -65,10 +81,14 @@ class PiperSherpaInference(
             // Determine data directory - can be empty if not available
             val dataDir = if (espeakDataDir.exists()) espeakDataDir.absolutePath else ""
             
+            // Use configured threads or auto-detect (Piper is fast, 2 is usually optimal)
+            val threads = numThreads ?: getOptimalThreadCount()
+            
             android.util.Log.d("PiperSherpaInference", "Creating OfflineTts config for: $modelPath")
             android.util.Log.d("PiperSherpaInference", "  model: ${modelFile.absolutePath}")
             android.util.Log.d("PiperSherpaInference", "  tokens: ${tokensFile.absolutePath}")
             android.util.Log.d("PiperSherpaInference", "  dataDir: $dataDir")
+            android.util.Log.d("PiperSherpaInference", "  threads: $threads")
             
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
@@ -77,7 +97,7 @@ class PiperSherpaInference(
                         tokens = tokensFile.absolutePath,
                         dataDir = dataDir
                     ),
-                    numThreads = 2,
+                    numThreads = threads,
                     debug = false
                 )
             )
