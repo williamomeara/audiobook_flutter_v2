@@ -266,13 +266,28 @@ The timeout is set to 60 seconds (generous for most segments). On timeout:
 
 ---
 
-### H8. Operation ID Invalidation Without Cancellation
+### ✅ H8. Operation ID Invalidation Without Cancellation - FIXED
 
-**Location:** `packages/playback/lib/src/playback_controller.dart` lines 208-212, 343-346
+**Location:** `packages/playback/lib/src/playback_controller.dart`
 
 **Problem:** When `_isCurrentOp(opId)` returns false, operations return silently but background tasks may continue. Old synthesis might complete and queue events that nothing consumes.
 
-**Recommendation:** Actually cancel background operations when opId changes.
+**Fix Applied:**
+- Added `_opCancellation` Completer field to track active operation
+- Modified `_newOp()` to complete the previous cancellation and create a new one
+- Added `_isOpCancelled` getter for easy checking
+- Added cancellation checks throughout:
+  - `loadChapter()` - after stopPlayback and after prepareForPlayback
+  - `_runImmediatePrefetch()` - before loop and after synthesis
+  - `_speakCurrent()` - after synthesis and in catch blocks
+  - `seekToTrack()` - after stopPlayback and in debounce timer
+  - `shouldContinue` callbacks in `_startPrefetchIfNeeded()` and `_startImmediateNextPrefetch()`
+
+This complements H1 (scheduler-level cancellation) by providing controller-level cancellation. When a new operation starts via `_newOp()`, both:
+1. The opId check returns false for old operations
+2. The cancellation completer is completed, signaling in-flight awaits
+
+**Commit:** (pending)
 
 ---
 
@@ -716,7 +731,7 @@ All 322 tests in the suite now pass.
 | Issue | Effort | Risk | Status |
 |-------|--------|------|--------|
 | ~~H1. Context invalidation cancellation~~ | ~~Medium~~ | ~~Medium~~ | ✅ FIXED |
-| H8. opId cancellation | Medium | Medium | TODO |
+| ~~H8. opId cancellation~~ | ~~Medium~~ | ~~Medium~~ | ✅ FIXED |
 | H9. Error classification/retry | High | Low | TODO |
 | M6. Prefetch deduplication | Medium | Low | TODO |
 | M13. Synthesis cancellation | High | Medium | TODO |
@@ -732,17 +747,14 @@ All 322 tests in the suite now pass.
 
 ## 📊 PROGRESS SUMMARY
 
-**Completed:** 14 issues
+**Completed:** 15 issues
 - C1, C2, C3, C4 (Critical race conditions & error handling)
 - C5, H4 (Verified not issues)
-- H1, H2, H3, H6, H7, H10 (High priority fixes)
+- H1, H2, H3, H6, H7, H8, H10 (High priority fixes)
 
-**Remaining High Priority:** 1 issue
-- H8: opId cancellation (Medium effort)
+**Remaining High Priority:** None - all critical and high priority issues resolved!
 
-**Recommended Next Steps:**
-1. **H8 - opId cancellation** (Medium effort, Complements H1 fix)
-2. Feature freeze for beta stability testing
+**Status:** Ready for beta stability testing. Remaining issues (H9, M6, M13, etc.) are enhancements that can be addressed post-beta based on user feedback.
 
 ---
 
