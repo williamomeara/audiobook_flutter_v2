@@ -148,15 +148,19 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 
 ---
 
-### H4. Error State Not Cleared on Subsequent Operations
+### ✅ H4. Error State Not Cleared on Subsequent Operations - VERIFIED NOT AN ISSUE
 
 **Location:** `packages/playback/lib/src/playback_state.dart` line 67
 
-**Problem:** When `copyWith()` is called without explicitly passing `error: null`, the error state persists. After a synthesis error, calling `play()` doesn't clear the error message.
+**Original Concern:** When `copyWith()` is called without explicitly passing `error: null`, the error state persists. After a synthesis error, calling `play()` doesn't clear the error message.
 
-**Impact:** User sees old error after retry.
+**Verification:** The audit description was incorrect. Line 67 uses `error: error,` (NOT `error: error ?? this.error`), which means when copyWith() is called without an error parameter, the error IS cleared to null. This is the correct "clear on any change" behavior.
 
-**Recommendation:** Auto-clear error on state changes or require explicit `error: null`.
+**Tests Added:** Created verification tests confirming:
+- copyWith() without error param clears any existing error
+- Error is properly cleared when user retries (e.g., hits play)
+
+**Status:** NOT AN ISSUE - Implementation was already correct.
 
 ---
 
@@ -210,9 +214,9 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 
 ---
 
-### H10. Missing Comprehensive State Machine Tests
+### ✅ H10. Missing Comprehensive State Machine Tests - FIXED
 
-**Location:** Test coverage gap
+**Location:** `test/playback/playback_state_machine_test.dart`
 
 **Problem:** No visible tests for:
 - Rapid play/pause/seek sequences
@@ -220,7 +224,17 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 - Loading chapter while current chapter is playing
 - Error recovery scenarios
 
-**Recommendation:** Add comprehensive state machine test suite.
+**Fix Applied:** Created comprehensive test suite with 23 tests covering:
+- **Rapid play/pause sequences** (2 tests): play-pause-play sequences, pause during buffering
+- **Dispose during operations** (2 tests): dispose during synthesis, dispose during playback
+- **Loading chapter while playing** (2 tests): loading new chapter cancels current, loading during synthesis
+- **Error recovery scenarios** (3 tests): synthesis error, error clears on retry, audio error
+- **Track navigation** (4 tests): nextTrack, previousTrack, boundary conditions
+- **Seek operations** (2 tests): seekToTrack, rapid seeks debounce
+- **State transitions** (3 tests): initial state, loading, play
+- **PlaybackState unit tests** (5 tests): copyWith, currentIndex, hasNextTrack/hasPreviousTrack
+
+All 322 tests in the suite now pass.
 
 ---
 
