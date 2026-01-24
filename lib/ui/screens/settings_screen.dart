@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:playback/playback.dart';
 import 'package:tts_engines/tts_engines.dart';
 
+import '../../app/calibration_providers.dart';
+import '../../app/config/config_providers.dart';
 import '../../app/granular_download_manager.dart';
 import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
@@ -181,11 +183,11 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 20),
 
-                    // Engine Optimization section (Phase 4: Auto-tuning)
+                    // Audio Performance section (Phase 3: Enhanced calibration UI)
                     _SectionCard(
-                      title: 'Engine Optimization',
+                      title: 'Audio Performance',
                       children: [
-                        _EngineOptimizationRow(colors: colors),
+                        _AudioPerformanceSection(colors: colors),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -697,7 +699,492 @@ class _VoiceOptionState extends ConsumerState<_VoiceOption> {
   }
 }
 
+/// Audio Performance section with per-engine calibration and advanced settings.
+class _AudioPerformanceSection extends ConsumerStatefulWidget {
+  const _AudioPerformanceSection({required this.colors});
+
+  final AppThemeColors colors;
+
+  @override
+  ConsumerState<_AudioPerformanceSection> createState() => _AudioPerformanceSectionState();
+}
+
+class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSection> {
+  bool _showAdvanced = false;
+  bool _isOptimizing = false;
+  String? _optimizingEngine;
+  int _progress = 0;
+  int _total = 0;
+
+  // List of engine types to show (ordered by speed: fastest first)
+  // Piper and Supertonic are fast (RTF < 1), Kokoro is slow (RTF > 1)
+  static const _engines = [
+    (type: EngineType.piper, name: 'Piper', icon: Icons.record_voice_over),
+    (type: EngineType.supertonic, name: 'Supertonic', icon: Icons.surround_sound),
+    (type: EngineType.kokoro, name: 'Kokoro', icon: Icons.auto_awesome),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final runtimeConfig = ref.watch(runtimePlaybackConfigProvider).value;
+    final selectedVoice = ref.watch(settingsProvider.select((s) => s.selectedVoice));
+    final currentEngine = VoiceIds.engineFor(selectedVoice);
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Engine calibration status list
+          Text(
+            'Engine Calibration',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: widget.colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          
+          // Per-engine calibration rows
+          ..._engines.map((engine) => _buildEngineRow(
+            engine: engine.type,
+            name: engine.name,
+            icon: engine.icon,
+            isCurrentEngine: engine.type == currentEngine,
+            runtimeConfig: runtimeConfig,
+          )),
+
+          const SizedBox(height: 16),
+          
+          // Re-calibrate All button
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: _isOptimizing ? null : _recalibrateAll,
+              icon: _isOptimizing
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: widget.colors.primary,
+                      ),
+                    )
+                  : const Icon(Icons.tune),
+              label: Text(_isOptimizing ? 'Optimizing...' : 'Re-calibrate All'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: widget.colors.primary,
+                side: BorderSide(color: widget.colors.primary),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+          
+          // Advanced settings (collapsible)
+          InkWell(
+            onTap: () => setState(() => _showAdvanced = !_showAdvanced),
+            child: Row(
+              children: [
+                Icon(
+                  _showAdvanced ? Icons.expand_less : Icons.expand_more,
+                  color: widget.colors.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Advanced Settings',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: widget.colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          if (_showAdvanced) ...[
+            const SizedBox(height: 16),
+            _buildAdvancedSettings(runtimeConfig),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEngineRow({
+    required EngineType engine,
+    required String name,
+    required IconData icon,
+    required bool isCurrentEngine,
+    RuntimePlaybackConfig? runtimeConfig,
+  }) {
+    final isCalibrated = runtimeConfig?.isEngineCalibrated(engine.name) ?? false;
+    final speedup = runtimeConfig?.getCalibrationSpeedup(engine.name);
+    final rtf = runtimeConfig?.getCalibrationRtf(engine.name);
+    final concurrency = runtimeConfig?.getOptimalConcurrency(engine.name) ?? 2;
+    final isOptimizingThis = _isOptimizing && _optimizingEngine == engine.name;
+    
+    // RTF < 1 means faster than real-time (recommended)
+    final isRtfGood = rtf != null && rtf < 1.0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: widget.colors.textSecondary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: widget.colors.text,
+                      ),
+                    ),
+                    if (isCurrentEngine) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: widget.colors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'Active',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: widget.colors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                if (isCalibrated) ...[
+                  Text(
+                    '${concurrency}x parallel${speedup != null && speedup > 1.0 ? ' (+${((speedup - 1) * 100).round()}%)' : ''} • RTF: ${rtf?.toStringAsFixed(2) ?? 'N/A'}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: widget.colors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isRtfGood
+                        ? '✓ Recommended (faster than real-time)'
+                        : '⚠ Not recommended (slower than real-time)',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: isRtfGood ? Colors.green : Colors.orange,
+                    ),
+                  ),
+                ] else
+                  Text(
+                    'Not calibrated',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: widget.colors.textTertiary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (isOptimizingThis)
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                value: _total > 0 ? _progress / _total : null,
+                color: widget.colors.primary,
+              ),
+            )
+          else if (isCalibrated)
+            Icon(Icons.check_circle, color: Colors.green, size: 20)
+          else
+            IconButton(
+              onPressed: () => _optimizeEngine(engine),
+              icon: Icon(Icons.tune, color: widget.colors.primary),
+              iconSize: 20,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdvancedSettings(RuntimePlaybackConfig? runtimeConfig) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Per-engine concurrency pickers
+        ..._engines.map((engine) => _buildConcurrencyPicker(
+          engineType: engine.type,
+          name: engine.name,
+          runtimeConfig: runtimeConfig,
+        )),
+        
+        const SizedBox(height: 16),
+        
+        // Reset to Defaults button
+        Center(
+          child: TextButton.icon(
+            onPressed: _resetToDefaults,
+            icon: const Icon(Icons.restore),
+            label: const Text('Reset to Defaults'),
+            style: TextButton.styleFrom(
+              foregroundColor: widget.colors.textSecondary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConcurrencyPicker({
+    required EngineType engineType,
+    required String name,
+    RuntimePlaybackConfig? runtimeConfig,
+  }) {
+    final current = runtimeConfig?.getOptimalConcurrency(engineType.name) ?? 2;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              name,
+              style: TextStyle(
+                fontSize: 14,
+                color: widget.colors.text,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Use smaller, fixed-width buttons
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [1, 2, 3, 4].map((level) {
+              final isSelected = current == level;
+              return Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: InkWell(
+                  onTap: () => _setConcurrency(engineType, level),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Container(
+                    width: 32,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? widget.colors.primary
+                          : widget.colors.backgroundSecondary,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: isSelected
+                            ? widget.colors.primary
+                            : widget.colors.border,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '$level',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: isSelected
+                            ? Colors.white
+                            : widget.colors.text,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _optimizeEngine(EngineType engine) async {
+    // Get voice ID for this engine
+    final voiceId = _getVoiceForEngine(engine);
+    if (voiceId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No ${engine.name} voice available')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isOptimizing = true;
+      _optimizingEngine = engine.name;
+      _progress = 0;
+      _total = 3;
+    });
+
+    try {
+      final routingEngine = await ref.read(ttsRoutingEngineProvider.future);
+      final cacheManager = await ref.read(intelligentCacheManagerProvider.future);
+      final calibrationService = ref.read(engineCalibrationServiceProvider);
+
+      final result = await calibrationService.calibrateEngine(
+        routingEngine: routingEngine,
+        voiceId: voiceId,
+        onProgress: (step, total, message) {
+          if (mounted) {
+            setState(() {
+              _progress = step;
+              _total = total;
+            });
+          }
+        },
+        clearCacheFunc: () => cacheManager.clear(),
+      );
+
+      await ref.read(runtimePlaybackConfigProvider.notifier).saveCalibration(
+        engineType: engine.name,
+        optimalConcurrency: result.optimalConcurrency,
+        speedup: result.expectedSpeedup,
+        rtf: result.rtfAtOptimal,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Optimization failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOptimizing = false;
+          _optimizingEngine = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _recalibrateAll() async {
+    // Set flag once for entire operation to prevent concurrent calibrations
+    setState(() {
+      _isOptimizing = true;
+    });
+
+    try {
+      for (final engine in _engines) {
+        if (!mounted) break;
+        
+        final voiceId = _getVoiceForEngine(engine.type);
+        if (voiceId == null) continue;
+
+        if (mounted) {
+          setState(() {
+            _optimizingEngine = engine.type.name;
+            _progress = 0;
+            _total = 3;
+          });
+        }
+
+        try {
+          final routingEngine = await ref.read(ttsRoutingEngineProvider.future);
+          final cacheManager = await ref.read(intelligentCacheManagerProvider.future);
+          final calibrationService = ref.read(engineCalibrationServiceProvider);
+
+          final result = await calibrationService.calibrateEngine(
+            routingEngine: routingEngine,
+            voiceId: voiceId,
+            onProgress: (step, total, message) {
+              if (mounted) {
+                setState(() {
+                  _progress = step;
+                  _total = total;
+                });
+              }
+            },
+            clearCacheFunc: () => cacheManager.clear(),
+          );
+
+          await ref.read(runtimePlaybackConfigProvider.notifier).saveCalibration(
+            engineType: engine.type.name,
+            optimalConcurrency: result.optimalConcurrency,
+            speedup: result.expectedSpeedup,
+            rtf: result.rtfAtOptimal,
+          );
+        } catch (e) {
+          // Log error but continue with other engines
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to optimize ${engine.name}: $e')),
+            );
+          }
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOptimizing = false;
+          _optimizingEngine = null;
+        });
+      }
+    }
+  }
+
+  String? _getVoiceForEngine(EngineType engine) {
+    // Get a voice ID for the engine to calibrate
+    switch (engine) {
+      case EngineType.kokoro:
+        return VoiceIds.kokoroAfAlloy;
+      case EngineType.piper:
+        return VoiceIds.piperEnUsLessacMedium;
+      case EngineType.supertonic:
+        return VoiceIds.supertonicM1;
+      case EngineType.device:
+        return null;
+    }
+  }
+
+  Future<void> _setConcurrency(EngineType engine, int level) async {
+    final config = ref.read(runtimePlaybackConfigProvider).value;
+    if (config == null) return;
+
+    await ref.read(runtimePlaybackConfigProvider.notifier).updateConfig(
+      (current) => current.withEngineCalibration(
+        engineType: engine.name,
+        optimalConcurrency: level,
+        speedup: current.getCalibrationSpeedup(engine.name) ?? 1.0,
+        rtf: current.getCalibrationRtf(engine.name) ?? 2.5,
+      ),
+    );
+  }
+
+  Future<void> _resetToDefaults() async {
+    await ref.read(runtimePlaybackConfigProvider.notifier).updateConfig(
+      (current) => current.copyWith(engineCalibration: null),
+    );
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Calibration reset to defaults')),
+      );
+    }
+  }
+}
+
 /// Engine optimization settings row with device profiling.
+/// @deprecated Use _AudioPerformanceSection instead
 class _EngineOptimizationRow extends ConsumerStatefulWidget {
   const _EngineOptimizationRow({required this.colors});
 
@@ -862,14 +1349,20 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
   }
 
   Widget _buildConfigDetails(DeviceEngineConfig config) {
+    // Get calibrated concurrency from runtime config
+    final runtimeConfig = ref.watch(runtimePlaybackConfigProvider).value;
+    final engineType = VoiceIds.engineFor(ref.watch(settingsProvider).selectedVoice);
+    final calibratedConcurrency = runtimeConfig?.getOptimalConcurrency(engineType.name) ?? config.prefetchConcurrency;
+    final speedup = runtimeConfig?.getCalibrationSpeedup(engineType.name);
+
     return Wrap(
       spacing: 8,
       runSpacing: 4,
       children: [
         _buildChip('RTF: ${config.measuredRTF.toStringAsFixed(2)}x'),
         _buildChip('Prefetch: ${config.prefetchWindowSize} segments'),
-        if (config.prefetchConcurrency > 1)
-          _buildChip('Parallel: ${config.prefetchConcurrency}x'),
+        if (calibratedConcurrency > 1)
+          _buildChip('Parallel: ${calibratedConcurrency}x${speedup != null ? ' (+${((speedup - 1) * 100).round()}%)' : ''}'),
       ],
     );
   }
@@ -905,7 +1398,9 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
       final profiler = ref.read(deviceProfilerProvider);
       final configManager = ref.read(engineConfigManagerProvider);
       final playbackRate = ref.read(settingsProvider).defaultPlaybackRate;
+      final cacheManager = await ref.read(intelligentCacheManagerProvider.future);
 
+      // Phase 4: Device profiling
       final profile = await profiler.profileEngine(
         engine: engine,
         voiceId: voiceId,
@@ -921,9 +1416,41 @@ class _EngineOptimizationRowState extends ConsumerState<_EngineOptimizationRow> 
       final config = profiler.createConfigFromProfile(profile);
       await configManager.saveConfig(config);
 
+      // Phase 2: Parallel synthesis calibration
+      final engineType = VoiceIds.engineFor(voiceId);
+      final calibrationService = ref.read(engineCalibrationServiceProvider);
+      
+      // Update progress for calibration phase
+      setState(() {
+        _progress = 0;
+        _total = 3; // Testing 3 concurrency levels
+      });
+
+      final calibrationResult = await calibrationService.calibrateEngine(
+        routingEngine: engine,
+        voiceId: voiceId,
+        onProgress: (step, total, message) {
+          setState(() {
+            _progress = step;
+            _total = total;
+          });
+        },
+        clearCacheFunc: () => cacheManager.clear(),
+      );
+
+      // Save calibration result
+      await ref.read(runtimePlaybackConfigProvider.notifier).saveCalibration(
+        engineType: engineType.name,
+        optimalConcurrency: calibrationResult.optimalConcurrency,
+        speedup: calibrationResult.expectedSpeedup,
+        rtf: calibrationResult.rtfAtOptimal,
+      );
+
+      final speedupPercent = ((calibrationResult.expectedSpeedup - 1) * 100).round();
       setState(() {
         _lastResult = 'Detected ${config.deviceTier.name.toUpperCase()} device '
-            '(RTF: ${profile.rtf.toStringAsFixed(2)}x)';
+            '(RTF: ${profile.rtf.toStringAsFixed(2)}x, '
+            '${speedupPercent > 0 ? '+$speedupPercent% parallel' : 'sequential'})';
       });
     } catch (e) {
       setState(() {

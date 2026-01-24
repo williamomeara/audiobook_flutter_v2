@@ -21,9 +21,6 @@ class PlaybackConfig {
   /// Maximum number of tracks to prefetch ahead.
   static const int maxPrefetchTracks = 10;
 
-  /// Concurrency limit for parallel synthesis.
-  static const int prefetchConcurrency = 1;
-
   /// Delay before resuming prefetch after user interaction.
   static const Duration prefetchResumeDelay = Duration(milliseconds: 500);
 
@@ -41,9 +38,9 @@ class PlaybackConfig {
   static const bool rateIndependentSynthesis = true;
 
   // Engine-specific concurrency (can be tuned per device)
-  static const int kokoroConcurrency = 1;
+  static const int kokoroConcurrency = 2;
   static const int supertonicConcurrency = 2;
-  static const int piperConcurrency = 1;
+  static const int piperConcurrency = 2;
 
   // Thread limits per engine
   static const int kokoroThreads = 4;
@@ -73,6 +70,31 @@ class PlaybackConfig {
 
   /// Immediately start prefetching on chapter load (Phase 2 enhancement)
   static const bool immediatePrefetchOnLoad = true;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PHASE 4: Parallel Synthesis Configuration
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Feature flag for parallel synthesis.
+  /// When enabled and device has sufficient memory, multiple segments
+  /// can be synthesized concurrently.
+  /// Disabled by default - enable after testing on target devices.
+  static const bool parallelSynthesisEnabled = true;
+
+  /// Get concurrency limit for a specific engine type.
+  /// Returns 1 if parallel synthesis is disabled.
+  static int getConcurrencyForEngine(String engineType) {
+    if (!parallelSynthesisEnabled) return 1;
+    return switch (engineType.toLowerCase()) {
+      'kokoro' => kokoroConcurrency,
+      'supertonic' => supertonicConcurrency,
+      'piper' => piperConcurrency,
+      _ => 1,
+    };
+  }
+
+  /// Memory threshold below which parallel synthesis is paused (bytes).
+  static const int parallelSynthesisMemoryThreshold = 200 * 1024 * 1024; // 200 MB
 }
 
 /// Synthesis mode based on resource constraints

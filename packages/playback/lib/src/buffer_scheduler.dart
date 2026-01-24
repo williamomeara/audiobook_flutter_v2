@@ -6,6 +6,7 @@ import 'package:tts_engines/tts_engines.dart';
 import 'playback_config.dart';
 import 'playback_log.dart';
 import 'resource_monitor.dart';
+import 'synthesis/parallel_orchestrator.dart';
 
 /// Exception thrown when synthesis operation times out.
 class SynthesisTimeoutException implements Exception {
@@ -266,6 +267,38 @@ class BufferScheduler {
       _isSuspended = false;
       onResume();
     });
+  }
+
+  /// Suspend prefetch with configurable delay.
+  ///
+  /// This is an enhanced version of [suspend] that allows custom resume delay.
+  /// Used when integrating with RuntimePlaybackConfig.
+  void suspendWithDelay({
+    required void Function() onResume,
+    required Duration resumeDelay,
+  }) {
+    _isSuspended = true;
+    _resumeTimer?.cancel();
+    _resumeTimer = Timer(resumeDelay, () {
+      _isSuspended = false;
+      onResume();
+    });
+    PlaybackLog.debug(
+      'BufferScheduler: Suspended with ${resumeDelay.inMilliseconds}ms delay',
+    );
+  }
+
+  /// Resume prefetch immediately, bypassing the timer.
+  ///
+  /// Use when user action indicates they're done seeking:
+  /// - Seek bar released (onChangeEnd)
+  /// - Play button pressed
+  void resumeImmediately({required void Function() onResume}) {
+    _resumeTimer?.cancel();
+    _resumeTimer = null;
+    _isSuspended = false;
+    PlaybackLog.debug('BufferScheduler: Resume immediately');
+    onResume();
   }
 
   /// Run prefetch loop.
@@ -593,6 +626,135 @@ class BufferScheduler {
     } catch (e) {
       PlaybackLog.error('Priority prefetch failed for segment [$nextIndex]: $e');
       // Don't fail silently - regular prefetch may retry
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 4: Parallel Synthesis
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Run prefetch with parallel synthesis (Phase 4).
+  ///
+  /// Uses [ParallelSynthesisOrchestrator] to synthesize multiple segments
+  /// concurrently when enabled. Falls back to sequential if disabled.
+  ///
+  /// This is an alternative to [runPrefetch] that can achieve faster
+  /// buffer fill times on devices with sufficient memory.
+  Future<void> runParallelPrefetch({
+    required RoutingEngine engine,
+    required AudioCache cache,
+    required List<AudioTrack> queue,
+    required String voiceId,
+    required double playbackRate,
+    required int targetIndex,
+    required bool Function() shouldContinue,
+    ParallelSynthesisOrchestrator? orchestrator,
+    void Function(int segmentIndex)? onSynthesisStarted,
+    void Function(int segmentIndex)? onSynthesisComplete,
+  }) async {
+    // Guard: context must be initialized before prefetch
+    if (_contextKey == _uninitializedContext) {
+      PlaybackLog.warning('Parallel prefetch called without context initialization, skipping');
+      return;
+    }
+
+    // Fall back to sequential if no orchestrator or parallel disabled
+    if (orchestrator == null || !PlaybackConfig.parallelSynthesisEnabled) {
+      return runPrefetch(
+        engine: engine,
+        cache: cache,
+        queue: queue,
+        voiceId: voiceId,
+        playbackRate: playbackRate,
+        targetIndex: targetIndex,
+        shouldContinue: shouldContinue,
+        onSynthesisStarted: onSynthesisStarted,
+        onSynthesisComplete: onSynthesisComplete,
+      );
+    }
+
+    if (targetIndex <= _prefetchedThroughIndex) {
+      PlaybackLog.progress('✓ Already prefetched to target, skipping parallel prefetch');
+      return;
+    }
+    if (_isRunning) {
+      PlaybackLog.warning('Prefetch already running, skipping parallel prefetch');
+      return;
+    }
+
+    _isRunning = true;
+    final cancellationToken = _cancellationToken;
+    final startContext = _contextKey;
+    final startTime = DateTime.now();
+
+    try {
+      // Collect segments to prefetch
+      final startIndex = _prefetchedThroughIndex + 1;
+      final endIndex = targetIndex.clamp(0, queue.length - 1);
+      
+      if (startIndex > endIndex) {
+        PlaybackLog.debug('No segments to parallel prefetch');
+        return;
+      }
+
+      final tracks = queue.sublist(startIndex, endIndex + 1);
+      PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      PlaybackLog.progress('PARALLEL PREFETCH START');
+      PlaybackLog.progress('Segments: $startIndex to $endIndex (${tracks.length} total)');
+      PlaybackLog.progress('Concurrency: ${orchestrator.maxConcurrency}');
+      PlaybackLog.progress('Voice: $voiceId, Rate: ${playbackRate}x');
+
+      final results = await orchestrator.synthesizeSegments(
+        tracks: tracks,
+        engine: engine,
+        cache: cache,
+        voiceId: voiceId,
+        playbackRate: playbackRate,
+        shouldContinue: () {
+          if (cancellationToken.isCancelled) return false;
+          if (_contextKey != startContext) return false;
+          return shouldContinue();
+        },
+        onResult: (result) {
+          final globalIndex = startIndex + result.segmentIndex;
+          if (result.isSuccess) {
+            onSynthesisComplete?.call(globalIndex);
+            // Note: We update index incrementally to track progress
+            // Even with parallel, we only mark complete up to the
+            // lowest contiguous completed index
+          } else {
+            PlaybackLog.warning('Parallel synthesis failed for segment $globalIndex: ${result.error}');
+          }
+        },
+      );
+
+      // Check cancellation before updating state
+      if (cancellationToken.isCancelled || _contextKey != startContext) {
+        PlaybackLog.warning('Parallel prefetch context changed, discarding results');
+        return;
+      }
+
+      // Update prefetched index to highest contiguous success
+      var highestContiguous = _prefetchedThroughIndex;
+      for (var i = 0; i < results.length; i++) {
+        final globalIndex = startIndex + i;
+        if (results[i].isSuccess && globalIndex == highestContiguous + 1) {
+          highestContiguous = globalIndex;
+        } else if (!results[i].isSuccess) {
+          break; // Stop at first failure for contiguous tracking
+        }
+      }
+      await _updatePrefetchedIndex(highestContiguous);
+
+      final elapsed = DateTime.now().difference(startTime);
+      final successCount = results.where((r) => r.isSuccess).length;
+      PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      PlaybackLog.progress('PARALLEL PREFETCH COMPLETE');
+      PlaybackLog.progress('Synthesized: $successCount/${results.length} in ${elapsed.inMilliseconds}ms');
+      PlaybackLog.progress('Prefetched through index: $_prefetchedThroughIndex');
+      PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    } finally {
+      _isRunning = false;
     }
   }
 }

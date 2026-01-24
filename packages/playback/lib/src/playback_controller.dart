@@ -9,6 +9,8 @@ import 'buffer_scheduler.dart';
 import 'playback_config.dart';
 import 'playback_state.dart';
 import 'resource_monitor.dart';
+import 'synthesis/memory_monitor.dart';
+import 'synthesis/parallel_orchestrator.dart';
 
 /// Callback for state changes.
 typedef StateCallback = void Function(PlaybackState state);
@@ -79,6 +81,8 @@ class AudiobookPlaybackController implements PlaybackController {
     SegmentSynthesisCallback? onSegmentSynthesisStarted,
     SegmentSynthesisCallback? onSegmentSynthesisComplete,
     PlayIntentOverrideCallback? onPlayIntentOverride,
+    MemoryMonitor? memoryMonitor,
+    int? parallelConcurrency,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _smartSynthesisManager = smartSynthesisManager,
@@ -86,7 +90,13 @@ class AudiobookPlaybackController implements PlaybackController {
         _onSegmentSynthesisStarted = onSegmentSynthesisStarted,
         _onSegmentSynthesisComplete = onSegmentSynthesisComplete,
         _onPlayIntentOverride = onPlayIntentOverride,
-        _scheduler = BufferScheduler(resourceMonitor: resourceMonitor) {
+        _scheduler = BufferScheduler(resourceMonitor: resourceMonitor),
+        _parallelOrchestrator = PlaybackConfig.parallelSynthesisEnabled
+            ? ParallelSynthesisOrchestrator(
+                maxConcurrency: parallelConcurrency ?? PlaybackConfig.kokoroConcurrency,
+                memoryMonitor: memoryMonitor ?? MockMemoryMonitor(),
+              )
+            : null {
     _setupEventListeners();
   }
 
@@ -122,6 +132,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Buffer scheduler for prefetch.
   final BufferScheduler _scheduler;
+
+  /// Parallel synthesis orchestrator (Phase 4).
+  final ParallelSynthesisOrchestrator? _parallelOrchestrator;
 
   /// State stream controller.
   final _stateController = StreamController<PlaybackState>.broadcast();
@@ -562,6 +575,18 @@ class AudiobookPlaybackController implements PlaybackController {
     );
   }
 
+  /// Update parallel synthesis concurrency (e.g., after engine calibration).
+  ///
+  /// This is called when calibration completes or when the user switches
+  /// to a different TTS engine with different optimal settings.
+  void updateParallelConcurrency(int concurrency, {String? source}) {
+    _parallelOrchestrator?.updateConcurrency(
+      concurrency,
+      source: source,
+    );
+    _logger.info('Parallel concurrency updated to $concurrency (source: ${source ?? "unknown"})');
+  }
+
   @override
   Future<void> dispose() async {
     _disposed = true;
@@ -762,13 +787,15 @@ class AudiobookPlaybackController implements PlaybackController {
     final callbacks = _createSynthesisCallbacks(); // Q1: Use helper
 
     // C3: Wrap in error handler to catch unexpected errors
-    unawaited(_scheduler.runPrefetch(
+    // Phase 4: Use parallel prefetch if orchestrator is available
+    unawaited(_scheduler.runParallelPrefetch(
       engine: engine,
       cache: cache,
       queue: _state.queue,
       voiceId: voiceId,
       playbackRate: _state.playbackRate,
       targetIndex: targetIdx,
+      orchestrator: _parallelOrchestrator,
       // H8: Include cancellation check in shouldContinue
       shouldContinue: () => _isCurrentOp(opId) && !_isOpCancelled && _playIntent && !_disposed,
       onSynthesisStarted: callbacks.onStarted,

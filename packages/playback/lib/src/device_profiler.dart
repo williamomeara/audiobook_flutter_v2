@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/tts_engines.dart';
 
@@ -138,16 +140,52 @@ class DevicePerformanceProfiler {
       profiledAt: DateTime.now(),
     );
 
-    PlaybackLog.progress('═══════════════════════════════');
-    PlaybackLog.progress('PROFILING COMPLETE');
-    PlaybackLog.progress('Engine: $engineId');
-    PlaybackLog.progress('RTF: ${rtf.toStringAsFixed(3)}');
-    PlaybackLog.progress('Tier: ${profile.tier}');
-    PlaybackLog.progress('Avg Synthesis: ${avgSynthMs}ms');
-    PlaybackLog.progress('Avg Audio: ${avgAudioMs}ms');
-    PlaybackLog.progress('═══════════════════════════════');
+    // Log summary using multiple methods to ensure visibility
+    final summary = '''
+╔══════════════════════════════════════════════════════════════════╗
+║ OPTIMIZATION COMPLETE                                             ║
+╠══════════════════════════════════════════════════════════════════╣
+║ Engine:         $engineId
+║ Voice:          $voiceId
+║ Segments:       ${synthesisTimesMs.length}
+╠──────────────────────────────────────────────────────────────────╣
+║ RESULTS:
+║   RTF:          ${rtf.toStringAsFixed(3)}x (synthesis/audio time)
+║   Device Tier:  ${profile.tier.name}
+║   Avg Synth:    ${avgSynthMs}ms
+║   Avg Audio:    ${avgAudioMs}ms
+╠──────────────────────────────────────────────────────────────────╣
+║ RECOMMENDED SETTINGS (based on ${profile.tier.name} tier):
+║   Prefetch Window: ${_recommendedPrefetch(profile.tier)} segments
+║   Concurrency:     ${_recommendedConcurrency(profile.tier)}x parallel
+╚══════════════════════════════════════════════════════════════════╝
+''';
+
+    // Output via multiple channels for visibility
+    PlaybackLog.progress(summary);
+    developer.log(summary, name: 'DeviceProfiler');
+    // ignore: avoid_print
+    print(summary);
 
     return profile;
+  }
+
+  int _recommendedPrefetch(DevicePerformanceTier tier) {
+    return switch (tier) {
+      DevicePerformanceTier.flagship => 8,
+      DevicePerformanceTier.midRange => 6,
+      DevicePerformanceTier.budget => 4,
+      DevicePerformanceTier.legacy => 2,
+    };
+  }
+
+  int _recommendedConcurrency(DevicePerformanceTier tier) {
+    return switch (tier) {
+      DevicePerformanceTier.flagship => 3,
+      DevicePerformanceTier.midRange => 2,
+      DevicePerformanceTier.budget => 2,
+      DevicePerformanceTier.legacy => 1,
+    };
   }
 
   /// Create optimal configuration based on device profile.

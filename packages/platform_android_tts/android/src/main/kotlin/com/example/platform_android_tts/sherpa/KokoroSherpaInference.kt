@@ -13,8 +13,24 @@ import java.io.File
  */
 class KokoroSherpaInference(
     private val modelPath: String,
-    private val voicesPath: String
+    private val voicesPath: String,
+    private val numThreads: Int? = null  // null = auto-detect
 ) {
+    companion object {
+        /**
+         * Determine optimal thread count based on device CPU cores.
+         * Kokoro benefits from more threads (up to 4) on high-core devices.
+         */
+        fun getOptimalThreadCount(): Int {
+            val cpuCores = Runtime.getRuntime().availableProcessors()
+            return when {
+                cpuCores >= 8 -> 4  // High-end devices: use 4 threads
+                cpuCores >= 6 -> 3  // Mid-range: use 3 threads
+                cpuCores >= 4 -> 2  // Budget: use 2 threads
+                else -> 1           // Low-end: single thread
+            }
+        }
+    }
     private var tts: OfflineTts? = null
     
     /**
@@ -33,8 +49,12 @@ class KokoroSherpaInference(
                 throw IllegalStateException("No ONNX model file found in $modelPath")
             }
             
+            // Use configured threads or auto-detect optimal count
+            val threads = numThreads ?: getOptimalThreadCount()
+            
             android.util.Log.d("KokoroSherpaInference", "Initializing with model: ${modelFile.absolutePath}")
             android.util.Log.d("KokoroSherpaInference", "Voices: $voicesPath")
+            android.util.Log.d("KokoroSherpaInference", "CPU cores: ${Runtime.getRuntime().availableProcessors()}, using $threads threads")
             
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
@@ -45,7 +65,7 @@ class KokoroSherpaInference(
                         dataDir = "$modelPath/espeak-ng-data",
                         lang = "en-us"
                     ),
-                    numThreads = 2,
+                    numThreads = threads,
                     debug = false
                 )
             )
