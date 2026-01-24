@@ -589,6 +589,10 @@ class AudiobookPlaybackController implements PlaybackController {
       _updateState(_state.copyWith(isBuffering: false));
       _logger.info('Starting audio playback...');
 
+      // Immediately start prefetching the next segment (highest priority)
+      // This happens BEFORE playFile completes to minimize gap at transition
+      _startImmediateNextPrefetch();
+
       await _audioOutput.playFile(
         result.file.path,
         playbackRate: _state.playbackRate,
@@ -596,7 +600,7 @@ class AudiobookPlaybackController implements PlaybackController {
 
       _logger.info('Audio playback started successfully');
 
-      // Start background prefetch
+      // Start background prefetch for additional segments
       _startPrefetchIfNeeded();
     } catch (e, stackTrace) {
       _logger.severe('Synthesis failed for track ${track.id}', e, stackTrace);
@@ -650,6 +654,42 @@ class AudiobookPlaybackController implements PlaybackController {
       voiceId: voiceId,
       playbackRate: _state.playbackRate,
       targetIndex: targetIdx,
+      shouldContinue: () => _isCurrentOp(opId) && _playIntent && !_disposed,
+      onSynthesisStarted: _onSegmentSynthesisStarted != null
+          ? (segmentIndex) => _onSegmentSynthesisStarted(bookId, chapterIndex, segmentIndex)
+          : null,
+      onSynthesisComplete: _onSegmentSynthesisComplete != null
+          ? (segmentIndex) => _onSegmentSynthesisComplete(bookId, chapterIndex, segmentIndex)
+          : null,
+    ));
+  }
+
+  /// Start immediate prefetch of the next segment with highest priority.
+  ///
+  /// This bypasses normal watermark checks to ensure the next segment
+  /// is always ready before the current one finishes, minimizing gaps.
+  void _startImmediateNextPrefetch() {
+    final voiceId = voiceIdResolver(null);
+    if (voiceId == VoiceIds.device) return;
+
+    final currentIdx = _state.currentIndex;
+    if (currentIdx < 0 || _state.queue.isEmpty) return;
+
+    final opId = _opId;
+    
+    // Get context for synthesis callbacks
+    final bookId = _state.bookId ?? '';
+    final chapterIndex = _state.queue.isNotEmpty 
+        ? _state.queue.first.chapterIndex 
+        : 0;
+
+    unawaited(_scheduler.prefetchNextSegmentImmediately(
+      engine: engine,
+      cache: cache,
+      queue: _state.queue,
+      voiceId: voiceId,
+      playbackRate: _state.playbackRate,
+      currentIndex: currentIdx,
       shouldContinue: () => _isCurrentOp(opId) && _playIntent && !_disposed,
       onSynthesisStarted: _onSegmentSynthesisStarted != null
           ? (segmentIndex) => _onSegmentSynthesisStarted(bookId, chapterIndex, segmentIndex)

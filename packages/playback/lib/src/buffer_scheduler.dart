@@ -318,4 +318,92 @@ class BufferScheduler {
       i++;
     }
   }
+
+  /// Prefetch only the next segment with highest priority.
+  ///
+  /// This is called immediately when the current segment starts playing
+  /// to ensure the next segment is always pre-synthesized before the
+  /// current one finishes. This minimizes transition gaps.
+  ///
+  /// Unlike [runPrefetch], this:
+  /// - Only targets currentIndex + 1
+  /// - Bypasses watermark checks
+  /// - Runs even if regular prefetch is already running
+  /// - Does not block if the next segment is already being prefetched
+  Future<void> prefetchNextSegmentImmediately({
+    required RoutingEngine engine,
+    required AudioCache cache,
+    required List<AudioTrack> queue,
+    required String voiceId,
+    required double playbackRate,
+    required int currentIndex,
+    required bool Function() shouldContinue,
+    void Function(int segmentIndex)? onSynthesisStarted,
+    void Function(int segmentIndex)? onSynthesisComplete,
+  }) async {
+    final nextIndex = currentIndex + 1;
+    
+    // No next segment
+    if (nextIndex >= queue.length) {
+      PlaybackLog.debug('No next segment to prefetch (at end of queue)');
+      return;
+    }
+    
+    // Already prefetched
+    if (_prefetchedThroughIndex >= nextIndex) {
+      PlaybackLog.debug('Next segment [$nextIndex] already prefetched');
+      return;
+    }
+    
+    final track = queue[nextIndex];
+    final cacheKey = CacheKeyGenerator.generate(
+      voiceId: voiceId,
+      text: track.text,
+      playbackRate: CacheKeyGenerator.getSynthesisRate(playbackRate),
+    );
+    
+    // Already cached
+    if (await cache.isReady(cacheKey)) {
+      PlaybackLog.debug('Next segment [$nextIndex] already cached');
+      onSynthesisComplete?.call(nextIndex);
+      // Update index if this is the immediate next
+      if (_prefetchedThroughIndex == currentIndex) {
+        _prefetchedThroughIndex = nextIndex;
+      }
+      return;
+    }
+    
+    // Need to synthesize - only if regular prefetch isn't already handling it
+    // We don't want duplicate synthesis of the same segment
+    if (_isRunning && _prefetchedThroughIndex >= currentIndex) {
+      // Prefetch is running and will handle this segment
+      PlaybackLog.debug('Regular prefetch will handle next segment');
+      return;
+    }
+    
+    if (!shouldContinue()) return;
+    
+    PlaybackLog.info('🚀 Priority prefetch: synthesizing next segment [$nextIndex]');
+    onSynthesisStarted?.call(nextIndex);
+    
+    try {
+      final synthStart = DateTime.now();
+      await engine.synthesizeToWavFile(
+        voiceId: voiceId,
+        text: track.text,
+        playbackRate: playbackRate,
+      );
+      final synthDuration = DateTime.now().difference(synthStart);
+      PlaybackLog.info('✓ Priority prefetch complete [$nextIndex] in ${synthDuration.inMilliseconds}ms');
+      onSynthesisComplete?.call(nextIndex);
+      
+      // Update prefetched index
+      if (_prefetchedThroughIndex < nextIndex) {
+        _prefetchedThroughIndex = nextIndex;
+      }
+    } catch (e) {
+      PlaybackLog.error('Priority prefetch failed for segment [$nextIndex]: $e');
+      // Don't fail silently - regular prefetch may retry
+    }
+  }
 }
