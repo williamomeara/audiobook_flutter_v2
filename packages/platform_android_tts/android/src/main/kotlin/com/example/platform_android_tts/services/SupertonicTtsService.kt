@@ -6,9 +6,12 @@ import android.os.IBinder
 import com.example.platform_android_tts.onnx.SupertonicNative
 import kotlinx.coroutines.*
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 
 /**
  * Supertonic TTS Service running in its own process (:supertonic).
@@ -20,13 +23,19 @@ class SupertonicTtsService : Service() {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+    // Synthesis counter to prevent unload during active synthesis
+    private val synthesisCounter = SynthesisCounter()
+    
     // Model state
     private var modelPath: String? = null
-    private var isInitialized = false
-    private val loadedSpeakers = mutableMapOf<String, SupertonicSpeaker>()
+    @Volatile private var isInitialized = false
+    private val loadedSpeakers = ConcurrentHashMap<String, SupertonicSpeaker>()
     
-    // Active synthesis jobs for cancellation
-    private val activeJobs = mutableMapOf<String, Job>()
+    // Active synthesis jobs for cancellation (thread-safe)
+    private val activeJobs = ConcurrentHashMap<String, Job>()
+    
+    // Limit concurrent synthesis to prevent resource exhaustion
+    private val synthesisPermits = Semaphore(4)
     
     override fun onBind(intent: Intent?): IBinder? = null
     
@@ -129,6 +138,19 @@ class SupertonicTtsService : Service() {
             )
         }
         
+        // Track active synthesis to prevent unload during operation
+        synthesisCounter.increment()
+        
+        // Limit concurrent synthesis
+        if (!synthesisPermits.tryAcquire()) {
+            synthesisCounter.decrement()
+            return SynthesisResult(
+                success = false,
+                errorCode = ErrorCode.BUSY,
+                errorMessage = "Too many concurrent synthesis requests"
+            )
+        }
+        
         // Get or create speaker
         val speaker = loadedSpeakers.getOrPut(voiceId) {
             SupertonicSpeaker(
@@ -158,11 +180,19 @@ class SupertonicTtsService : Service() {
                 val pcmData = floatToPcm16(audioSamples!!)
                 
                 val tmpFile = File("$outputPath.tmp")
-                tmpFile.parentFile?.mkdirs()
+                val parentDir = tmpFile.parentFile
+                if (parentDir != null && !parentDir.exists() && !parentDir.mkdirs()) {
+                    throw IOException("Failed to create output directory: $parentDir")
+                }
                 writeWavFile(tmpFile, pcmData, sampleRate)
                 
                 ensureActive()
-                tmpFile.renameTo(File(outputPath))
+                val finalFile = File(outputPath)
+                if (!tmpFile.renameTo(finalFile)) {
+                    // Fallback: copy and delete
+                    tmpFile.copyTo(finalFile, overwrite = true)
+                    tmpFile.delete()
+                }
                 
             } catch (e: CancellationException) {
                 File("$outputPath.tmp").delete()
@@ -215,6 +245,8 @@ class SupertonicTtsService : Service() {
             )
         } finally {
             activeJobs.remove(requestId)
+            synthesisCounter.decrement()
+            synthesisPermits.release()
         }
     }
     
@@ -222,21 +254,33 @@ class SupertonicTtsService : Service() {
      * Cancel an in-flight synthesis.
      */
     fun cancelSynthesis(requestId: String) {
-        activeJobs[requestId]?.cancel()
-        activeJobs.remove(requestId)
+        // Remove first, then cancel (prevents race with completion)
+        val job = activeJobs.remove(requestId) ?: return
+        job.cancel()
     }
     
     /**
      * Unload a specific voice.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadVoice(voiceId: String) {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("SupertonicTtsService", "Timeout waiting for synthesis to complete before unload")
+        }
         loadedSpeakers.remove(voiceId)
     }
     
     /**
      * Unload all models and reset state.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadAllModels() {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("SupertonicTtsService", "Timeout waiting for synthesis to complete before unloadAll")
+        }
+        
         loadedSpeakers.clear()
         
         if (isInitialized) {
@@ -278,6 +322,11 @@ class SupertonicTtsService : Service() {
     
     fun isReady(): Boolean = isInitialized && SupertonicNative.isReady()
     fun isVoiceLoaded(voiceId: String): Boolean = loadedSpeakers.containsKey(voiceId)
+    
+    /**
+     * Get list of currently loaded voice IDs.
+     */
+    fun getLoadedVoiceIds(): List<String> = loadedSpeakers.keys().toList()
     
     // Private helpers
     

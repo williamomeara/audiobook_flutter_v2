@@ -6,9 +6,12 @@ import android.os.IBinder
 import com.example.platform_android_tts.sherpa.PiperSherpaInference
 import kotlinx.coroutines.*
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 
 /**
  * Piper TTS Service running in its own process (:piper).
@@ -22,15 +25,21 @@ class PiperTtsService : Service() {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+    // Synthesis counter to prevent unload during active synthesis
+    private val synthesisCounter = SynthesisCounter()
+    
     // Model state - Piper has per-voice models
-    private var isInitialized = false
-    private val loadedModels = mutableMapOf<String, PiperVoiceModel>()
+    @Volatile private var isInitialized = false
+    private val loadedModels = ConcurrentHashMap<String, PiperVoiceModel>()
     
     // Inference engines per voice (Piper has separate model per voice)
-    private val inferenceEngines = mutableMapOf<String, PiperSherpaInference>()
+    private val inferenceEngines = ConcurrentHashMap<String, PiperSherpaInference>()
     
-    // Active synthesis jobs for cancellation
-    private val activeJobs = mutableMapOf<String, Job>()
+    // Active synthesis jobs for cancellation (thread-safe)
+    private val activeJobs = ConcurrentHashMap<String, Job>()
+    
+    // Limit concurrent synthesis to prevent resource exhaustion
+    private val synthesisPermits = Semaphore(4)
     
     override fun onBind(intent: Intent?): IBinder? = null
     
@@ -109,10 +118,26 @@ class PiperTtsService : Service() {
             )
         }
         
+        // Track active synthesis to prevent unload during operation
+        synthesisCounter.increment()
+        
+        // Limit concurrent synthesis
+        if (!synthesisPermits.tryAcquire()) {
+            synthesisCounter.decrement()
+            return SynthesisResult(
+                success = false,
+                errorCode = ErrorCode.BUSY,
+                errorMessage = "Too many concurrent synthesis requests"
+            )
+        }
+        
         val job = scope.launch {
             try {
                 val tmpFile = File("$outputPath.tmp")
-                tmpFile.parentFile?.mkdirs()
+                val parentDir = tmpFile.parentFile
+                if (parentDir != null && !parentDir.exists() && !parentDir.mkdirs()) {
+                    throw IOException("Failed to create output directory: $parentDir")
+                }
                 
                 // Run sherpa-onnx inference
                 val samples = inference.synthesize(text, speed).getOrThrow()
@@ -126,7 +151,12 @@ class PiperTtsService : Service() {
                 writeWavFile(tmpFile, pcmData, sampleRate)
                 
                 ensureActive()
-                tmpFile.renameTo(File(outputPath))
+                val finalFile = File(outputPath)
+                if (!tmpFile.renameTo(finalFile)) {
+                    // Fallback: copy and delete
+                    tmpFile.copyTo(finalFile, overwrite = true)
+                    tmpFile.delete()
+                }
                 
             } catch (e: CancellationException) {
                 File("$outputPath.tmp").delete()
@@ -148,10 +178,14 @@ class PiperTtsService : Service() {
             } else {
                 model.lastUsed = System.currentTimeMillis()
                 
-                // Calculate actual duration from sample count
-                val samples = inference.synthesize(text, speed).getOrNull()
-                val durationMs = if (samples != null) {
-                    (samples.size * 1000 / inference.getSampleRate())
+                // Calculate duration from output file size (avoids double synthesis)
+                val sampleRate = inference.getSampleRate()
+                val outputFile = File(outputPath)
+                val durationMs = if (outputFile.exists()) {
+                    val fileSize = outputFile.length()
+                    val dataSize = fileSize - 44 // WAV header is 44 bytes
+                    val sampleCount = dataSize / 2 // 16-bit samples = 2 bytes each
+                    (sampleCount * 1000 / sampleRate).toInt()
                 } else {
                     estimateDurationMs(text)
                 }
@@ -159,7 +193,7 @@ class PiperTtsService : Service() {
                 SynthesisResult(
                     success = true,
                     durationMs = durationMs,
-                    sampleRate = inference.getSampleRate()
+                    sampleRate = sampleRate
                 )
             }
         } catch (e: Exception) {
@@ -170,6 +204,8 @@ class PiperTtsService : Service() {
             )
         } finally {
             activeJobs.remove(requestId)
+            synthesisCounter.decrement()
+            synthesisPermits.release()
         }
     }
     
@@ -177,14 +213,20 @@ class PiperTtsService : Service() {
      * Cancel an in-flight synthesis.
      */
     fun cancelSynthesis(requestId: String) {
-        activeJobs[requestId]?.cancel()
-        activeJobs.remove(requestId)
+        // Remove first, then cancel (prevents race with completion)
+        val job = activeJobs.remove(requestId) ?: return
+        job.cancel()
     }
     
     /**
      * Unload a specific voice.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadVoice(voiceId: String) {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("PiperTtsService", "Timeout waiting for synthesis to complete before unload")
+        }
         inferenceEngines[voiceId]?.dispose()
         inferenceEngines.remove(voiceId)
         loadedModels.remove(voiceId)
@@ -192,8 +234,14 @@ class PiperTtsService : Service() {
     
     /**
      * Unload all models and reset state.
+     * Waits for any active synthesis to complete first.
      */
     fun unloadAllModels() {
+        // Wait for any active synthesis to complete (max 5 seconds)
+        if (!synthesisCounter.waitUntilIdle(timeoutMs = 5000)) {
+            android.util.Log.w("PiperTtsService", "Timeout waiting for synthesis to complete before unloadAll")
+        }
+        
         inferenceEngines.values.forEach { it.dispose() }
         inferenceEngines.clear()
         loadedModels.clear()
@@ -231,6 +279,11 @@ class PiperTtsService : Service() {
     
     fun isReady(): Boolean = isInitialized
     fun isVoiceLoaded(voiceId: String): Boolean = loadedModels.containsKey(voiceId)
+    
+    /**
+     * Get list of currently loaded voice IDs.
+     */
+    fun getLoadedVoiceIds(): List<String> = loadedModels.keys().toList()
     
     // Private helpers
     

@@ -32,6 +32,16 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
   
   /// Subscription to player events.
   StreamSubscription<dynamic>? _playerEventSub;
+  
+  /// Track last logged state to avoid duplicate logs
+  bool? _lastLoggedPlaying;
+  AudioProcessingState? _lastLoggedProcessingState;
+  
+  /// Override flag to prevent play button flickering during segment transitions.
+  /// When true, the handler will report `playing: true` regardless of actual 
+  /// player state. This should be set when starting a segment transition and
+  /// cleared when the new segment starts playing.
+  bool _playIntentOverride = false;
 
   /// Callbacks for skip actions (to be set by PlaybackController).
   void Function()? onSkipToNextCallback;
@@ -43,6 +53,16 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
   
   /// Playback speed presets for cycling
   static const List<double> _speedPresets = [1.0, 1.25, 1.5, 1.75, 2.0];
+  
+  /// Set the play intent override to prevent play button flickering.
+  /// Call with `true` before starting a segment transition and `false` 
+  /// when the new segment starts playing.
+  void setPlayIntentOverride(bool value) {
+    if (_playIntentOverride != value) {
+      _log('Play intent override: $value');
+      _playIntentOverride = value;
+    }
+  }
 
   /// Connect an external AudioPlayer to this handler.
   /// This forwards the player's state to the system media controls.
@@ -64,6 +84,8 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
         player,
       );
       _log('Emitting initial state - playing: ${player.playing}, processingState: ${initialState.processingState}');
+      _lastLoggedPlaying = player.playing;
+      _lastLoggedProcessingState = initialState.processingState;
       playbackState.add(initialState);
       
       // Forward player state changes to the media session.
@@ -73,12 +95,22 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
         player.positionStream,
         (event, playing, position) {
           final state = _transformEvent(event, playing, position, player);
-          _log('Player state changed - playing: $playing, processingState: ${state.processingState}');
+          // Only log when playing or processingState actually changes (avoid spam from position updates)
+          if (playing != _lastLoggedPlaying || state.processingState != _lastLoggedProcessingState) {
+            _log('Player state changed - playing: $playing, processingState: ${state.processingState}');
+            _lastLoggedPlaying = playing;
+            _lastLoggedProcessingState = state.processingState;
+          }
           return state;
         },
       ).listen(
         (state) {
-          _log('Broadcasting playbackState - playing: ${state.playing}, processingState: ${state.processingState}');
+          // Only log when state actually changes (avoid spam from position updates)
+          if (state.playing != _lastLoggedPlaying || state.processingState != _lastLoggedProcessingState) {
+            _log('Broadcasting playbackState - playing: ${state.playing}, processingState: ${state.processingState}');
+            _lastLoggedPlaying = state.playing;
+            _lastLoggedProcessingState = state.processingState;
+          }
           playbackState.add(state);
         },
         onError: (error) {
@@ -116,11 +148,14 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     // Create speed label based on current speed
     final speedLabel = '${player.speed}x';
     
+    // Use override if set (prevents flicker during segment transitions)
+    final effectivePlaying = _playIntentOverride || playing;
+    
     return PlaybackState(
       controls: [
         MediaControl.rewind,
         MediaControl.skipToPrevious,
-        if (playing) MediaControl.pause else MediaControl.play,
+        if (effectivePlaying) MediaControl.pause else MediaControl.play,
         MediaControl.skipToNext,
         MediaControl.fastForward,
         // Speed button as custom control
@@ -145,7 +180,7 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
       },
       androidCompactActionIndices: const [1, 2, 3], // skipPrev, play/pause, skipNext
       processingState: _mapProcessingState(player.processingState),
-      playing: playing,
+      playing: effectivePlaying,
       updatePosition: position,
       bufferedPosition: player.bufferedPosition,
       speed: player.speed,

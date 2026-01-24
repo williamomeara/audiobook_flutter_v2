@@ -68,6 +68,8 @@ enum NativeErrorCode {
   runtimeCrash,
   invalidInput,
   fileWriteError,
+  busy,
+  timeout,
   unknown,
 }
 
@@ -786,6 +788,15 @@ abstract class TtsFlutterApi {
   /// Called when an engine encounters an error.
   void onEngineError(NativeEngineType engineType, NativeErrorCode code, String message);
 
+  /// Called when a voice is unloaded (e.g., due to memory pressure or LRU eviction).
+  void onVoiceUnloaded(NativeEngineType engineType, String voiceId);
+
+  /// Called when memory is running low - Flutter should consider reducing memory usage.
+  void onMemoryWarning(NativeEngineType engineType, int availableMB, int totalMB);
+
+  /// Called when engine state changes (init, ready, etc).
+  void onEngineStateChanged(NativeEngineType engineType, NativeCoreState state, String? errorMessage);
+
   static void setUp(TtsFlutterApi? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
     messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
     {
@@ -863,6 +874,94 @@ abstract class TtsFlutterApi {
               'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onEngineError was null, expected non-null String.');
           try {
             api.onEngineError(arg_engineType!, arg_code!, arg_message!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onVoiceUnloaded$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onVoiceUnloaded was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final NativeEngineType? arg_engineType = (args[0] as NativeEngineType?);
+          assert(arg_engineType != null,
+              'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onVoiceUnloaded was null, expected non-null NativeEngineType.');
+          final String? arg_voiceId = (args[1] as String?);
+          assert(arg_voiceId != null,
+              'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onVoiceUnloaded was null, expected non-null String.');
+          try {
+            api.onVoiceUnloaded(arg_engineType!, arg_voiceId!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onMemoryWarning$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onMemoryWarning was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final NativeEngineType? arg_engineType = (args[0] as NativeEngineType?);
+          assert(arg_engineType != null,
+              'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onMemoryWarning was null, expected non-null NativeEngineType.');
+          final int? arg_availableMB = (args[1] as int?);
+          assert(arg_availableMB != null,
+              'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onMemoryWarning was null, expected non-null int.');
+          final int? arg_totalMB = (args[2] as int?);
+          assert(arg_totalMB != null,
+              'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onMemoryWarning was null, expected non-null int.');
+          try {
+            api.onMemoryWarning(arg_engineType!, arg_availableMB!, arg_totalMB!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onEngineStateChanged$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onEngineStateChanged was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final NativeEngineType? arg_engineType = (args[0] as NativeEngineType?);
+          assert(arg_engineType != null,
+              'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onEngineStateChanged was null, expected non-null NativeEngineType.');
+          final NativeCoreState? arg_state = (args[1] as NativeCoreState?);
+          assert(arg_state != null,
+              'Argument for dev.flutter.pigeon.platform_ios_tts.TtsFlutterApi.onEngineStateChanged was null, expected non-null NativeCoreState.');
+          final String? arg_errorMessage = (args[2] as String?);
+          try {
+            api.onEngineStateChanged(arg_engineType!, arg_state!, arg_errorMessage);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

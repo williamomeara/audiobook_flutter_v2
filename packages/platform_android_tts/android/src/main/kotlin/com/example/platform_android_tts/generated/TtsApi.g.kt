@@ -122,7 +122,9 @@ enum class NativeErrorCode(val raw: Int) {
   RUNTIME_CRASH(6),
   INVALID_INPUT(7),
   FILE_WRITE_ERROR(8),
-  UNKNOWN(9);
+  BUSY(9),
+  TIMEOUT(10),
+  UNKNOWN(11);
 
   companion object {
     fun ofRaw(raw: Int): NativeErrorCode? {
@@ -766,6 +768,60 @@ class TtsFlutterApi(private val binaryMessenger: BinaryMessenger, private val me
     val channelName = "dev.flutter.pigeon.platform_android_tts.TtsFlutterApi.onEngineError$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(engineTypeArg, codeArg, messageArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(TtsApiPigeonUtils.createConnectionError(channelName)))
+      } 
+    }
+  }
+  /** Called when a voice is unloaded (e.g., due to memory pressure or LRU eviction). */
+  fun onVoiceUnloaded(engineTypeArg: NativeEngineType, voiceIdArg: String, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.platform_android_tts.TtsFlutterApi.onVoiceUnloaded$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(engineTypeArg, voiceIdArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(TtsApiPigeonUtils.createConnectionError(channelName)))
+      } 
+    }
+  }
+  /** Called when memory is running low - Flutter should consider reducing memory usage. */
+  fun onMemoryWarning(engineTypeArg: NativeEngineType, availableMBArg: Long, totalMBArg: Long, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.platform_android_tts.TtsFlutterApi.onMemoryWarning$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(engineTypeArg, availableMBArg, totalMBArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(TtsApiPigeonUtils.createConnectionError(channelName)))
+      } 
+    }
+  }
+  /** Called when engine state changes (init, ready, etc). */
+  fun onEngineStateChanged(engineTypeArg: NativeEngineType, stateArg: NativeCoreState, errorMessageArg: String?, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.platform_android_tts.TtsFlutterApi.onEngineStateChanged$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(engineTypeArg, stateArg, errorMessageArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))

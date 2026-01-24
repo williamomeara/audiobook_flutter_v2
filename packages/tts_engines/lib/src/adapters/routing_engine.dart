@@ -83,16 +83,25 @@ class RoutingEngine implements AiVoiceEngine {
 
   @override
   Stream<CoreReadiness> watchCoreReadiness(String coreId) {
-    // Return existing controller if already created (prevents memory leak)
+    // Return existing controller if already created
     if (_readinessControllers.containsKey(coreId)) {
       return _readinessControllers[coreId]!.stream;
     }
     
-    // Create new controller and track subscriptions
+    // Track listener count for proper cleanup
+    var listenerCount = 0;
+    
+    // Create new controller with proper lifecycle management
     final controller = StreamController<CoreReadiness>.broadcast(
+      onListen: () {
+        listenerCount++;
+      },
       onCancel: () {
-        // Cleanup when all listeners gone
-        _cleanupReadinessSubscriptions(coreId);
+        listenerCount--;
+        // Cleanup when all listeners are gone
+        if (listenerCount <= 0) {
+          _cleanupReadinessSubscriptions(coreId);
+        }
       },
     );
     _readinessControllers[coreId] = controller;
@@ -296,6 +305,8 @@ class RoutingEngine implements AiVoiceEngine {
     for (final coreId in _readinessControllers.keys.toList()) {
       _cleanupReadinessSubscriptions(coreId);
     }
+    _readinessControllers.clear();
+    _readinessSubscriptions.clear();
     
     await Future.wait([
       if (piperEngine != null) piperEngine!.dispose(),

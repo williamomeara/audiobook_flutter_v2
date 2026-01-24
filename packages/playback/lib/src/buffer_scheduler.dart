@@ -7,6 +7,69 @@ import 'playback_config.dart';
 import 'playback_log.dart';
 import 'resource_monitor.dart';
 
+/// Exception thrown when synthesis operation times out.
+class SynthesisTimeoutException implements Exception {
+  const SynthesisTimeoutException(this.segmentIndex, this.timeout);
+  
+  final int segmentIndex;
+  final Duration timeout;
+  
+  @override
+  String toString() => 
+      'SynthesisTimeoutException: Segment $segmentIndex timed out after ${timeout.inSeconds}s';
+}
+
+/// Simple async lock for protecting shared state.
+///
+/// Ensures only one async operation can hold the lock at a time.
+/// Uses FIFO ordering to prevent starvation.
+class _AsyncLock {
+  Completer<void>? _lock;
+
+  /// Acquire the lock. Returns when lock is acquired.
+  Future<void> acquire() async {
+    while (_lock != null) {
+      await _lock!.future;
+    }
+    _lock = Completer<void>();
+  }
+
+  /// Release the lock. Must be called after acquire().
+  void release() {
+    final lock = _lock;
+    _lock = null;
+    lock?.complete();
+  }
+}
+
+/// Cancellation token for coordinating prefetch operations.
+///
+/// When context changes (book/chapter/voice), the token is cancelled
+/// to immediately abort any in-progress synthesis operations.
+class _CancellationToken {
+  Completer<void> _completer = Completer<void>();
+  
+  /// Whether this token has been cancelled.
+  bool get isCancelled => _completer.isCompleted;
+  
+  /// Future that completes when cancelled.
+  Future<void> get future => _completer.future;
+  
+  /// Cancel this token, signaling all operations to abort.
+  void cancel() {
+    if (!_completer.isCompleted) {
+      _completer.complete();
+    }
+  }
+  
+  /// Reset the token for a new context.
+  void reset() {
+    if (_completer.isCompleted) {
+      _completer = Completer<void>();
+    }
+  }
+}
+
 /// Manages audio prefetching for smooth playback.
 ///
 /// The buffer scheduler decides which segments should be synthesized
@@ -22,6 +85,12 @@ class BufferScheduler {
   /// Resource monitor for battery-aware prefetch (Phase 2)
   final ResourceMonitor? _resourceMonitor;
 
+  /// Lock for protecting _prefetchedThroughIndex updates.
+  final _AsyncLock _indexLock = _AsyncLock();
+  
+  /// H1: Cancellation token for immediate abort on context change.
+  _CancellationToken _cancellationToken = _CancellationToken();
+
   /// Whether prefetch is currently running.
   bool _isRunning = false;
 
@@ -29,7 +98,9 @@ class BufferScheduler {
   int _prefetchedThroughIndex = -1;
 
   /// Context key for invalidation on voice/book change.
-  String? _contextKey;
+  /// Initialized to a sentinel value to ensure explicit context setup is required.
+  static const _uninitializedContext = '__uninitialized__';
+  String _contextKey = _uninitializedContext;
 
   /// Whether prefetch is temporarily suspended.
   bool _isSuspended = false;
@@ -47,18 +118,38 @@ class BufferScheduler {
       _resourceMonitor?.currentMode ?? SynthesisMode.balanced;
 
   /// Reset scheduler state for new chapter/context.
+  /// H1: Cancels any in-progress prefetch operations immediately.
   void reset() {
+    // H1: Cancel any in-progress operations immediately
+    _cancellationToken.cancel();
+    _cancellationToken = _CancellationToken();
+    
     _isRunning = false;
     _prefetchedThroughIndex = -1;
-    _contextKey = null;
+    _contextKey = _uninitializedContext;
   }
 
   /// Dispose resources.
   void dispose() {
     _resumeTimer?.cancel();
+    _cancellationToken.cancel();
+  }
+
+  /// Safely update _prefetchedThroughIndex with lock protection.
+  /// Only updates if newIndex is greater than current value.
+  Future<void> _updatePrefetchedIndex(int newIndex) async {
+    await _indexLock.acquire();
+    try {
+      if (newIndex > _prefetchedThroughIndex) {
+        _prefetchedThroughIndex = newIndex;
+      }
+    } finally {
+      _indexLock.release();
+    }
   }
 
   /// Update context and return true if context changed.
+  /// H1: Cancels any in-progress prefetch operations when context changes.
   bool updateContext({
     required String bookId,
     required int chapterIndex,
@@ -68,6 +159,10 @@ class BufferScheduler {
   }) {
     final key = '$bookId|$chapterIndex|$voiceId|${playbackRate.toStringAsFixed(2)}';
     if (_contextKey != key) {
+      // H1: Cancel any in-progress operations when context changes
+      _cancellationToken.cancel();
+      _cancellationToken = _CancellationToken();
+      
       _contextKey = key;
       _prefetchedThroughIndex = currentIndex;
       return true;
@@ -178,6 +273,8 @@ class BufferScheduler {
   /// [onSynthesisStarted] is called when synthesis begins for a segment.
   /// [onSynthesisComplete] is called when a segment is ready (cached or synthesized).
   /// These callbacks enable UI feedback for segment readiness.
+  /// 
+  /// H1: Uses cancellation token for immediate abort on context change.
   Future<void> runPrefetch({
     required RoutingEngine engine,
     required AudioCache cache,
@@ -189,6 +286,15 @@ class BufferScheduler {
     void Function(int segmentIndex)? onSynthesisStarted,
     void Function(int segmentIndex)? onSynthesisComplete,
   }) async {
+    // Guard: context must be initialized before prefetch
+    if (_contextKey == _uninitializedContext) {
+      PlaybackLog.warning('Prefetch called without context initialization, skipping');
+      return;
+    }
+    
+    // H1: Capture the current cancellation token
+    final cancellationToken = _cancellationToken;
+    
     PlaybackLog.progress('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     PlaybackLog.progress('PREFETCH START');
     PlaybackLog.progress('Target index: $targetIndex');
@@ -216,6 +322,12 @@ class BufferScheduler {
       PlaybackLog.progress('Starting from index $i');
 
       while (i <= targetIndex && i < queue.length) {
+        // H1: Check cancellation token for immediate abort
+        if (cancellationToken.isCancelled) {
+          PlaybackLog.warning('Prefetch cancelled via token, aborting immediately');
+          return;
+        }
+        
         if (!shouldContinue() || _contextKey != startContext) {
           PlaybackLog.warning('Context changed or should stop, aborting prefetch');
           return;
@@ -235,13 +347,19 @@ class BufferScheduler {
         if (await cache.isReady(cacheKey)) {
           PlaybackLog.debug('✓ [$i] Already cached: $cacheKey');
           onSynthesisComplete?.call(i);  // Notify UI
-          _prefetchedThroughIndex = i;
+          await _updatePrefetchedIndex(i);
           cached++;
           i++;
           continue;
         }
+        
+        // H1: Check cancellation again before expensive synthesis
+        if (cancellationToken.isCancelled) {
+          PlaybackLog.warning('Prefetch cancelled before synthesis, aborting');
+          return;
+        }
 
-        // Synthesize
+        // Synthesize with timeout (H3)
         PlaybackLog.debug('🔄 [$i] Synthesizing (not in cache)...');
         onSynthesisStarted?.call(i);  // Notify UI
         final synthStart = DateTime.now();
@@ -250,12 +368,26 @@ class BufferScheduler {
             voiceId: voiceId,
             text: track.text,
             playbackRate: playbackRate,
+          ).timeout(
+            PlaybackConfig.synthesisTimeout,
+            onTimeout: () => throw SynthesisTimeoutException(i, PlaybackConfig.synthesisTimeout),
           );
+          
+          // H1: Check cancellation after synthesis - discard result if cancelled
+          if (cancellationToken.isCancelled) {
+            PlaybackLog.warning('Prefetch cancelled during synthesis, discarding result');
+            return;
+          }
+          
           final synthDuration = DateTime.now().difference(synthStart);
           PlaybackLog.debug('✓ [$i] Synthesized in ${synthDuration.inMilliseconds}ms');
           onSynthesisComplete?.call(i);  // Notify UI
-          _prefetchedThroughIndex = i;
+          await _updatePrefetchedIndex(i);
           synthesized++;
+        } on SynthesisTimeoutException catch (e) {
+          PlaybackLog.error('[$i] Synthesis timed out: $e');
+          failed++;
+          // Continue with next segment - don't block on hung synthesis
         } catch (e, stackTrace) {
           final synthDuration = DateTime.now().difference(synthStart);
           PlaybackLog.error('[$i] Synthesis failed after ${synthDuration.inMilliseconds}ms: $e');
@@ -280,6 +412,7 @@ class BufferScheduler {
   }
 
   /// Buffer until low watermark is reached (blocking).
+  /// H1: Uses cancellation token for immediate abort on context change.
   Future<void> bufferUntilReady({
     required RoutingEngine engine,
     required List<AudioTrack> queue,
@@ -289,21 +422,50 @@ class BufferScheduler {
     required bool Function() shouldContinue,
   }) async {
     if (queue.isEmpty || currentIndex < 0) return;
+    
+    // Guard: context must be initialized before buffering
+    if (_contextKey == _uninitializedContext) {
+      PlaybackLog.warning('BufferUntilReady called without context initialization, skipping');
+      return;
+    }
+    
+    // H1: Capture the current cancellation token
+    final cancellationToken = _cancellationToken;
 
     var aheadMs = 0;
     var i = currentIndex;
     final startContext = _contextKey;
 
     while (i < queue.length && shouldContinue() && _contextKey == startContext) {
+      // H1: Check cancellation token for immediate abort
+      if (cancellationToken.isCancelled) {
+        PlaybackLog.debug('BufferUntilReady cancelled via token');
+        return;
+      }
+      
       final track = queue[i];
 
       try {
+        // H3: Add timeout to prevent hung synthesis from blocking
         await engine.synthesizeToWavFile(
           voiceId: voiceId,
           text: track.text,
           playbackRate: playbackRate,
+        ).timeout(
+          PlaybackConfig.synthesisTimeout,
+          onTimeout: () => throw SynthesisTimeoutException(i, PlaybackConfig.synthesisTimeout),
         );
-        _prefetchedThroughIndex = i;
+        
+        // H1: Check cancellation after synthesis
+        if (cancellationToken.isCancelled) {
+          PlaybackLog.debug('BufferUntilReady cancelled during synthesis');
+          return;
+        }
+        
+        await _updatePrefetchedIndex(i);
+      } on SynthesisTimeoutException catch (e) {
+        PlaybackLog.error('BufferUntilReady: $e');
+        // Continue with next segment
       } catch (e) {
         // Continue trying
       }
@@ -316,6 +478,121 @@ class BufferScheduler {
       }
 
       i++;
+    }
+  }
+
+  /// Prefetch only the next segment with highest priority.
+  ///
+  /// This is called immediately when the current segment starts playing
+  /// to ensure the next segment is always pre-synthesized before the
+  /// current one finishes. This minimizes transition gaps.
+  ///
+  /// Unlike [runPrefetch], this:
+  /// - Only targets currentIndex + 1
+  /// - Bypasses watermark checks
+  /// - Runs even if regular prefetch is already running
+  /// - Does not block if the next segment is already being prefetched
+  /// 
+  /// H1: Uses cancellation token for immediate abort on context change.
+  Future<void> prefetchNextSegmentImmediately({
+    required RoutingEngine engine,
+    required AudioCache cache,
+    required List<AudioTrack> queue,
+    required String voiceId,
+    required double playbackRate,
+    required int currentIndex,
+    required bool Function() shouldContinue,
+    void Function(int segmentIndex)? onSynthesisStarted,
+    void Function(int segmentIndex)? onSynthesisComplete,
+  }) async {
+    // Guard: context must be initialized
+    if (_contextKey == _uninitializedContext) {
+      PlaybackLog.debug('Immediate prefetch called without context, skipping');
+      return;
+    }
+    
+    // H1: Capture the current cancellation token
+    final cancellationToken = _cancellationToken;
+    
+    final nextIndex = currentIndex + 1;
+    
+    // No next segment
+    if (nextIndex >= queue.length) {
+      PlaybackLog.debug('No next segment to prefetch (at end of queue)');
+      return;
+    }
+    
+    // Already prefetched
+    if (_prefetchedThroughIndex >= nextIndex) {
+      PlaybackLog.debug('Next segment [$nextIndex] already prefetched');
+      return;
+    }
+    
+    final track = queue[nextIndex];
+    final cacheKey = CacheKeyGenerator.generate(
+      voiceId: voiceId,
+      text: track.text,
+      playbackRate: CacheKeyGenerator.getSynthesisRate(playbackRate),
+    );
+    
+    // Already cached
+    if (await cache.isReady(cacheKey)) {
+      PlaybackLog.debug('Next segment [$nextIndex] already cached');
+      onSynthesisComplete?.call(nextIndex);
+      // Update index atomically
+      await _updatePrefetchedIndex(nextIndex);
+      return;
+    }
+    
+    // H1: Check cancellation before expensive operations
+    if (cancellationToken.isCancelled) {
+      PlaybackLog.debug('Priority prefetch cancelled before synthesis');
+      return;
+    }
+    
+    // Need to synthesize - only if regular prefetch isn't already handling it
+    // We don't want duplicate synthesis of the same segment
+    if (_isRunning && _prefetchedThroughIndex >= currentIndex) {
+      // Prefetch is running and will handle this segment
+      PlaybackLog.debug('Regular prefetch will handle next segment');
+      return;
+    }
+    
+    if (!shouldContinue()) return;
+    
+    PlaybackLog.info('🚀 Priority prefetch: synthesizing next segment [$nextIndex]');
+    onSynthesisStarted?.call(nextIndex);
+    
+    try {
+      final synthStart = DateTime.now();
+      // H3: Add timeout to prevent hung synthesis from blocking
+      await engine.synthesizeToWavFile(
+        voiceId: voiceId,
+        text: track.text,
+        playbackRate: playbackRate,
+      ).timeout(
+        PlaybackConfig.synthesisTimeout,
+        onTimeout: () => throw SynthesisTimeoutException(nextIndex, PlaybackConfig.synthesisTimeout),
+      );
+      
+      // H1: Check cancellation after synthesis - discard result if cancelled
+      if (cancellationToken.isCancelled) {
+        PlaybackLog.debug('Priority prefetch cancelled during synthesis, discarding result');
+        return;
+      }
+      
+      final synthDuration = DateTime.now().difference(synthStart);
+      PlaybackLog.info('✓ Priority prefetch complete [$nextIndex] in ${synthDuration.inMilliseconds}ms');
+      onSynthesisComplete?.call(nextIndex);
+      
+      // Update prefetched index atomically
+      await _updatePrefetchedIndex(nextIndex);
+    } on SynthesisTimeoutException catch (e) {
+      PlaybackLog.error('Priority prefetch timed out: $e');
+      // Regular prefetch may retry or user can skip
+    } catch (e) {
+      PlaybackLog.error('Priority prefetch failed for segment [$nextIndex]: $e');
+      // Don't fail silently - regular prefetch may retry
     }
   }
 }

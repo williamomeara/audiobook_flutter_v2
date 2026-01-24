@@ -145,6 +145,8 @@ class _IosApiWrapper implements android.TtsNativeApi {
       ios.NativeErrorCode.runtimeCrash => android.NativeErrorCode.runtimeCrash,
       ios.NativeErrorCode.invalidInput => android.NativeErrorCode.invalidInput,
       ios.NativeErrorCode.fileWriteError => android.NativeErrorCode.fileWriteError,
+      ios.NativeErrorCode.busy => android.NativeErrorCode.busy,
+      ios.NativeErrorCode.timeout => android.NativeErrorCode.timeout,
       ios.NativeErrorCode.unknown => android.NativeErrorCode.unknown,
     };
   }

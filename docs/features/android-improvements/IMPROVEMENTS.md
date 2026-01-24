@@ -264,7 +264,6 @@ throw TtsException(
 | 🟡 Medium | Request ownership tracking | Low | Medium |
 | 🟡 Medium | Centralize path logic | Medium | Medium |
 | 🟢 Low | Temp file cleanup | Low | Low |
-| 🟢 Low | Model loading optimization | High | Medium |
 | 🟢 Low | Error context enhancement | Low | Low |
 
 ---

@@ -1,12 +1,12 @@
 /// Comprehensive logging utility for the audiobook app.
 ///
-/// Uses dart:developer log which doesn't trigger avoid_print lint
-/// and still outputs to console during flutter run and testing.
+/// Uses debugPrint for output to flutter logs (adb logcat).
+/// debugPrint throttles output to avoid dropped messages.
 library;
 
-import 'dart:developer' as developer;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
-/// Application logger that outputs to console without triggering lint warnings.
+/// Application logger that outputs to console and flutter logs.
 ///
 /// Usage:
 /// ```dart
@@ -20,47 +20,55 @@ import 'dart:developer' as developer;
 class AppLogger {
   /// Log an informational message.
   static void info(String message, {String? name}) {
-    developer.log(message, name: name ?? 'APP');
+    _log('[${name ?? 'APP'}] $message');
   }
 
   /// Log a success message with ✓ prefix.
   static void success(String message, {String? name}) {
-    developer.log('✓ $message', name: name ?? 'APP');
+    _log('[${name ?? 'APP'}] ✓ $message');
   }
 
   /// Log an error message with ✗ prefix.
   static void error(String message, {String? name, Object? error, StackTrace? stackTrace}) {
-    developer.log(
-      '✗ $message',
-      name: name ?? 'APP',
-      error: error,
-      stackTrace: stackTrace,
-    );
+    _log('[${name ?? 'APP'}] ✗ $message');
+    if (error != null) {
+      _log('[${name ?? 'APP'}] Error: $error');
+    }
+    if (stackTrace != null) {
+      _log('[${name ?? 'APP'}] StackTrace: $stackTrace');
+    }
   }
 
   /// Log a debug message (typically more verbose).
   static void debug(String message, {String? name}) {
-    developer.log('[DEBUG] $message', name: name ?? 'APP');
+    _log('[${name ?? 'APP'}] [DEBUG] $message');
   }
 
   /// Log a progress update.
   static void progress(String message, {String? name}) {
-    developer.log('  $message', name: name ?? 'APP');
+    _log('[${name ?? 'APP'}]   $message');
   }
 
   /// Log a warning message.
   static void warning(String message, {String? name}) {
-    developer.log('⚠ $message', name: name ?? 'APP');
+    _log('[${name ?? 'APP'}] ⚠ $message');
   }
 
   /// Log a message with a specific level indicator.
   static void log(String message, {String? name, int level = 0}) {
-    developer.log(message, name: name ?? 'APP', level: level);
+    _log('[${name ?? 'APP'}] $message');
   }
 
   /// Log a separator line.
   static void separator({int length = 50, String char = '='}) {
-    developer.log(char * length, name: 'APP');
+    _log('[APP] ${char * length}');
+  }
+
+  /// Internal logging method - uses debugPrint in debug mode.
+  static void _log(String message) {
+    if (kDebugMode) {
+      debugPrint(message);
+    }
   }
 }
 

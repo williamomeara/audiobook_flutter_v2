@@ -2,6 +2,10 @@ import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
 
+/// Q3: WAV header size constant (standard PCM format).
+/// Used for checking if audio files are complete (must be > header size).
+const kWavHeaderSize = 44;
+
 /// Budget configuration for audio cache.
 class CacheBudget {
   const CacheBudget({
@@ -40,6 +44,17 @@ abstract interface class AudioCache {
 
   /// Clear all cached files.
   Future<void> clear();
+  
+  /// Pin a file to prevent it from being evicted during pruning.
+  /// Returns true if the file was pinned, false if already pinned.
+  bool pin(CacheKey key);
+  
+  /// Unpin a file, allowing it to be evicted if needed.
+  /// Returns true if the file was unpinned, false if wasn't pinned.
+  bool unpin(CacheKey key);
+  
+  /// Check if a file is currently pinned.
+  bool isPinned(CacheKey key);
 }
 
 /// File-based audio cache implementation with LRU eviction.
@@ -51,6 +66,9 @@ class FileAudioCache implements AudioCache {
 
   /// Track last-used times for LRU eviction.
   final Map<String, DateTime> _usageTimes = {};
+  
+  /// Set of pinned filenames that should not be evicted.
+  final Set<String> _pinnedFiles = {};
 
   @override
   Future<File> fileFor(CacheKey key) async {
@@ -65,12 +83,31 @@ class FileAudioCache implements AudioCache {
     
     // Check file has content (not empty or incomplete)
     final stat = await file.stat();
-    return stat.size > 44; // WAV header is at least 44 bytes
+    return stat.size > kWavHeaderSize;
   }
 
   @override
   Future<void> markUsed(CacheKey key) async {
     _usageTimes[key.toFilename()] = DateTime.now();
+  }
+  
+  @override
+  bool pin(CacheKey key) {
+    final filename = key.toFilename();
+    if (_pinnedFiles.contains(filename)) return false;
+    _pinnedFiles.add(filename);
+    return true;
+  }
+  
+  @override
+  bool unpin(CacheKey key) {
+    final filename = key.toFilename();
+    return _pinnedFiles.remove(filename);
+  }
+  
+  @override
+  bool isPinned(CacheKey key) {
+    return _pinnedFiles.contains(key.toFilename());
   }
 
   @override
@@ -88,10 +125,17 @@ class FileAudioCache implements AudioCache {
     final toDelete = <File>[];
     
     for (final file in files) {
+      final filename = file.uri.pathSegments.last;
       final stat = await file.stat();
       final age = now.difference(stat.modified);
       
-      // Delete if too old
+      // Skip pinned files - they are currently in use
+      if (_pinnedFiles.contains(filename)) {
+        totalSize += stat.size;
+        continue;
+      }
+      
+      // Delete if too old (and not pinned)
       if (age > maxAge) {
         toDelete.add(file);
         continue;
@@ -113,13 +157,17 @@ class FileAudioCache implements AudioCache {
         if (totalSize <= budget.maxSizeBytes) break;
         if (toDelete.contains(file)) continue;
         
+        // Skip pinned files
+        final filename = file.uri.pathSegments.last;
+        if (_pinnedFiles.contains(filename)) continue;
+        
         final stat = await file.stat();
         toDelete.add(file);
         totalSize -= stat.size;
       }
     }
 
-    // Delete marked files
+    // Delete marked files (all non-pinned)
     for (final file in toDelete) {
       try {
         await file.delete();
@@ -174,6 +222,7 @@ class FileAudioCache implements AudioCache {
       }
     }
     _usageTimes.clear();
+    _pinnedFiles.clear();
   }
 
   /// Get all cache files sorted by last modified time.

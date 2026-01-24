@@ -3,6 +3,7 @@ package com.example.platform_android_tts
 import com.example.platform_android_tts.generated.*
 import com.example.platform_android_tts.services.*
 import kotlinx.coroutines.*
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Implementation of Pigeon-generated TtsNativeApi.
@@ -11,10 +12,14 @@ import kotlinx.coroutines.*
 class TtsNativeApiImpl(
     private val kokoroService: KokoroTtsService,
     private val piperService: PiperTtsService,
-    private val supertonicService: SupertonicTtsService
+    private val supertonicService: SupertonicTtsService,
+    private val flutterApi: TtsFlutterApi
 ) : TtsNativeApi {
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    
+    // Track which engine owns each request for efficient cancellation
+    private val requestOwners = ConcurrentHashMap<String, NativeEngineType>()
     
     override fun initEngine(request: InitEngineRequest, callback: (Result<Unit>) -> Unit) {
         scope.launch {
@@ -52,48 +57,62 @@ class TtsNativeApiImpl(
         request: SynthesizeRequest,
         callback: (Result<SynthesizeResult>) -> Unit
     ) {
+        // Track request ownership for efficient cancellation
+        requestOwners[request.requestId] = request.engineType
+        
         scope.launch {
-            val result = when (request.engineType) {
-                NativeEngineType.KOKORO -> kokoroService.synthesize(
-                    voiceId = request.voiceId,
-                    text = request.text,
-                    outputPath = request.outputPath,
-                    requestId = request.requestId,
-                    speakerId = request.speakerId?.toInt() ?: 0,
-                    speed = request.speed.toFloat()
-                )
-                NativeEngineType.PIPER -> piperService.synthesize(
-                    voiceId = request.voiceId,
-                    text = request.text,
-                    outputPath = request.outputPath,
-                    requestId = request.requestId,
-                    speed = request.speed.toFloat()
-                )
-                NativeEngineType.SUPERTONIC -> supertonicService.synthesize(
-                    voiceId = request.voiceId,
-                    text = request.text,
-                    outputPath = request.outputPath,
-                    requestId = request.requestId,
-                    speakerId = request.speakerId?.toInt() ?: 0,
-                    speed = request.speed.toFloat()
-                )
+            try {
+                val result = when (request.engineType) {
+                    NativeEngineType.KOKORO -> kokoroService.synthesize(
+                        voiceId = request.voiceId,
+                        text = request.text,
+                        outputPath = request.outputPath,
+                        requestId = request.requestId,
+                        speakerId = request.speakerId?.toInt() ?: 0,
+                        speed = request.speed.toFloat()
+                    )
+                    NativeEngineType.PIPER -> piperService.synthesize(
+                        voiceId = request.voiceId,
+                        text = request.text,
+                        outputPath = request.outputPath,
+                        requestId = request.requestId,
+                        speed = request.speed.toFloat()
+                    )
+                    NativeEngineType.SUPERTONIC -> supertonicService.synthesize(
+                        voiceId = request.voiceId,
+                        text = request.text,
+                        outputPath = request.outputPath,
+                        requestId = request.requestId,
+                        speakerId = request.speakerId?.toInt() ?: 0,
+                        speed = request.speed.toFloat()
+                    )
+                }
+                
+                callback(Result.success(SynthesizeResult(
+                    success = result.success,
+                    durationMs = result.durationMs?.toLong(),
+                    sampleRate = result.sampleRate?.toLong(),
+                    errorCode = result.errorCode?.toPigeonError(),
+                    errorMessage = result.errorMessage
+                )))
+            } finally {
+                // Clean up request ownership tracking
+                requestOwners.remove(request.requestId)
             }
-            
-            callback(Result.success(SynthesizeResult(
-                success = result.success,
-                durationMs = result.durationMs?.toLong(),
-                sampleRate = result.sampleRate?.toLong(),
-                errorCode = result.errorCode?.toPigeonError(),
-                errorMessage = result.errorMessage
-            )))
         }
     }
     
     override fun cancelSynthesis(requestId: String, callback: (Result<Unit>) -> Unit) {
-        // Cancel on all services (we don't track which engine owns the request)
-        kokoroService.cancelSynthesis(requestId)
-        piperService.cancelSynthesis(requestId)
-        supertonicService.cancelSynthesis(requestId)
+        // Cancel only on the service that owns the request (more efficient)
+        when (requestOwners.remove(requestId)) {
+            NativeEngineType.KOKORO -> kokoroService.cancelSynthesis(requestId)
+            NativeEngineType.PIPER -> piperService.cancelSynthesis(requestId)
+            NativeEngineType.SUPERTONIC -> supertonicService.cancelSynthesis(requestId)
+            null -> {
+                // Request not found or already completed - no-op
+                android.util.Log.d("TtsNativeApiImpl", "Cancel: requestId=$requestId not found (already completed?)")
+            }
+        }
         callback(Result.success(Unit))
     }
     
@@ -107,6 +126,8 @@ class TtsNativeApiImpl(
             NativeEngineType.PIPER -> piperService.unloadVoice(voiceId)
             NativeEngineType.SUPERTONIC -> supertonicService.unloadVoice(voiceId)
         }
+        // Notify Flutter that voice was unloaded
+        notifyVoiceUnloaded(engineType, voiceId)
         callback(Result.success(Unit))
     }
     
@@ -114,11 +135,27 @@ class TtsNativeApiImpl(
         engineType: NativeEngineType,
         callback: (Result<Unit>) -> Unit
     ) {
+        // Get loaded voices before unloading to notify Flutter
+        val voicesToNotify = when (engineType) {
+            NativeEngineType.KOKORO -> kokoroService.getLoadedVoiceIds()
+            NativeEngineType.PIPER -> piperService.getLoadedVoiceIds()
+            NativeEngineType.SUPERTONIC -> supertonicService.getLoadedVoiceIds()
+        }
+        
         when (engineType) {
             NativeEngineType.KOKORO -> kokoroService.unloadAllModels()
             NativeEngineType.PIPER -> piperService.unloadAllModels()
             NativeEngineType.SUPERTONIC -> supertonicService.unloadAllModels()
         }
+        
+        // Notify Flutter about all unloaded voices
+        voicesToNotify.forEach { voiceId ->
+            notifyVoiceUnloaded(engineType, voiceId)
+        }
+        
+        // Notify engine state changed
+        notifyEngineStateChanged(engineType, NativeCoreState.NOT_STARTED, null)
+        
         callback(Result.success(Unit))
     }
     
@@ -181,6 +218,40 @@ class TtsNativeApiImpl(
     fun cleanup() {
         scope.cancel()
     }
+    
+    // Helper methods for Flutter callbacks
+    
+    private fun notifyVoiceUnloaded(engineType: NativeEngineType, voiceId: String) {
+        scope.launch(Dispatchers.Main) {
+            flutterApi.onVoiceUnloaded(engineType, voiceId) { /* ignore callback result */ }
+        }
+    }
+    
+    private fun notifyEngineStateChanged(engineType: NativeEngineType, state: NativeCoreState, errorMessage: String?) {
+        scope.launch(Dispatchers.Main) {
+            flutterApi.onEngineStateChanged(engineType, state, errorMessage) { /* ignore callback result */ }
+        }
+    }
+    
+    private fun notifyMemoryWarning(engineType: NativeEngineType, availableMB: Int, totalMB: Int) {
+        scope.launch(Dispatchers.Main) {
+            flutterApi.onMemoryWarning(engineType, availableMB.toLong(), totalMB.toLong()) { /* ignore callback result */ }
+        }
+    }
+    
+    /**
+     * Called by services when they internally unload a voice (e.g., due to LRU eviction).
+     */
+    fun onVoiceUnloadedByService(engineType: NativeEngineType, voiceId: String) {
+        notifyVoiceUnloaded(engineType, voiceId)
+    }
+    
+    /**
+     * Called by memory manager to warn Flutter of low memory.
+     */
+    fun onMemoryWarningFromService(engineType: NativeEngineType, availableMB: Int, totalMB: Int) {
+        notifyMemoryWarning(engineType, availableMB, totalMB)
+    }
 }
 
 // Extension to convert service ErrorCode to Pigeon NativeErrorCode
@@ -195,6 +266,7 @@ private fun ErrorCode.toPigeonError(): NativeErrorCode {
         ErrorCode.RUNTIME_CRASH -> NativeErrorCode.RUNTIME_CRASH
         ErrorCode.INVALID_INPUT -> NativeErrorCode.INVALID_INPUT
         ErrorCode.FILE_WRITE_ERROR -> NativeErrorCode.FILE_WRITE_ERROR
+        ErrorCode.BUSY -> NativeErrorCode.BUSY
         ErrorCode.UNKNOWN -> NativeErrorCode.UNKNOWN
     }
 }

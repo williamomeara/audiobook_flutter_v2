@@ -314,6 +314,35 @@ class EpubParser {
     var text = html.replaceAll(RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), '');
     text = text.replaceAll(RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), '');
     
+    // Remove Project Gutenberg boilerplate sections before stripping tags
+    // These are marked with class="pg-boilerplate" in the HTML
+    text = text.replaceAll(
+      RegExp(r'<section[^>]*class="[^"]*pg-boilerplate[^"]*"[^>]*>[\s\S]*?</section>', caseSensitive: false), 
+      ''
+    );
+    // Also handle div-based boilerplate (older PG formats)
+    text = text.replaceAll(
+      RegExp(r'<div[^>]*class="[^"]*pg-boilerplate[^"]*"[^>]*>[\s\S]*?</div>', caseSensitive: false), 
+      ''
+    );
+    // Remove PG header and footer elements by id
+    text = text.replaceAll(
+      RegExp(r'<[^>]*id="pg-header"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false), 
+      ''
+    );
+    text = text.replaceAll(
+      RegExp(r'<[^>]*id="pg-footer"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false), 
+      ''
+    );
+    text = text.replaceAll(
+      RegExp(r'<[^>]*id="pg-start-separator"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false), 
+      ''
+    );
+    text = text.replaceAll(
+      RegExp(r'<[^>]*id="pg-end-separator"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false), 
+      ''
+    );
+    
     // Replace br and p tags with newlines
     text = text.replaceAll(RegExp(r'<br\s*/?>'), '\n');
     text = text.replaceAll(RegExp(r'</p>', caseSensitive: false), '\n\n');

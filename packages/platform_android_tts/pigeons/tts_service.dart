@@ -41,6 +41,8 @@ enum NativeErrorCode {
   runtimeCrash,
   invalidInput,
   fileWriteError,
+  busy,
+  timeout,
   unknown,
 }
 
@@ -195,4 +197,13 @@ abstract class TtsFlutterApi {
 
   /// Called when an engine encounters an error.
   void onEngineError(NativeEngineType engineType, NativeErrorCode code, String message);
+  
+  /// Called when a voice is unloaded (e.g., due to memory pressure or LRU eviction).
+  void onVoiceUnloaded(NativeEngineType engineType, String voiceId);
+  
+  /// Called when memory is running low - Flutter should consider reducing memory usage.
+  void onMemoryWarning(NativeEngineType engineType, int availableMB, int totalMB);
+  
+  /// Called when engine state changes (init, ready, etc).
+  void onEngineStateChanged(NativeEngineType engineType, NativeCoreState state, String? errorMessage);
 }
