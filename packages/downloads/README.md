@@ -1,39 +1,38 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# downloads
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages).
+Asset download and management system for the audiobook_flutter application.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages).
--->
+## Overview
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+This package handles downloading and managing TTS voice models and other assets:
 
-## Features
+- **AtomicAssetManager**: Corruption-safe downloads with .tmp pattern and atomic moves
+- **ResilientDownloader**: Retry logic, resume support, and SHA256 verification
+- **Voice Manifests**: JSON-driven voice model specifications
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
+## Key Features
 
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+- Atomic downloads prevent corruption from interrupted transfers
+- SHA256 verification ensures file integrity
+- Resume support for large model downloads
+- Progress tracking via streams
 
 ## Usage
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
-
 ```dart
-const like = 'sample';
+import 'package:downloads/downloads.dart';
+
+final manager = AtomicAssetManager(
+  targetDir: voiceDir,
+);
+
+await manager.downloadAndExtract(
+  url: modelUrl,
+  sha256: expectedHash,
+  onProgress: (progress) => print('$progress%'),
+);
 ```
 
-## Additional information
+## Part of audiobook_flutter_v2
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+This is an internal package for the audiobook_flutter_v2 project and is not published to pub.dev.

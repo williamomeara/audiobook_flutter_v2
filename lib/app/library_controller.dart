@@ -249,6 +249,39 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     await _saveLibrary(updated);
   }
 
+  /// Mark a chapter as completed (listened to >95%).
+  Future<void> markChapterComplete(String bookId, int chapterIndex) async {
+    final current = state.value ?? const LibraryState();
+    final updated = current.books.map((b) {
+      if (b.id == bookId) {
+        final newCompleted = Set<int>.from(b.completedChapters)..add(chapterIndex);
+        return b.copyWith(completedChapters: newCompleted);
+      }
+      return b;
+    }).toList();
+    state = AsyncValue.data(current.copyWith(books: updated));
+    await _saveLibrary(updated);
+  }
+
+  /// Toggle a chapter's read/unread state manually.
+  Future<void> toggleChapterComplete(String bookId, int chapterIndex) async {
+    final current = state.value ?? const LibraryState();
+    final updated = current.books.map((b) {
+      if (b.id == bookId) {
+        final newCompleted = Set<int>.from(b.completedChapters);
+        if (newCompleted.contains(chapterIndex)) {
+          newCompleted.remove(chapterIndex);
+        } else {
+          newCompleted.add(chapterIndex);
+        }
+        return b.copyWith(completedChapters: newCompleted);
+      }
+      return b;
+    }).toList();
+    state = AsyncValue.data(current.copyWith(books: updated));
+    await _saveLibrary(updated);
+  }
+
   Book? getBook(String bookId) {
     return state.value?.books.where((b) => b.id == bookId).firstOrNull;
   }

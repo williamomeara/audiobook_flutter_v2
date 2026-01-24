@@ -1,15 +1,21 @@
 # platform_ios_tts
 
-A new Flutter plugin project.
+iOS-specific TTS implementations for the audiobook_flutter application.
 
-## Getting Started
+## Overview
 
-This project is a starting point for a Flutter
-[plug-in package](https://flutter.dev/to/develop-plugins),
-a specialized package that includes platform-specific implementation code for
-Android and/or iOS.
+This Flutter plugin provides native iOS TTS functionality.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+> **Note:** iOS support is currently a placeholder. The app uses platform_android_tts for Android devices.
+
+## Platform Support
+
+| Platform | Support |
+|----------|---------|
+| Android  | ❌       |
+| iOS      | 🚧 (planned) |
+
+## Part of audiobook_flutter_v2
+
+This is an internal package for the audiobook_flutter_v2 project and is not published to pub.dev.
 

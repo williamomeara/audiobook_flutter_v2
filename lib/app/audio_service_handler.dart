@@ -1,15 +1,15 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Debug logging helper using print for visibility
+/// Debug logging helper using debugPrint for visibility in debug mode only
 void _log(String message) {
-  // ignore: avoid_print
-  print('[AudioServiceHandler] $message');
-  developer.log('AudioServiceHandler: $message');
+  if (kDebugMode) {
+    debugPrint('[AudioServiceHandler] $message');
+  }
 }
 
 /// Audio handler for system media controls integration.
@@ -344,7 +344,7 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
     
     await player.setSpeed(nextSpeed);
     onSpeedChangeCallback?.call(nextSpeed);
-    developer.log('AudioServiceHandler: Speed changed to ${nextSpeed}x');
+    _log('Speed changed to ${nextSpeed}x');
   }
 
   @override
@@ -381,7 +381,7 @@ class AudioServiceHandler extends BaseAudioHandler with SeekHandler {
         await cycleSpeed();
         break;
       default:
-        developer.log('AudioServiceHandler: Unknown custom action: $name');
+        _log('Unknown custom action: $name');
     }
     return null;
   }

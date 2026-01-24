@@ -63,6 +63,7 @@ class Book {
     required this.addedAt,
     required this.chapters,
     this.progress = BookProgress.zero,
+    this.completedChapters = const {},
     this.gutenbergId,
     this.coverImagePath,
     this.voiceId,
@@ -99,6 +100,9 @@ class Book {
   /// Current reading progress.
   final BookProgress progress;
 
+  /// Set of chapter indices that have been completed (listened to >95%).
+  final Set<int> completedChapters;
+
   /// Whether this book is marked as a favorite.
   final bool isFavorite;
 
@@ -133,6 +137,7 @@ class Book {
     String? voiceId,
     List<Chapter>? chapters,
     BookProgress? progress,
+    Set<int>? completedChapters,
     bool? isFavorite,
   }) {
     return Book(
@@ -146,6 +151,7 @@ class Book {
       voiceId: voiceId ?? this.voiceId,
       chapters: chapters ?? this.chapters,
       progress: progress ?? this.progress,
+      completedChapters: completedChapters ?? this.completedChapters,
       isFavorite: isFavorite ?? this.isFavorite,
     );
   }
@@ -161,10 +167,25 @@ class Book {
         'voiceId': voiceId,
         'chapters': chapters.map((c) => c.toJson()).toList(growable: false),
         'progress': progress.toJson(),
+        'completedChapters': completedChapters.toList(growable: false),
         'isFavorite': isFavorite,
       };
 
   factory Book.fromJson(Map<String, dynamic> json) {
+    final progressJson = (json['progress'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final progress = BookProgress.fromJson(progressJson);
+    
+    // Migration: if completedChapters is missing, mark chapters before current as complete
+    Set<int> completedChapters;
+    if (json.containsKey('completedChapters')) {
+      completedChapters = (json['completedChapters'] as List<dynamic>?)
+          ?.map((e) => (e as num).toInt())
+          .toSet() ?? const {};
+    } else {
+      // Migrate old books: assume chapters before current position are complete
+      completedChapters = {for (var i = 0; i < progress.chapterIndex; i++) i};
+    }
+    
     return Book(
       id: json['id'] as String,
       title: (json['title'] as String?) ?? '',
@@ -177,9 +198,8 @@ class Book {
       chapters: (json['chapters'] as List<dynamic>? ?? const [])
           .map((c) => Chapter.fromJson(c as Map<String, dynamic>))
           .toList(growable: false),
-      progress: BookProgress.fromJson(
-        (json['progress'] as Map?)?.cast<String, dynamic>() ?? const {},
-      ),
+      progress: progress,
+      completedChapters: completedChapters,
       isFavorite: (json['isFavorite'] as bool?) ?? false,
     );
   }
