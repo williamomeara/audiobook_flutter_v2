@@ -155,9 +155,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   }
   
   void _setupPlaybackListener() {
-    // Listen to playback state changes for auto-scrolling
+    // Listen to playback state changes for auto-scrolling and auto-advance
     ref.listenManual(playbackStateProvider, (previous, next) {
       if (!mounted) return;
+      
+      // Auto-advance to next chapter when current chapter ends
+      _handleAutoAdvanceChapter(previous, next);
+      
       if (!_autoScrollEnabled) return;
       if (_showCover) return; // Don't scroll when showing cover
       
@@ -170,6 +174,50 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
         });
       }
     });
+  }
+  
+  /// Handle auto-advance to next chapter when current chapter ends.
+  /// Does NOT reset sleep timer (auto-advance is not a user action).
+  void _handleAutoAdvanceChapter(PlaybackState? previous, PlaybackState next) {
+    // Skip if auto-advance is disabled
+    final settings = ref.read(settingsProvider);
+    if (!settings.autoAdvanceChapters) return;
+    
+    // Detect end of chapter: was playing, now not playing, at last track
+    if (previous == null) return;
+    if (!previous.isPlaying) return; // Was not playing
+    if (next.isPlaying) return; // Still playing
+    if (next.isBuffering) return; // Just buffering, not ended
+    if (next.queue.isEmpty) return; // No queue
+    
+    // Check if we're at the last track (chapter ended)
+    final isAtLastTrack = next.currentIndex == next.queue.length - 1;
+    if (!isAtLastTrack) return;
+    
+    // Get book and check if there's a next chapter
+    final library = ref.read(libraryProvider).value;
+    if (library == null) return;
+    
+    final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
+    if (book == null) return;
+    
+    final currentChapterIndex = _currentChapterIndex;
+    if (currentChapterIndex >= book.chapters.length - 1) return; // No more chapters
+    
+    // Auto-advance to next chapter
+    _autoAdvanceToNextChapter(book, currentChapterIndex + 1);
+  }
+  
+  /// Automatically advance to next chapter (does NOT reset sleep timer).
+  Future<void> _autoAdvanceToNextChapter(Book book, int newChapterIndex) async {
+    setState(() => _currentChapterIndex = newChapterIndex);
+    
+    await ref.read(playbackControllerProvider.notifier).loadChapter(
+      book: book,
+      chapterIndex: newChapterIndex,
+      startSegmentIndex: 0,
+      autoPlay: true, // Continue playing
+    );
   }
   
   void _scrollToActiveSegment() {
@@ -282,6 +330,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   }
 
   Future<void> _togglePlay() async {
+    _resetSleepTimer(); // Reset sleep timer on user action
     final notifier = ref.read(playbackControllerProvider.notifier);
     final state = ref.read(playbackStateProvider);
 
@@ -333,14 +382,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   }
 
   Future<void> _nextSegment() async {
+    _resetSleepTimer(); // Reset sleep timer on user action
     await ref.read(playbackControllerProvider.notifier).nextTrack();
   }
 
   Future<void> _previousSegment() async {
+    _resetSleepTimer(); // Reset sleep timer on user action
     await ref.read(playbackControllerProvider.notifier).previousTrack();
   }
 
   Future<void> _nextChapter() async {
+    _resetSleepTimer(); // Reset sleep timer on user action
     final library = ref.read(libraryProvider).value;
     if (library == null) return;
 
@@ -362,6 +414,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   }
 
   Future<void> _previousChapter() async {
+    _resetSleepTimer(); // Reset sleep timer on user action
     final library = ref.read(libraryProvider).value;
     if (library == null) return;
 
@@ -387,12 +440,14 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   }
   
   void _increaseSpeed() {
+    _resetSleepTimer(); // Reset sleep timer on user action
     final currentRate = ref.read(playbackStateProvider).playbackRate;
     final newRate = (currentRate + 0.25).clamp(0.5, 2.0);
     _setPlaybackRate(newRate);
   }
   
   void _decreaseSpeed() {
+    _resetSleepTimer(); // Reset sleep timer on user action
     final currentRate = ref.read(playbackStateProvider).playbackRate;
     final newRate = (currentRate - 0.25).clamp(0.5, 2.0);
     _setPlaybackRate(newRate);
@@ -420,6 +475,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
         return;
       }
       
+      // Only decrement when audio is actually playing
+      final playbackState = ref.read(playbackStateProvider);
+      if (!playbackState.isPlaying) {
+        return; // Skip this tick, don't decrement
+      }
+      
       setState(() {
         if (_sleepTimeRemainingSeconds != null && _sleepTimeRemainingSeconds! > 0) {
           _sleepTimeRemainingSeconds = _sleepTimeRemainingSeconds! - 1;
@@ -432,6 +493,16 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
         }
       });
     });
+  }
+  
+  /// Resets the sleep timer to its original duration when user takes an action.
+  /// Only resets if a timer is currently active.
+  void _resetSleepTimer() {
+    if (_sleepTimerMinutes != null) {
+      setState(() {
+        _sleepTimeRemainingSeconds = _sleepTimerMinutes! * 60;
+      });
+    }
   }
   
   String _formatSleepTime(int seconds) {
@@ -1106,6 +1177,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   }
   
   Future<void> _seekToSegment(int index) async {
+    _resetSleepTimer(); // Reset sleep timer on user action
     final notifier = ref.read(playbackControllerProvider.notifier);
     final playbackState = ref.read(playbackStateProvider);
     

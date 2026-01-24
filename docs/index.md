@@ -6,6 +6,7 @@ Welcome to the Audiobook Flutter V2 documentation. This guide will help you unde
 
 - **[Getting Started](./getting-started/)** - Setup, installation, and running the app
 - **[Architecture](./ARCHITECTURE.md)** - Overall system design and component overview
+- **[Architecture Details](./architecture/)** - State machines, improvements, and deep dives
 - **[Features](./features/)** - In-depth documentation for specific features
 - **[API Reference](./api-reference/)** - API and provider documentation
 - **[Guides](./guides/)** - How-to guides for common tasks
@@ -18,50 +19,53 @@ Welcome to the Audiobook Flutter V2 documentation. This guide will help you unde
 docs/
 ├── index.md                          # This file
 ├── ARCHITECTURE.md                   # System design overview
-├── README.md                         # Main documentation README
-├── TTS_IMPLEMENTATION_COMPLETE.md   # TTS feature summary
-├── DOWNLOAD_URLS_REFERENCE.md       # Resource download URLs
 ├── COPILOT_POLICY.md                # AI assistant guidelines
 │
+├── architecture/                    # Architecture deep dives
+│   ├── audio_synthesis_pipeline_state_machine.md
+│   ├── playback_screen_state_machine.md
+│   ├── sleep_timer_state_machine.md
+│   ├── tts_synthesis_state_machine.md
+│   └── improvements/               # Audits and optimization plans
+│       ├── improvement_opportunities.md
+│       ├── tts_state_machine_audit.md
+│       └── kokoro_performance_optimization.md
+│
 ├── getting-started/                 # Project setup & onboarding
-│   ├── setup.md                     # Development environment setup
-│   ├── running-locally.md           # How to run the app
-│   └── troubleshooting.md           # Common setup issues
+│   └── setup.md                     # Development environment setup
 │
 ├── guides/                          # How-to guides
-│   ├── adding-new-features.md       # Feature development workflow
-│   ├── testing.md                   # Testing strategies
-│   ├── debugging.md                 # Debugging tips
-│   └── contributing.md              # Contributing guidelines
+│   └── adding-new-features.md       # Feature development workflow
 │
 ├── api-reference/                   # Provider & API docs
-│   ├── providers.md                 # Riverpod providers
-│   ├── models.md                    # Data models
-│   └── services.md                  # Core services
+│   └── DOWNLOAD_URLS_REFERENCE.md   # Resource download URLs
 │
 ├── features/                        # Feature-specific docs
-│   ├── downloads-improvements/      # Download system
-│   ├── onnx/                        # TTS ONNX Runtime
-│   └── [feature-name]/             # New features (branch-specific)
+│   ├── configuration-flexibility/  # Runtime config system
+│   ├── downloads-improvements/     # Download system
+│   ├── sleep-timer/               # Sleep timer feature
+│   └── [feature-name]/            # Other features
 │
 ├── fixes/                          # Bug fixes & issue resolutions
-│   ├── playback-loading-issue.md   # Infinite loading state fix
-│   └── [issue-name].md             # Other resolved issues
-│
-├── troubleshooting/                # Problem solving
-│   ├── playback-issues.md          # Playback-related problems
-│   ├── download-failures.md        # Download-related issues
-│   └── [problem-area].md           # Other common issues
+│   └── PLAYBACK_LOADING_ISSUE_ANALYSIS.md
 │
 ├── modules/                        # Package documentation
-│   └── [package-name]/            # Package-specific docs
+│   ├── CORE_DOMAIN.md
+│   ├── DOWNLOADS.md
+│   ├── PLAYBACK.md
+│   └── [package-name].md
 │
 ├── decisions/                      # Architecture decisions
-│   └── [ADR].md                    # Architecture Decision Records
+│   └── TTS_DECISIONS.md
 │
-└── dev/                           # Developer notes
-    ├── TTS/                       # TTS development notes
-    └── [area]/                    # Area-specific notes
+├── dev/                           # Developer notes
+│   ├── LOGGING_PLAN.md
+│   ├── REMOTE_ADB_SETUP.md
+│   └── TTS/
+│
+└── deployment/                    # App store deployment
+    ├── APP_STORE_DEPLOYMENT_GUIDE.md
+    └── IOS_APP_STORE_DEPLOYMENT_GUIDE.md
 ```
 
 ## Categories Explained
@@ -192,7 +196,7 @@ For more details, see [Contributing Guidelines](./guides/contributing.md).
 
 ---
 
-**Last Updated**: January 7, 2026
+**Last Updated**: January 24, 2026
 **Maintained By**: Development Team
 
 For questions or suggestions about documentation, please file an issue or contact the team.
