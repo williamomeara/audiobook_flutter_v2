@@ -21,9 +21,6 @@ class PlaybackConfig {
   /// Maximum number of tracks to prefetch ahead.
   static const int maxPrefetchTracks = 10;
 
-  /// Concurrency limit for parallel synthesis.
-  static const int prefetchConcurrency = 1;
-
   /// Delay before resuming prefetch after user interaction.
   static const Duration prefetchResumeDelay = Duration(milliseconds: 500);
 
