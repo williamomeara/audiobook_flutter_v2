@@ -184,7 +184,7 @@ Both `FileAudioCache` and `IntelligentCacheManager` implementations updated:
 
 ---
 
-### H3. No Timeout on Synthesis Operations
+### ✅ H3. No Timeout on Synthesis Operations - FIXED
 
 **Location:** Multiple synthesis calls in `buffer_scheduler.dart` and `playback_controller.dart`
 
@@ -192,7 +192,21 @@ Both `FileAudioCache` and `IntelligentCacheManager` implementations updated:
 
 **Impact:** Playback stalls; user can't skip to next segment.
 
-**Recommendation:** Wrap with `timeout()` Future; implement cancellation on timeout.
+**Fix Applied:**
+- Added `SynthesisTimeoutException` class in `buffer_scheduler.dart`
+- Added `synthesisTimeout = 60 seconds` constant in `PlaybackConfig`
+- Wrapped all 5 synthesis calls with `.timeout()`:
+  - `runPrefetch()` in BufferScheduler - continues to next segment on timeout
+  - `bufferUntilReady()` in BufferScheduler - continues to next segment on timeout
+  - `prefetchNextSegmentImmediately()` in BufferScheduler - logs and continues
+  - `_runImmediatePrefetch()` in PlaybackController - continues to next segment
+  - `_speakCurrent()` in PlaybackController - shows user-friendly error, allows skip
+
+The timeout is set to 60 seconds (generous for most segments). On timeout:
+- Prefetch operations log and continue with next segment
+- JIT synthesis shows user-friendly error: "Synthesis timed out. Try skipping to the next segment."
+
+**Commit:** (pending)
 
 ---
 
@@ -693,7 +707,7 @@ All 322 tests in the suite now pass.
 | ~~C2. _readinessControllers memory leak~~ | ~~Medium~~ | ~~Medium~~ | ✅ FIXED |
 | ~~C5. _activeRequests cleanup~~ | ~~Low~~ | ~~Low~~ | ✅ VERIFIED |
 | ~~H2. Cache eviction coordination~~ | ~~Medium~~ | ~~Medium~~ | ✅ FIXED |
-| H3. Synthesis timeout | Medium | Low | TODO |
+| ~~H3. Synthesis timeout~~ | ~~Medium~~ | ~~Low~~ | ✅ FIXED |
 | ~~H6. Voice readiness check~~ | ~~Low~~ | ~~Low~~ | ✅ FIXED |
 | ~~H7. Prefetch timing fix~~ | ~~Low~~ | ~~Low~~ | ✅ FIXED |
 
@@ -718,18 +732,17 @@ All 322 tests in the suite now pass.
 
 ## 📊 PROGRESS SUMMARY
 
-**Completed:** 13 issues
+**Completed:** 14 issues
 - C1, C2, C3, C4 (Critical race conditions & error handling)
 - C5, H4 (Verified not issues)
-- H1, H2, H6, H7, H10 (High priority fixes)
+- H1, H2, H3, H6, H7, H10 (High priority fixes)
 
-**Remaining High Priority:** 2 issues
-- H3: Synthesis timeout (Medium effort)
+**Remaining High Priority:** 1 issue
 - H8: opId cancellation (Medium effort)
 
 **Recommended Next Steps:**
-1. **H3 - Synthesis timeout** (Medium effort, Prevents hanging playback)
-2. **H8 - opId cancellation** (Medium effort, Complements H1 fix)
+1. **H8 - opId cancellation** (Medium effort, Complements H1 fix)
+2. Feature freeze for beta stability testing
 
 ---
 
