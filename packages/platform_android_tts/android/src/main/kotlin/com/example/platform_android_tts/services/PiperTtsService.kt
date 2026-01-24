@@ -148,10 +148,14 @@ class PiperTtsService : Service() {
             } else {
                 model.lastUsed = System.currentTimeMillis()
                 
-                // Calculate actual duration from sample count
-                val samples = inference.synthesize(text, speed).getOrNull()
-                val durationMs = if (samples != null) {
-                    (samples.size * 1000 / inference.getSampleRate())
+                // Calculate duration from output file size (avoids double synthesis)
+                val sampleRate = inference.getSampleRate()
+                val outputFile = File(outputPath)
+                val durationMs = if (outputFile.exists()) {
+                    val fileSize = outputFile.length()
+                    val dataSize = fileSize - 44 // WAV header is 44 bytes
+                    val sampleCount = dataSize / 2 // 16-bit samples = 2 bytes each
+                    (sampleCount * 1000 / sampleRate).toInt()
                 } else {
                     estimateDurationMs(text)
                 }
@@ -159,7 +163,7 @@ class PiperTtsService : Service() {
                 SynthesisResult(
                     success = true,
                     durationMs = durationMs,
-                    sampleRate = inference.getSampleRate()
+                    sampleRate = sampleRate
                 )
             }
         } catch (e: Exception) {
