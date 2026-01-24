@@ -47,15 +47,28 @@ After comprehensive code audit of the playback and synthesis subsystems, we iden
 
 ---
 
-### C2. Unbounded _readinessControllers Map Growth
+### C2. Unbounded _readinessControllers Map Growth ✅ FIXED
 
-**Location:** `packages/tts_engines/lib/src/routing_engine.dart` lines 48-52, 85-116
+**Location:** `packages/tts_engines/lib/src/adapters/routing_engine.dart` lines 48-52, 85-116
 
 **Problem:** StreamControllers are cached indefinitely. If `watchCoreReadiness()` is called with many different `coreId` values, memory grows without bounds. `_cleanupReadinessSubscriptions()` is only called when ALL listeners cancel.
 
 **Impact:** Memory leak in long-running sessions with dynamic core IDs.
 
-**Recommendation:** Add TTL-based eviction or weak references; implement periodic cleanup.
+**Fix Applied:**
+1. Added listener count tracking (`listenerCount` variable) in `watchCoreReadiness()`
+2. Added `onListen` callback to increment count
+3. Modified `onCancel` to decrement count and cleanup when count reaches 0
+4. Updated `dispose()` to clear `_readinessControllers` and `_readinessSubscriptions` maps
+
+**Tests Added:** `packages/tts_engines/test/adapters/routing_engine_test.dart` with 7 tests covering:
+- Controller reuse for same coreId
+- Separate controllers for different coreIds
+- Cleanup when all listeners unsubscribe
+- Dispose cleans up all controllers
+- Events forwarded from child engines
+- Multiple coreIds watched simultaneously
+- Listener count tracking
 
 ---
 
