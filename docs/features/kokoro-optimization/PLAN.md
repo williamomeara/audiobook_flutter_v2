@@ -4,109 +4,390 @@
 
 This document outlines a plan to upgrade Kokoro TTS implementation to use platform-optimized models for better performance on iOS (CoreML/MLX) and Android (ONNX int8 quantized).
 
-## Current State
+## Status
 
-### What We Have
-- **iOS**: Uses `sherpa-onnx` with CPU provider for Kokoro inference
-- **Android**: Uses `sherpa-onnx` with full-precision ONNX model (~350MB)
-- **Model**: `kokoro-multi-lang-v1_0.tar.bz2` from k2-fsa/sherpa-onnx releases
+### Completed
+- ✅ **Phase 1**: Android int8 optimization (commit: 7011330)
+  - Added `kokoro_core_android_v1` with int8 model (~126MB vs ~335MB)
+  - Added `kokoro_core_ios_v1` for iOS (still using sherpa-onnx)
+  - Updated ManifestService for platform-specific core resolution
+- ✅ **Fix**: Resolved platform-specific core IDs in voice state (commit: 341b971)
 
-### Current Performance Issues
-- iOS: CPU inference is slower and uses more battery than ANE/CoreML
-- Android: Full-precision model (~350MB) is larger than necessary for int8 devices
-- Both: Not utilizing hardware accelerators (NPU/ANE)
-
-## Target Architecture
-
-### iOS: MLX Swift + CoreML
-- **Library**: [mlalma/kokoro-ios](https://github.com/mlalma/kokoro-ios)
-- **Performance**: ~3.3x faster than real-time on iPhone 13 Pro
-- **Dependencies**:
-  - MLX Swift framework
-  - MisakiSwift (G2P processor)
-  - MLXUtilsLibrary
-
-### Android: ONNX int8 Quantized
-- **Reference**: [puff-dayo/Kokoro-82M-Android](https://github.com/puff-dayo/Kokoro-82M-Android)
-- **Model Size**: ~90MB (int8) vs ~350MB (full precision)
-- **Source**: [kokoro-onnx int8 models](https://github.com/thewh1teagle/kokoro-onnx)
-
-### Cross-Platform Reference
-- **Expo/React Native**: [isaiahbjork/expo-kokoro-onnx](https://github.com/isaiahbjork/expo-kokoro-onnx)
-- Useful for model management patterns and voice handling
+### In Progress
+- 🔄 **Phase 2**: iOS MLX/CoreML Integration (detailed below)
 
 ---
 
-## Implementation Plan
+## Phase 2: iOS MLX Implementation - Detailed Step-by-Step
 
-### Phase 1: Android ONNX int8 Optimization
-**Estimated Effort**: 1-2 days
-**Risk**: Low (model format compatible with existing code)
+### Prerequisites
+- iOS 18.0+ (MLX requirement)
+- Xcode 16.0+
+- CocoaPods or Swift Package Manager
 
-#### Tasks
-- [ ] **1.1** Update manifest to point to int8 quantized model
-  - Change model URL from `kokoro-multi-lang-v1_0.tar.bz2` to int8 version
-  - Update file size in manifest
-  
-- [ ] **1.2** Verify sherpa-onnx compatibility with int8 model
-  - Test that `KokoroSherpaInference` works with int8 model
-  - Benchmark performance difference
-  
-- [ ] **1.3** Update model loading logic if needed
-  - Check if model filename changes (model.onnx vs model.int8.onnx)
-  - Update `findModelFile()` in KokoroTtsService.kt
-
-#### Model Sources (int8)
-- **Direct int8**: https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0
-- **HuggingFace**: https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX (model_quantized.onnx ~92MB)
+### Architecture Decision
+**Chosen: MLX Swift via kokoro-ios library**
+- 3.3x faster than realtime on iPhone 13 Pro
+- Uses Apple Neural Engine (ANE) for hardware acceleration
+- Clean Swift API matching our existing interface
+- Active development by mlalma
 
 ---
 
-### Phase 2: iOS MLX/CoreML Integration
-**Estimated Effort**: 3-5 days
-**Risk**: Medium-High (significant code changes required)
+### Step 2.1: Add MLX Dependencies to Platform iOS TTS
+**Files:** `packages/platform_ios_tts/ios/platform_ios_tts.podspec`
 
-#### Option A: MLX Swift (Recommended)
-Use mlalma/kokoro-ios which provides a complete Swift implementation.
+The challenge: Our plugin uses CocoaPods (Flutter requirement), but kokoro-ios uses SPM.
 
-##### Tasks
-- [ ] **2.1** Add KokoroSwift SPM dependency to platform_ios_tts
-  ```swift
-  dependencies: [
-      .package(url: "https://github.com/mlalma/kokoro-ios.git", from: "1.0.0")
-  ]
-  ```
+**Options:**
+1. **Use SPM wrapper in CocoaPod** - Create a local Swift Package that wraps kokoro-ios
+2. **Vendored framework** - Build kokoro-ios as XCFramework and vendor it
+3. **Source integration** - Copy kokoro-ios source directly (may have license issues)
 
-- [ ] **2.2** Create `KokoroMLXInference.swift` class
-  - Mirror API of existing `KokoroSherpaInference.swift`
-  - Implement: `loadModel()`, `synthesize()`, `unload()`
+**Recommended: Option 1 - SPM wrapper**
+
+```ruby
+# platform_ios_tts.podspec additions:
+# Add SPM dependency via Cocoapods-SPM plugin
+s.dependency 'SwiftPM-KokoroSwift', :git => 'https://github.com/mlalma/kokoro-ios.git'
+```
+
+Or manually add to Podfile:
+```ruby
+pod 'KokoroSwift', :git => 'https://github.com/mlalma/kokoro-ios.git'
+```
+
+**Tasks:**
+- [ ] 2.1.1 Fork kokoro-ios and create a podspec for it
+- [ ] 2.1.2 Add kokoro-ios dependencies to platform_ios_tts.podspec
+- [ ] 2.1.3 Test pod install works without breaking existing sherpa-onnx
+
+---
+
+### Step 2.2: Create KokoroMLXInference.swift
+**Files:** `packages/platform_ios_tts/ios/Classes/inference/KokoroMLXInference.swift`
+
+Create new inference class that mirrors KokoroSherpaInference API:
+
+```swift
+import Foundation
+import KokoroSwift  // From kokoro-ios package
+
+/// Kokoro TTS inference using MLX framework.
+/// Uses Apple Neural Engine for ~3.3x faster than realtime synthesis.
+class KokoroMLXInference {
+    
+    private var tts: KokoroTTS?
+    private var currentModelPath: String?
+    private var voiceEmbeddings: [String: MLXArray] = [:]  // Voice ID -> embedding
+    
+    var isModelLoaded: Bool {
+        return tts != nil
+    }
+    
+    /// Load the MLX Kokoro model.
+    /// - Parameters:
+    ///   - modelPath: Path to kokoro-v1_0.safetensors
+    ///   - voiceStylesPath: Path to voice styles NPZ file
+    func loadModel(modelPath: String, voiceStylesPath: String) throws {
+        let modelURL = URL(fileURLWithPath: modelPath)
+        
+        guard FileManager.default.fileExists(atPath: modelPath) else {
+            throw TtsError.modelNotLoaded
+        }
+        
+        // Initialize KokoroTTS with MisakiSwift G2P
+        tts = KokoroTTS(modelPath: modelURL, g2p: .misaki)
+        
+        // Load voice style embeddings
+        try loadVoiceStyles(from: voiceStylesPath)
+        
+        currentModelPath = modelPath
+        print("[KokoroMLXInference] MLX model loaded: \(modelPath)")
+    }
+    
+    /// Load voice style embeddings from NPZ file.
+    private func loadVoiceStyles(from path: String) throws {
+        // Voice styles are stored as NPZ with shape (511, 1, 256) per voice
+        // See KokoroTestApp StyleLoader for reference
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw TtsError.invalidInput("Voice styles file not found: \(path)")
+        }
+        
+        // Load NPZ file using MLXUtilsLibrary
+        // Each voice has a 256-dim style vector
+        // TODO: Implement voice style loading based on KokoroTestApp
+    }
+    
+    /// Synthesize text to audio samples.
+    /// - Parameters:
+    ///   - text: Text to synthesize
+    ///   - voiceName: Voice name (e.g., "af_bella")
+    ///   - speed: Speech speed multiplier
+    /// - Returns: Tuple of (samples, sampleRate)
+    func synthesize(text: String, voiceName: String, speed: Float = 1.0) throws -> (samples: [Float], sampleRate: Int) {
+        guard let tts = tts else {
+            throw TtsError.modelNotLoaded
+        }
+        
+        guard let voiceEmbedding = voiceEmbeddings[voiceName] else {
+            throw TtsError.voiceNotLoaded(voiceName)
+        }
+        
+        // Generate audio using MLX
+        let audioBuffer = try tts.generateAudio(
+            voice: voiceEmbedding,
+            language: .enUS,  // TODO: Detect from voice name prefix
+            text: text
+        )
+        
+        return (Array(audioBuffer), 24000)  // Kokoro outputs 24kHz
+    }
+    
+    /// Unload model and free resources.
+    func unload() {
+        tts = nil
+        voiceEmbeddings.removeAll()
+        currentModelPath = nil
+        print("[KokoroMLXInference] MLX model unloaded")
+    }
+}
+```
+
+**Tasks:**
+- [ ] 2.2.1 Create KokoroMLXInference.swift skeleton
+- [ ] 2.2.2 Implement loadModel() with safetensors loading
+- [ ] 2.2.3 Implement voice style loading from NPZ
+- [ ] 2.2.4 Implement synthesize() using KokoroTTS.generateAudio()
+- [ ] 2.2.5 Map speaker IDs to voice names (af_bella → ID 2)
+- [ ] 2.2.6 Add error handling and logging
+
+---
+
+### Step 2.3: Update KokoroTtsService.swift for Backend Selection
+**Files:** `packages/platform_ios_tts/ios/Classes/engines/KokoroTtsService.swift`
+
+Add logic to choose between sherpa-onnx and MLX backends:
+
+```swift
+class KokoroTtsService: TtsServiceProtocol {
+    let engineType: NativeEngineType = .kokoro
+    
+    // Dual backend support
+    private var sherpaInference: KokoroSherpaInference?
+    private var mlxInference: KokoroMLXInference?
+    
+    // Active backend type
+    private enum BackendType {
+        case sherpa
+        case mlx
+    }
+    private var activeBackend: BackendType = .sherpa
+    
+    /// Detect which backend to use based on iOS version and model format.
+    private func detectBackend(modelPath: String) -> BackendType {
+        // MLX requires iOS 18.0+
+        if #available(iOS 18.0, *) {
+            // Check for MLX model format (safetensors)
+            let safetensorsPath = (modelPath as NSString)
+                .appendingPathComponent("kokoro-v1_0.safetensors")
+            if FileManager.default.fileExists(atPath: safetensorsPath) {
+                return .mlx
+            }
+        }
+        
+        // Fall back to sherpa-onnx
+        return .sherpa
+    }
+    
+    func loadVoice(voiceId: String, modelPath: String, speakerId: Int?, configPath: String?) async throws {
+        let backend = detectBackend(modelPath: modelPath)
+        
+        switch backend {
+        case .mlx:
+            try loadWithMLX(voiceId: voiceId, modelPath: modelPath, speakerId: speakerId)
+        case .sherpa:
+            try loadWithSherpa(voiceId: voiceId, modelPath: modelPath, speakerId: speakerId)
+        }
+        
+        activeBackend = backend
+    }
+    
+    private func loadWithMLX(voiceId: String, modelPath: String, speakerId: Int?) throws {
+        if mlxInference == nil {
+            mlxInference = KokoroMLXInference()
+        }
+        
+        let safetensorsPath = (modelPath as NSString)
+            .appendingPathComponent("kokoro-v1_0.safetensors")
+        let voiceStylesPath = (modelPath as NSString)
+            .appendingPathComponent("voice_styles.npz")
+        
+        try mlxInference?.loadModel(
+            modelPath: safetensorsPath,
+            voiceStylesPath: voiceStylesPath
+        )
+    }
+    
+    private func loadWithSherpa(voiceId: String, modelPath: String, speakerId: Int?) throws {
+        // Existing sherpa-onnx loading code...
+    }
+}
+```
+
+**Tasks:**
+- [ ] 2.3.1 Add BackendType enum and detection logic
+- [ ] 2.3.2 Refactor loadVoice() to support both backends
+- [ ] 2.3.3 Refactor synthesize() to route to active backend
+- [ ] 2.3.4 Add graceful fallback if MLX fails
+- [ ] 2.3.5 Test on iOS 17 (sherpa) and iOS 18 (MLX)
+
+---
+
+### Step 2.4: Package MLX Model Files
+**Files:** `packages/downloads/lib/manifests/voices_manifest.json`
+
+Need to package MLX model in downloadable format:
+
+**Model Files Required:**
+1. `kokoro-v1_0.safetensors` (~600MB uncompressed) - Main model weights
+2. `voice_styles.npz` (~30MB) - Voice embeddings for all 53 speakers
+
+**Package Structure:**
+```
+kokoro-mlx-v1_0.tar.gz
+├── kokoro-v1_0.safetensors
+├── voice_styles.npz
+└── .manifest  # Our marker file
+```
+
+**Tasks:**
+- [ ] 2.4.1 Download kokoro-v1_0.safetensors from KokoroTestApp repo
+- [ ] 2.4.2 Generate voice_styles.npz with all 53 speaker embeddings
+- [ ] 2.4.3 Create tar.gz package for iOS download
+- [ ] 2.4.4 Upload to williamomeara/audiobook_flutter_assets releases
+- [ ] 2.4.5 Update manifest with iOS MLX core URL
+
+**Manifest Update:**
+```json
+{
+  "id": "kokoro_core_ios_mlx_v1",
+  "engineType": "kokoro",
+  "displayName": "Kokoro TTS Core (iOS MLX)",
+  "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/kokoro-mlx-v1/kokoro-mlx-v1_0.tar.gz",
+  "sizeBytes": 320000000,
+  "required": true,
+  "extractType": "tar.gz",
+  "platform": "ios"
+}
+```
+
+---
+
+### Step 2.5: Voice Style Mapping
+**Files:** Create voice_styles.npz with correct speaker ID mapping
+
+The MLX model uses voice style vectors (256-dim) instead of integer speaker IDs.
+Need to map our speaker IDs to voice names:
+
+| Speaker ID | Voice Name | Style Index |
+|------------|------------|-------------|
+| 0 | af_alloy | 0 |
+| 2 | af_bella | 1 |
+| 6 | af_nicole | 2 |
+| 9 | af_sarah | 3 |
+| 10 | af_sky | 4 |
+| 11 | am_adam | 5 |
+| 16 | am_michael | 6 |
+| 21 | bf_emma | 7 |
+| 22 | bf_isabella | 8 |
+| 26 | bm_george | 9 |
+| 27 | bm_lewis | 10 |
+
+**Tasks:**
+- [ ] 2.5.1 Extract voice styles from KokoroTestApp Resources
+- [ ] 2.5.2 Convert .npy files to combined .npz
+- [ ] 2.5.3 Create speakerId-to-voiceName mapping in Swift
+- [ ] 2.5.4 Update KokoroMLXInference to use mapping
+
+---
+
+### Step 2.6: Update ManifestService for iOS MLX Core
+**Files:** `packages/downloads/lib/src/manifest_service.dart`
+
+Update platform resolution to handle iOS MLX core:
+
+```dart
+CoreRequirement? _resolvePlatformCore(String coreId) {
+  // ... existing code ...
   
-- [ ] **2.3** Update `KokoroTtsService.swift`
-  - Add toggle between sherpa-onnx and MLX backends
-  - Use MLX for Kokoro, keep sherpa for Piper
+  // For kokoro, resolve to platform-specific cores
+  if (coreId == 'kokoro_core_v1') {
+    if (_currentPlatform == 'android') {
+      return _coresById['kokoro_core_android_v1'];
+    } else if (_currentPlatform == 'ios') {
+      // Try MLX first, fall back to sherpa
+      return _coresById['kokoro_core_ios_mlx_v1'] 
+          ?? _coresById['kokoro_core_ios_v1'];
+    }
+  }
   
-- [ ] **2.4** Model file management
-  - Download MLX-format model (safetensors)
-  - Voice style embeddings handling
-  - G2P (MisakiSwift) integration
+  return null;
+}
+```
 
-- [ ] **2.5** Update manifest for iOS
-  - Add iOS-specific core with MLX model URL
-  - Voice embeddings file separate from model
+**Tasks:**
+- [ ] 2.6.1 Add kokoro_core_ios_mlx_v1 to manifest
+- [ ] 2.6.2 Update _resolvePlatformCore() to prefer MLX on iOS
+- [ ] 2.6.3 Keep kokoro_core_ios_v1 (sherpa) as fallback
+- [ ] 2.6.4 Test platform resolution on iOS
 
-##### Model Requirements (MLX)
-- Model file: ~150MB safetensors format
-- Voice styles: Voice embeddings array
-- G2P: MisakiSwift handles tokenization
+---
 
-#### Option B: CoreML (mattmireles/kokoro-coreml)
-More complex due to two-stage pipeline architecture.
+### Step 2.7: Integration Testing
+**Tasks:**
+- [ ] 2.7.1 Test on iOS Simulator (should use sherpa-onnx fallback)
+- [ ] 2.7.2 Test on physical iOS device with iOS 18+ (should use MLX)
+- [ ] 2.7.3 Test on physical iOS device with iOS 17 (should use sherpa)
+- [ ] 2.7.4 Benchmark performance: RTF, memory, battery
+- [ ] 2.7.5 Verify all 11 English voices work correctly
+- [ ] 2.7.6 Test voice switching (does model reload?)
 
-##### Considerations
-- Requires Duration Model + HAR Decoder (two models)
-- Fixed-size buckets (3s, 10s, 45s)
-- Client-side alignment matrix building in Swift
-- More code to maintain
+---
+
+### Estimated Timeline
+
+| Step | Description | Days |
+|------|-------------|------|
+| 2.1 | Add MLX dependencies | 0.5 |
+| 2.2 | Create KokoroMLXInference | 1-2 |
+| 2.3 | Update KokoroTtsService | 0.5 |
+| 2.4 | Package MLX model | 1 |
+| 2.5 | Voice style mapping | 0.5 |
+| 2.6 | ManifestService updates | 0.5 |
+| 2.7 | Integration testing | 1 |
+| **Total** | | **5-6 days** |
+
+---
+
+### Risk Mitigation
+
+1. **MLX compatibility issues**
+   - Keep sherpa-onnx as fallback
+   - Feature flag to disable MLX
+
+2. **Model size (600MB)**
+   - Use LFS for git storage
+   - Download only on-demand
+   - Consider delta updates
+
+3. **Voice style format differences**
+   - Test each voice individually
+   - Verify output quality matches sherpa-onnx
+
+4. **iOS version fragmentation**
+   - Runtime detection for iOS 18+
+   - Graceful degradation to sherpa
 
 ---
 
