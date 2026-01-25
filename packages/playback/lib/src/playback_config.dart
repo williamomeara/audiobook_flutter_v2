@@ -95,6 +95,20 @@ class PlaybackConfig {
 
   /// Memory threshold below which parallel synthesis is paused (bytes).
   static const int parallelSynthesisMemoryThreshold = 200 * 1024 * 1024; // 200 MB
+
+  // ═══════════════════════════════════════════════════════════════════
+  // UNIFIED SYNTHESIS COORDINATOR
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Feature flag for the unified synthesis coordinator.
+  /// When enabled, all synthesis goes through SynthesisCoordinator.
+  /// When disabled, uses legacy multi-path synthesis system.
+  /// Disabled by default - enable after testing.
+  static const bool useUnifiedSynthesis = false;
+
+  /// Maximum queue size for the synthesis coordinator.
+  /// Prevents unbounded memory growth if synthesis is slow.
+  static const int synthesisQueueMaxSize = 100;
 }
 
 /// Synthesis mode based on resource constraints
