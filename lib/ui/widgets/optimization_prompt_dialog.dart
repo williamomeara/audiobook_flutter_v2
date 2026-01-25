@@ -223,50 +223,54 @@ class _OptimizationPromptDialogState extends ConsumerState<OptimizationPromptDia
   }
 
   Widget _buildOptimizingContent(ThemeData theme, AppThemeColors colors) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(height: 8),
-        SizedBox(
-          width: 60,
-          height: 60,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              CircularProgressIndicator(
-                value: _total > 0 ? _progress / _total : null,
-                strokeWidth: 4,
-                color: colors.primary,
-              ),
-              if (_total > 0)
-                Text(
-                  '$_progress/$_total',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colors.textSecondary,
-                  ),
+    return SizedBox(
+      width: double.infinity,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 8),
+          SizedBox(
+            width: 60,
+            height: 60,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: _total > 0 ? _progress / _total : null,
+                  strokeWidth: 4,
+                  color: colors.primary,
                 ),
-            ],
+                if (_total > 0)
+                  Text(
+                    '$_progress/$_total',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colors.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Running synthesis test...',
-          style: TextStyle(
-            fontSize: 14,
-            color: colors.text,
+          const SizedBox(height: 16),
+          Text(
+            'Running synthesis test...',
+            style: TextStyle(
+              fontSize: 14,
+              color: colors.text,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'This will take a few seconds',
-          style: TextStyle(
-            fontSize: 12,
-            color: colors.textSecondary,
+          const SizedBox(height: 4),
+          Text(
+            'This will take a few seconds',
+            style: TextStyle(
+              fontSize: 12,
+              color: colors.textSecondary,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-      ],
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 
