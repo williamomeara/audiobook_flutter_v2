@@ -130,13 +130,6 @@ class CalibrationNotifier extends Notifier<CalibrationState> {
         rtf: result.rtfAtOptimal,
       );
 
-      // Update live playback controller with new concurrency (Phase 4 integration)
-      final controller = ref.read(playbackControllerProvider.notifier).controller;
-      controller?.updateParallelConcurrency(
-        result.optimalConcurrency,
-        source: 'calibration:$engineType',
-      );
-
       state = CalibrationState(
         isCalibrating: false,
         lastResult: result,

@@ -157,31 +157,6 @@ final segmentReadinessProvider = Provider.family<Map<int, SegmentReadiness>, Str
   (ref, key) => SegmentReadinessTracker.instance.getReadiness(key),
 );
 
-/// Provider for smart synthesis manager
-/// Creates appropriate manager based on selected voice engine type
-/// Smart synthesis is always enabled (UI toggle removed for simplicity)
-final smartSynthesisManagerProvider = Provider<SmartSynthesisManager?>((ref) {
-  // Get selected voice and determine engine type
-  final selectedVoice = ref.watch(settingsProvider.select((s) => s.selectedVoice));
-  final engineType = VoiceIds.engineFor(selectedVoice);
-  
-  // Select appropriate manager based on engine type
-  switch (engineType) {
-    case EngineType.supertonic:
-      return SupertonicSmartSynthesis();
-    case EngineType.piper:
-      return PiperSmartSynthesis();
-    case EngineType.kokoro:
-      // Kokoro RTF > 1.0 means it's slower than real-time
-      // Use Supertonic strategy as fallback until Kokoro-specific strategy is implemented
-      // TODO: Implement KokoroSmartSynthesis with pre-synthesis workflow
-      return SupertonicSmartSynthesis();
-    case EngineType.device:
-      // Device TTS doesn't need smart synthesis (no caching)
-      return null;
-  }
-});
-
 /// Provider for the audio cache.
 /// Re-exported from tts_providers for backwards compatibility.
 final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
@@ -351,21 +326,10 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       final cache = await ref.read(audioCacheProvider.future);
       PlaybackLogger.info('[PlaybackProvider] Audio cache loaded successfully');
 
-      PlaybackLogger.info('[PlaybackProvider] Loading smart synthesis manager...');
-      final smartSynthesisManager = ref.read(smartSynthesisManagerProvider);
-      PlaybackLogger.info('[PlaybackProvider] Smart synthesis manager loaded');
-
-      // Phase 2: Resource monitor for battery-aware prefetch
+      // Resource monitor for battery-aware synthesis
       PlaybackLogger.info('[PlaybackProvider] Loading resource monitor...');
       final resourceMonitor = ref.read(resourceMonitorProvider);
       PlaybackLogger.info('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
-
-      // Phase 2: Get calibrated parallel concurrency
-      final selectedVoice = ref.read(settingsProvider).selectedVoice;
-      final engineType = VoiceIds.engineFor(selectedVoice);
-      final runtimeConfig = await ref.read(runtimePlaybackConfigProvider.future);
-      final parallelConcurrency = runtimeConfig.getOptimalConcurrency(engineType.name);
-      PlaybackLogger.info('[PlaybackProvider] Parallel concurrency for ${engineType.name}: $parallelConcurrency');
 
       // Create audio output externally so we can access its player
       // for audio service integration (system media controls)
@@ -379,18 +343,12 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         audioOutput: _audioOutput,
         // Voice selection is global-only for now (per-book voice not implemented)
         voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
-        smartSynthesisManager: smartSynthesisManager,
-        resourceMonitor: resourceMonitor,  // Phase 2
-        parallelConcurrency: parallelConcurrency, // Phase 2: Calibrated concurrency
+        resourceMonitor: resourceMonitor,
         onStateChange: (newState) {
           // Update Riverpod state when controller state changes
           state = AsyncData(newState);
         },
-        // Wire up segment readiness callbacks for UI feedback
-        onSegmentSynthesisStarted: (bookId, chapterIndex, segmentIndex) {
-          final key = '$bookId:$chapterIndex';
-          SegmentReadinessTracker.instance.onSynthesisStarted(key, segmentIndex);
-        },
+        // Wire up segment readiness callback for UI feedback
         onSegmentSynthesisComplete: (bookId, chapterIndex, segmentIndex) {
           final key = '$bookId:$chapterIndex';
           SegmentReadinessTracker.instance.onSynthesisComplete(key, segmentIndex);
