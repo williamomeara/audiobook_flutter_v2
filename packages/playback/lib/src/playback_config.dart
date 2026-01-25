@@ -68,23 +68,12 @@ class PlaybackConfig {
   /// Target buffer for aggressive mode (90 seconds)
   static const int aggressiveBufferTargetMs = 90000;
 
-  /// Immediately start prefetching on chapter load (Phase 2 enhancement)
-  static const bool immediatePrefetchOnLoad = true;
-
   // ═══════════════════════════════════════════════════════════════════
-  // PHASE 4: Parallel Synthesis Configuration
+  // SYNTHESIS COORDINATOR CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════
-
-  /// Feature flag for parallel synthesis.
-  /// When enabled and device has sufficient memory, multiple segments
-  /// can be synthesized concurrently.
-  /// Disabled by default - enable after testing on target devices.
-  static const bool parallelSynthesisEnabled = true;
 
   /// Get concurrency limit for a specific engine type.
-  /// Returns 1 if parallel synthesis is disabled.
   static int getConcurrencyForEngine(String engineType) {
-    if (!parallelSynthesisEnabled) return 1;
     return switch (engineType.toLowerCase()) {
       'kokoro' => kokoroConcurrency,
       'supertonic' => supertonicConcurrency,
@@ -93,8 +82,9 @@ class PlaybackConfig {
     };
   }
 
-  /// Memory threshold below which parallel synthesis is paused (bytes).
-  static const int parallelSynthesisMemoryThreshold = 200 * 1024 * 1024; // 200 MB
+  /// Maximum queue size for the synthesis coordinator.
+  /// Prevents unbounded memory growth if synthesis is slow.
+  static const int synthesisQueueMaxSize = 100;
 }
 
 /// Synthesis mode based on resource constraints
