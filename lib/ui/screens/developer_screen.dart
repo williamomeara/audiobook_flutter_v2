@@ -1323,9 +1323,8 @@ ${optimal.concurrency == 1
         ? 'Dual parallel synthesis works well!\nThis can cut synthesis time nearly in half.'
         : 'Triple parallel synthesis works!\nMax parallelism for fastest buffer fill.'}
 
-To apply this setting:
-1. Go to Settings > Advanced
-2. Set "Parallel Threads" to ${optimal.concurrency}
+ℹ️ Run the calibration in Settings > Voice Performance
+to automatically apply optimal settings for each voice engine.
 ''';
       });
     } catch (e, st) {

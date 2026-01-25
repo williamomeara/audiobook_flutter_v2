@@ -10,7 +10,6 @@ void main() {
         expect(config.cacheBudgetMB, isNull);
         expect(config.cacheMaxAgeDays, isNull);
         expect(config.prefetchMode, PrefetchMode.adaptive);
-        expect(config.parallelSynthesisThreads, isNull);
         expect(config.resumeDelayMs, 500);
         expect(config.rateIndependentSynthesis, true);
         expect(config.lastModified, isNotNull);
@@ -50,19 +49,6 @@ void main() {
         expect(modified.lastModified.isAfter(originalTime) || 
                modified.lastModified.isAtSameMomentAs(originalTime), true);
       });
-
-      test('should clamp parallelSynthesisThreads to 1-4', () {
-        final config = RuntimePlaybackConfig();
-
-        final withZero = config.copyWith(parallelSynthesisThreads: 0);
-        expect(withZero.parallelSynthesisThreads, 1);
-
-        final withTen = config.copyWith(parallelSynthesisThreads: 10);
-        expect(withTen.parallelSynthesisThreads, 4);
-
-        final withTwo = config.copyWith(parallelSynthesisThreads: 2);
-        expect(withTwo.parallelSynthesisThreads, 2);
-      });
     });
 
     group('serialization', () {
@@ -71,7 +57,6 @@ void main() {
           cacheBudgetMB: 1024,
           cacheMaxAgeDays: 14,
           prefetchMode: PrefetchMode.aggressive,
-          parallelSynthesisThreads: 2,
           resumeDelayMs: 250,
           rateIndependentSynthesis: false,
         );
@@ -81,7 +66,6 @@ void main() {
         expect(json['cacheBudgetMB'], 1024);
         expect(json['cacheMaxAgeDays'], 14);
         expect(json['prefetchMode'], 'aggressive');
-        expect(json['parallelSynthesisThreads'], 2);
         expect(json['resumeDelayMs'], 250);
         expect(json['rateIndependentSynthesis'], false);
         expect(json['lastModified'], isNotNull);
@@ -92,7 +76,6 @@ void main() {
           'cacheBudgetMB': 2048,
           'cacheMaxAgeDays': 30,
           'prefetchMode': 'conservative',
-          'parallelSynthesisThreads': 3,
           'resumeDelayMs': 1000,
           'rateIndependentSynthesis': false,
           'lastModified': '2024-01-15T12:00:00.000Z',
@@ -103,7 +86,6 @@ void main() {
         expect(config.cacheBudgetMB, 2048);
         expect(config.cacheMaxAgeDays, 30);
         expect(config.prefetchMode, PrefetchMode.conservative);
-        expect(config.parallelSynthesisThreads, 3);
         expect(config.resumeDelayMs, 1000);
         expect(config.rateIndependentSynthesis, false);
         expect(config.lastModified.year, 2024);
@@ -114,7 +96,6 @@ void main() {
           cacheBudgetMB: 512,
           cacheMaxAgeDays: 3,
           prefetchMode: PrefetchMode.off,
-          parallelSynthesisThreads: 1,
           resumeDelayMs: 750,
           rateIndependentSynthesis: true,
         );
@@ -125,7 +106,6 @@ void main() {
         expect(restored.cacheBudgetMB, original.cacheBudgetMB);
         expect(restored.cacheMaxAgeDays, original.cacheMaxAgeDays);
         expect(restored.prefetchMode, original.prefetchMode);
-        expect(restored.parallelSynthesisThreads, original.parallelSynthesisThreads);
         expect(restored.resumeDelayMs, original.resumeDelayMs);
         expect(restored.rateIndependentSynthesis, original.rateIndependentSynthesis);
       });
@@ -138,7 +118,6 @@ void main() {
         expect(config.cacheBudgetMB, isNull);
         expect(config.cacheMaxAgeDays, isNull);
         expect(config.prefetchMode, PrefetchMode.adaptive);
-        expect(config.parallelSynthesisThreads, isNull);
         expect(config.resumeDelayMs, 500);
         expect(config.rateIndependentSynthesis, true);
       });

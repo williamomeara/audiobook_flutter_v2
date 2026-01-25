@@ -80,12 +80,6 @@ class RuntimePlaybackConfigNotifier
     await updateConfig((config) => config.copyWith(prefetchMode: mode));
   }
 
-  /// Update parallel synthesis threads.
-  Future<void> setParallelSynthesisThreads(int? threads) async {
-    await updateConfig(
-        (config) => config.copyWith(parallelSynthesisThreads: threads));
-  }
-
   /// Update resume delay.
   Future<void> setResumeDelayMs(int delayMs) async {
     await updateConfig((config) => config.copyWith(resumeDelayMs: delayMs));
