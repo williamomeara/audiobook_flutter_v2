@@ -5,6 +5,19 @@ import 'package:tts_engines/tts_engines.dart';
 import 'package:core_domain/core_domain.dart';
 import '../synthesis/semaphore.dart';
 
+/// Exception thrown when calibration cannot proceed.
+class CalibrationException implements Exception {
+  final String message;
+  final String? voiceId;
+
+  CalibrationException(this.message, {this.voiceId});
+
+  @override
+  String toString() => voiceId != null
+      ? 'CalibrationException($voiceId): $message'
+      : 'CalibrationException: $message';
+}
+
 /// Result of a calibration run for a specific engine/voice.
 class CalibrationResult {
   /// Optimal concurrency level (1-4).
@@ -112,6 +125,18 @@ Sixty zippers were quickly picked from the woven jute bag. My faxed joke won a p
     final overallStart = DateTime.now();
     developer.log('[Calibration] Starting calibration for voice: $voiceId');
 
+    // Pre-check: Verify voice model is available before starting calibration
+    final readiness = await routingEngine.checkVoiceReady(voiceId);
+    if (!readiness.isReady) {
+      final message = readiness.nextActionUserShouldTake ??
+          'Voice not ready: ${readiness.state}';
+      developer.log('[Calibration] Voice not ready: $message');
+      throw CalibrationException(
+        'Cannot calibrate: $message',
+        voiceId: voiceId,
+      );
+    }
+
     // Segment the test text
     final segments = segmentText(_calibrationText);
     developer.log('[Calibration] Test segments: ${segments.length}');
@@ -146,6 +171,14 @@ Sixty zippers were quickly picked from the woven jute bag. My faxed joke won a p
         '[Calibration] Concurrency $concurrency: ${result.totalTimeMs}ms, '
         '${result.segmentsFailed} failed, RTF: ${result.rtf.toStringAsFixed(2)}',
       );
+
+      // If all segments failed at concurrency 1, something is seriously wrong
+      if (concurrency == 1 && result.segmentsCompleted == 0) {
+        throw CalibrationException(
+          'All synthesis attempts failed. Voice model may not be properly installed.',
+          voiceId: voiceId,
+        );
+      }
     }
 
     // Determine optimal concurrency
