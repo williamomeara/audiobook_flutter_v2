@@ -110,34 +110,113 @@ More complex due to two-stage pipeline architecture.
 
 ---
 
-### Phase 3: Voice Management Updates
+### Phase 3: Platform-Specific Download Architecture
+**Estimated Effort**: 2-3 days
+
+#### Current State
+The manifest already supports platform filtering via `"platform": "android"|"ios"` field:
+- `ManifestService._isPlatformMatch()` filters cores by platform
+- `_resolvePlatformCore()` maps generic core IDs to platform-specific versions
+- Supertonic already has separate `supertonic_core_v1` (Android) and `supertonic_core_ios_v1` (iOS)
+
+#### Tasks
+- [ ] **3.1** Add platform-specific Kokoro cores to manifest
+  ```json
+  {
+    "id": "kokoro_core_android_v1",
+    "engineType": "kokoro",
+    "displayName": "Kokoro TTS Core (Android int8)",
+    "url": "https://.../kokoro-int8.tar.gz",
+    "platform": "android"
+  },
+  {
+    "id": "kokoro_core_ios_v1", 
+    "engineType": "kokoro",
+    "displayName": "Kokoro TTS Core (iOS MLX)",
+    "url": "https://.../kokoro-mlx.tar.gz",
+    "platform": "ios"
+  }
+  ```
+
+- [ ] **3.2** Update voice coreRequirements for platform independence
+  - Voices should reference generic `kokoro_core_v1`
+  - ManifestService resolves to platform-specific at download time
+
+- [ ] **3.3** Consider separate voice embedding formats
+  - Android: Combined `voices.bin` (sherpa-onnx format)
+  - iOS: MLX-compatible voice style tensors
+
+- [ ] **3.4** Platform-specific download URLs
+  ```
+  Android: int8 ONNX (~90MB) + voices.bin
+  iOS: MLX safetensors (~150MB) + voice styles
+  ```
+
+#### Manifest Structure Update
+```json
+{
+  "cores": [
+    {
+      "id": "kokoro_core_android_v1",
+      "engineType": "kokoro",
+      "platform": "android",
+      "url": "https://github.com/.../kokoro-android-int8.tar.gz",
+      "sizeBytes": 95000000
+    },
+    {
+      "id": "kokoro_core_ios_v1",
+      "engineType": "kokoro", 
+      "platform": "ios",
+      "url": "https://github.com/.../kokoro-ios-mlx.tar.gz",
+      "sizeBytes": 160000000
+    }
+  ],
+  "voices": [
+    {
+      "id": "kokoro_af_alloy",
+      "engineId": "kokoro",
+      "coreRequirements": ["kokoro_core_android_v1", "kokoro_core_ios_v1"],
+      "speakerId": 0
+    }
+  ]
+}
+```
+
+#### Code Changes
+- `ManifestService`: Already handles platform filtering ✓
+- `GranularDownloadManager`: May need updates for MLX model extraction
+- `KokoroTtsService` (both platforms): Detect model format and use appropriate inference
+
+---
+
+### Phase 4: Voice Management Updates
 **Estimated Effort**: 1-2 days
 
 #### Tasks
-- [ ] **3.1** Update voice manifest structure
+- [ ] **4.1** Update voice manifest structure
   - Separate voice embeddings from core model
   - Platform-specific voice file formats
   
-- [ ] **3.2** Voice preview regeneration
+- [ ] **4.2** Voice preview regeneration
   - Delete incorrect voice previews
   - Generate new previews with correct speaker IDs
   
-- [ ] **3.3** Voice selection improvements
+- [ ] **4.3** Voice selection improvements
   - Individual voice embedding files (like HuggingFace format)
   - On-demand voice download vs bundled
 
 ---
 
-### Phase 4: Testing & Validation
+### Phase 5: Testing & Validation
 **Estimated Effort**: 1-2 days
 
 #### Tasks
-- [ ] **4.1** Unit tests for new inference code
-- [ ] **4.2** Performance benchmarking
+- [ ] **5.1** Unit tests for new inference code
+- [ ] **5.2** Performance benchmarking
   - RTF (Real-Time Factor) measurements
   - Memory usage comparison
   - Battery impact testing
-- [ ] **4.3** Voice quality validation
+- [ ] **5.3** Voice quality validation
   - All 53 voices produce correct output
   - Speaker ID mapping verified
 
