@@ -48,7 +48,6 @@ class RuntimePlaybackConfig {
     this.cacheBudgetMB,
     this.cacheMaxAgeDays,
     this.prefetchMode = PrefetchMode.adaptive,
-    this.parallelSynthesisThreads,
     this.resumeDelayMs = 500,
     this.rateIndependentSynthesis = true,
     this.synthesisStrategyState,
@@ -83,14 +82,6 @@ class RuntimePlaybackConfig {
   /// See [PrefetchMode] for available options.
   /// Default: [PrefetchMode.adaptive]
   final PrefetchMode prefetchMode;
-
-  /// Number of parallel synthesis threads.
-  ///
-  /// Set to null for auto-detection based on device capabilities.
-  /// Higher values use more memory but may synthesize faster.
-  ///
-  /// Clamped to 1-4 when set explicitly.
-  final int? parallelSynthesisThreads;
 
   /// Delay in milliseconds before resuming prefetch after user interaction.
   ///
@@ -224,7 +215,6 @@ class RuntimePlaybackConfig {
     int? cacheBudgetMB,
     int? cacheMaxAgeDays,
     PrefetchMode? prefetchMode,
-    int? parallelSynthesisThreads,
     int? resumeDelayMs,
     bool? rateIndependentSynthesis,
     Map<String, dynamic>? synthesisStrategyState,
@@ -234,19 +224,12 @@ class RuntimePlaybackConfig {
     _logChanges(
       cacheBudgetMB: cacheBudgetMB,
       prefetchMode: prefetchMode,
-      parallelSynthesisThreads: parallelSynthesisThreads,
     );
-
-    // Clamp parallelSynthesisThreads if provided
-    final clampedThreads = parallelSynthesisThreads != null
-        ? parallelSynthesisThreads.clamp(1, 4)
-        : this.parallelSynthesisThreads;
 
     return RuntimePlaybackConfig(
       cacheBudgetMB: cacheBudgetMB ?? this.cacheBudgetMB,
       cacheMaxAgeDays: cacheMaxAgeDays ?? this.cacheMaxAgeDays,
       prefetchMode: prefetchMode ?? this.prefetchMode,
-      parallelSynthesisThreads: clampedThreads,
       resumeDelayMs: resumeDelayMs ?? this.resumeDelayMs,
       rateIndependentSynthesis:
           rateIndependentSynthesis ?? this.rateIndependentSynthesis,
@@ -260,7 +243,6 @@ class RuntimePlaybackConfig {
   void _logChanges({
     int? cacheBudgetMB,
     PrefetchMode? prefetchMode,
-    int? parallelSynthesisThreads,
   }) {
     if (cacheBudgetMB != null && cacheBudgetMB != this.cacheBudgetMB) {
       developer.log(
@@ -274,14 +256,6 @@ class RuntimePlaybackConfig {
         name: 'RuntimePlaybackConfig',
       );
     }
-    if (parallelSynthesisThreads != null &&
-        parallelSynthesisThreads != this.parallelSynthesisThreads) {
-      developer.log(
-        'Config change: parallelSynthesisThreads '
-        '${this.parallelSynthesisThreads} -> $parallelSynthesisThreads',
-        name: 'RuntimePlaybackConfig',
-      );
-    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -292,7 +266,6 @@ class RuntimePlaybackConfig {
         'cacheBudgetMB': cacheBudgetMB,
         'cacheMaxAgeDays': cacheMaxAgeDays,
         'prefetchMode': prefetchMode.name,
-        'parallelSynthesisThreads': parallelSynthesisThreads,
         'resumeDelayMs': resumeDelayMs,
         'rateIndependentSynthesis': rateIndependentSynthesis,
         'synthesisStrategyState': synthesisStrategyState,
@@ -305,7 +278,6 @@ class RuntimePlaybackConfig {
       cacheBudgetMB: json['cacheBudgetMB'] as int?,
       cacheMaxAgeDays: json['cacheMaxAgeDays'] as int?,
       prefetchMode: _parsePrefetchMode(json['prefetchMode']),
-      parallelSynthesisThreads: json['parallelSynthesisThreads'] as int?,
       resumeDelayMs: json['resumeDelayMs'] as int? ?? 500,
       rateIndependentSynthesis:
           json['rateIndependentSynthesis'] as bool? ?? true,
@@ -459,7 +431,6 @@ class RuntimePlaybackConfig {
         'cacheBudgetMB: $cacheBudgetMB, '
         'cacheMaxAgeDays: $cacheMaxAgeDays, '
         'prefetchMode: ${prefetchMode.name}, '
-        'parallelSynthesisThreads: $parallelSynthesisThreads, '
         'resumeDelayMs: $resumeDelayMs, '
         'rateIndependentSynthesis: $rateIndependentSynthesis, '
         'hasStrategyState: ${synthesisStrategyState != null}, '
@@ -473,7 +444,6 @@ class RuntimePlaybackConfig {
         other.cacheBudgetMB == cacheBudgetMB &&
         other.cacheMaxAgeDays == cacheMaxAgeDays &&
         other.prefetchMode == prefetchMode &&
-        other.parallelSynthesisThreads == parallelSynthesisThreads &&
         other.resumeDelayMs == resumeDelayMs &&
         other.rateIndependentSynthesis == rateIndependentSynthesis &&
         _mapEquals(other.synthesisStrategyState, synthesisStrategyState) &&
@@ -508,7 +478,6 @@ class RuntimePlaybackConfig {
         cacheBudgetMB,
         cacheMaxAgeDays,
         prefetchMode,
-        parallelSynthesisThreads,
         resumeDelayMs,
         rateIndependentSynthesis,
         synthesisStrategyState?.hashCode,

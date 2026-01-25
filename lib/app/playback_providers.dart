@@ -93,6 +93,51 @@ class SegmentReadinessTracker {
       _controllers[key]!.add(_readiness[key] ?? {});
     }
   }
+  
+  /// Mark segment as not ready (evicted or missing from cache).
+  void onSegmentEvicted(String key, int index) {
+    _readiness[key] ??= {};
+    final current = _readiness[key]![index];
+    // Only downgrade if it was previously ready
+    if (current?.state == SegmentState.ready) {
+      _readiness[key]![index] = SegmentReadiness(
+        segmentIndex: index,
+        state: SegmentState.notQueued,
+      );
+      _notify(key);
+    }
+  }
+  
+  /// Verify readiness against actual cache state.
+  /// Returns list of segments that were marked ready but aren't in cache.
+  Future<List<int>> verifyAgainstCache({
+    required String key,
+    required Future<bool> Function(int index) isSegmentCached,
+    int? startIndex,
+    int windowSize = 10,
+  }) async {
+    final readiness = _readiness[key];
+    if (readiness == null) return [];
+    
+    final start = startIndex ?? 0;
+    final evictedSegments = <int>[];
+    
+    // Check segments in the window ahead of current position
+    for (int i = start; i < start + windowSize; i++) {
+      final segmentReadiness = readiness[i];
+      if (segmentReadiness?.state == SegmentState.ready) {
+        // Segment marked as ready - verify it's actually cached
+        final isCached = await isSegmentCached(i);
+        if (!isCached) {
+          // Cache miss! Update tracker
+          onSegmentEvicted(key, i);
+          evictedSegments.add(i);
+        }
+      }
+    }
+    
+    return evictedSegments;
+  }
 }
 
 /// Provider that streams segment readiness for a chapter.
@@ -114,15 +159,8 @@ final segmentReadinessProvider = Provider.family<Map<int, SegmentReadiness>, Str
 
 /// Provider for smart synthesis manager
 /// Creates appropriate manager based on selected voice engine type
-/// Returns null if smart synthesis is disabled in settings
+/// Smart synthesis is always enabled (UI toggle removed for simplicity)
 final smartSynthesisManagerProvider = Provider<SmartSynthesisManager?>((ref) {
-  // Check if smart synthesis is enabled
-  final smartSynthesisEnabled = ref.watch(settingsProvider.select((s) => s.smartSynthesisEnabled));
-  
-  if (!smartSynthesisEnabled) {
-    return null;  // Disabled - will use JIT synthesis
-  }
-  
   // Get selected voice and determine engine type
   final selectedVoice = ref.watch(settingsProvider.select((s) => s.selectedVoice));
   final engineType = VoiceIds.engineFor(selectedVoice);
@@ -550,11 +588,83 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       // Always update audio service with media metadata for lock screen/notification controls
       // This ensures metadata is set even when the user manually presses play later
       await _updateAudioServiceMetadata(book: book, chapterIndex: chapterIndex);
+      
+      // Pre-synthesize first segment of next chapter (fire-and-forget)
+      // This eliminates cold-start delay at chapter boundaries
+      _preSynthNextChapterFirstSegment(book: book, currentChapterIndex: chapterIndex);
     } catch (e, st) {
       PlaybackLogger.error('[PlaybackProvider] ERROR loading chapter: $e');
       PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       rethrow;
     }
+  }
+  
+  /// Pre-synthesize the first segment of the next chapter in the background.
+  /// This runs fire-and-forget to eliminate cold-start delays at chapter boundaries.
+  void _preSynthNextChapterFirstSegment({
+    required Book book,
+    required int currentChapterIndex,
+  }) {
+    // Check if there's a next chapter
+    final nextChapterIndex = currentChapterIndex + 1;
+    if (nextChapterIndex >= book.chapters.length) {
+      PlaybackLogger.debug('[NextChapterPresynth] No next chapter to pre-synthesize');
+      return;
+    }
+    
+    // Run in background (fire-and-forget)
+    Future(() async {
+      try {
+        PlaybackLogger.info('[NextChapterPresynth] Pre-synthesizing first segment of chapter $nextChapterIndex');
+        
+        // Get the next chapter's content and segment it
+        final nextChapter = book.chapters[nextChapterIndex];
+        final segments = segmentText(nextChapter.content);
+        if (segments.isEmpty) {
+          PlaybackLogger.debug('[NextChapterPresynth] Next chapter has no segments');
+          return;
+        }
+        
+        // Get current voice and engine
+        final settings = ref.read(settingsProvider);
+        final voiceId = settings.selectedVoice;
+        
+        // Use default playback rate (1.0) for pre-synthesis
+        // Rate-independent synthesis ensures cache hits regardless of user speed
+        const synthRate = 1.0;
+        
+        // Generate cache key for first segment
+        final firstSegmentText = segments.first.text;
+        final cacheKey = CacheKeyGenerator.generate(
+          voiceId: voiceId,
+          text: firstSegmentText,
+          playbackRate: CacheKeyGenerator.getSynthesisRate(synthRate),
+        );
+        
+        // Check if already cached
+        final cache = await ref.read(audioCacheProvider.future);
+        if (await cache.isReady(cacheKey)) {
+          PlaybackLogger.debug('[NextChapterPresynth] First segment already cached');
+          return;
+        }
+        
+        // Synthesize the first segment
+        final engine = await ref.read(routingEngineProvider.future);
+        final outFile = await cache.fileFor(cacheKey);
+        
+        await engine.synthesizeToFile(SynthRequest(
+          voiceId: voiceId,
+          text: firstSegmentText,
+          playbackRate: CacheKeyGenerator.getSynthesisRate(synthRate),
+          outFile: outFile,
+        ));
+        
+        PlaybackLogger.info('[NextChapterPresynth] ✓ Pre-synthesized first segment of chapter $nextChapterIndex');
+      } catch (e) {
+        // Don't fail silently but don't crash either - this is best-effort
+        PlaybackLogger.error('[NextChapterPresynth] Failed to pre-synth next chapter: $e');
+      }
+    });
   }
   
   /// Update audio service with current book/chapter metadata.
