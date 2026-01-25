@@ -241,42 +241,60 @@ Wait for ready ────────┘
 
 ## Migration Strategy
 
-### Step 1: Create coordinator alongside existing code
-- Add `SynthesisCoordinator` class
-- Add feature flag `useUnifiedSynthesis = false`
-- Wire up events but don't use yet
+### Step 1: Create coordinator alongside existing code ✅ DONE
+- [x] Add `SynthesisCoordinator` class
+- [x] Add feature flag `useUnifiedSynthesis = false`
+- [x] Wire up events
 
-### Step 2: Test coordinator in isolation
-- Unit tests for queue, dedup, concurrency
-- Integration test with mock engine
+### Step 2: Integrate with PlaybackController ✅ DONE
+- [x] Add coordinator initialization
+- [x] Add event handlers for ready/failed
+- [x] Add `_speakCurrentWithCoordinator()` path
+- [x] Branch based on feature flag
 
-### Step 3: Enable for new sessions only
-- Set `useUnifiedSynthesis = true` 
-- Monitor logs for issues
-- A/B test if possible
+### Step 3: Enable and Test (NEXT)
+- [ ] Set `useUnifiedSynthesis = true` in PlaybackConfig
+- [ ] Test on device with real audiobook
+- [ ] Monitor logs for issues
+- [ ] Compare battery usage
 
-### Step 4: Remove legacy code
-- Delete old synthesis paths
-- Remove feature flag
-- Update documentation
+### Step 4: Remove legacy code (AFTER TESTING)
+- [ ] Delete old synthesis paths (see Phase 3 above)
+- [ ] Remove feature flag
+- [ ] Update documentation
 
 ---
 
-## Files to Create
+## Files Created ✅
 
-- [ ] `packages/playback/lib/src/synthesis/synthesis_coordinator.dart` (new)
-- [ ] `packages/playback/lib/src/synthesis/synthesis_request.dart` (new, for queue item)
+- [x] `packages/playback/lib/src/synthesis/synthesis_coordinator.dart`
+- [x] `packages/playback/lib/src/synthesis/synthesis_request.dart`
+- [x] `packages/playback/test/synthesis_coordinator_test.dart`
 
-## Files to Modify
+## Files Modified ✅
 
-- [ ] `packages/playback/lib/src/playback_controller.dart` (major refactor)
-- [ ] `packages/playback/lib/src/playback_config.dart` (simplify)
-- [ ] `packages/playback/lib/src/buffer_scheduler.dart` (simplify or delete)
+- [x] `packages/playback/lib/src/playback_controller.dart` (added coordinator integration)
+- [x] `packages/playback/lib/src/playback_config.dart` (added feature flag)
+- [x] `packages/playback/lib/src/synthesis/synthesis.dart` (export new files)
 
-## Files to Delete
+## Files to Delete (Phase 3, after testing)
 
-- [ ] `packages/playback/lib/src/synthesis/smart_synthesis_manager.dart` (if exists as separate file)
-- [ ] `packages/playback/lib/src/synthesis/parallel_orchestrator.dart`
+Legacy code to remove once unified synthesis is tested and stable:
+
+| Location | Component | Estimated Lines |
+|----------|-----------|-----------------|
+| `playback_controller.dart` | `_startImmediatePrefetch()` | ~20 |
+| `playback_controller.dart` | `_runImmediatePrefetch()` | ~70 |
+| `playback_controller.dart` | `_startImmediateNextPrefetch()` | ~25 |
+| `playback_controller.dart` | `_startPrefetchIfNeeded()` | ~45 |
+| `playback_controller.dart` | Legacy `_speakCurrent()` synthesis code | ~90 |
+| `buffer_scheduler.dart` | `runParallelPrefetch()` | ~115 |
+| `buffer_scheduler.dart` | `prefetchNextSegmentImmediately()` | ~100 |
+| `buffer_scheduler.dart` | `runPrefetch()` | ~115 |
+| `parallel_orchestrator.dart` | Entire file | ~435 |
+| `tts_engines` | `SmartSynthesisManager` | ~200 |
+
+**Total estimated removal: ~1,215 lines**
 
 ---
 
@@ -300,10 +318,10 @@ Wait for ready ────────┘
 
 ## Timeline Estimate
 
-- Phase 1: 2-3 hours (create coordinator)
-- Phase 2: 2-3 hours (integrate)
-- Phase 3: 1-2 hours (remove code)
-- Phase 4: 1 hour (cleanup)
+- Phase 1: 2-3 hours (create coordinator) ✅ Done
+- Phase 2: 2-3 hours (integrate) ✅ Done
+- Phase 3: 1-2 hours (remove code) - After testing
+- Phase 4: 1 hour (cleanup) - After testing
 - Testing: 2-3 hours
 
 **Total: ~10-12 hours**
