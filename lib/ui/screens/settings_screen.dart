@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -1335,6 +1336,11 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
         speedup: result.expectedSpeedup,
         rtf: result.rtfAtOptimal,
       );
+      
+      // Prompt user to restart for changes to take effect
+      if (mounted) {
+        _showRestartPrompt('Optimization complete! ${result.optimalConcurrency}x parallel synthesis.');
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1406,6 +1412,11 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
           }
         }
       }
+      
+      // After all engines optimized, show restart prompt
+      if (mounted) {
+        _showRestartPrompt('All engines optimized!');
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -1442,6 +1453,27 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
         rtf: current.getCalibrationRtf(engine.name) ?? 2.5,
       ),
     );
+    
+    // Prompt user to restart for changes to take effect
+    if (mounted) {
+      _showRestartPrompt('Concurrency set to ${level}x.');
+    }
+  }
+  
+  void _showRestartPrompt(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$message Restart app to apply changes.'),
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'RESTART',
+          onPressed: () {
+            // Use SystemNavigator to close app (Android) or show instructions (iOS)
+            SystemNavigator.pop();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _resetToDefaults() async {
@@ -1450,9 +1482,7 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
     );
     
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Calibration reset to defaults')),
-      );
+      _showRestartPrompt('Calibration reset to defaults.');
     }
   }
 }
