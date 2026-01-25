@@ -14,10 +14,10 @@
 
 ## Model Details
 
-- **Model**: `kokoro-int8-multi-lang-v1_1` (147MB, INT8 quantized)
+- **Model**: `kokoro-multi-lang-v1_0` (~350MB, includes voices.bin)
 - **Sample Rate**: 24,000 Hz
 - **Engine**: sherpa-onnx OfflineTts with Kokoro backend
-- **Architecture**: Multi-lingual Kokoro with voice embeddings
+- **Architecture**: Multi-lingual Kokoro with voice embeddings (53 speakers)
 
 ## Optimization Strategies
 
@@ -69,7 +69,7 @@ Segment 3:                    [synth] -> [play]
 
 ### 4. English-Only Model Option (Medium effort, High impact)
 
-**Current model**: `kokoro-int8-multi-lang-v1_1.tar.bz2` (147MB)
+**Current model**: `kokoro-multi-lang-v1_0.tar.bz2` (~350MB)
 - Supports: English, Chinese, Japanese, French, etc.
 - Large embedding space
 

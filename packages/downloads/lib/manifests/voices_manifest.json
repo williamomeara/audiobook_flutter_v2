@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "lastUpdated": "2026-01-05",
+  "lastUpdated": "2026-01-25",
   "cores": [
     {
       "id": "kokoro_core_v1",
       "engineType": "kokoro",
       "displayName": "Kokoro TTS Core",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
-      "sizeBytes": 147031220,
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+      "sizeBytes": 351600000,
       "required": true,
       "extractType": "tar.bz2"
     },
