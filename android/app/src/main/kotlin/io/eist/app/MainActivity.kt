@@ -1,4 +1,4 @@
-package com.example.audiobook_flutter_v2
+package io.eist.app
 
 import android.content.ComponentCallbacks2
 import android.os.StatFs
@@ -11,7 +11,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterFragmentActivity() {
     
     companion object {
-        private const val SYSTEM_CHANNEL = "com.audiobook_flutter/system"
+        private const val SYSTEM_CHANNEL = "io.eist.app/system"
     }
     
     private var systemChannel: MethodChannel? = null

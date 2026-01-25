@@ -12,16 +12,15 @@ Step-by-step actionable plan for deploying Éist to Google Play Store.
 - [ ] Tag the release: `git tag -a v1.0.0 -m "First Play Store release"`
 
 ### 1.2 Fix Package Name (CRITICAL)
-The current package name `com.example.audiobook_flutter_v2` is a placeholder and will be **rejected by Play Store**.
+~~The current package name `com.example.audiobook_flutter_v2` is a placeholder and will be **rejected by Play Store**.~~
 
-- [ ] Choose a unique package name (e.g., `com.yourname.eist` or `io.eist.app`)
-- [ ] Update `android/app/build.gradle.kts`:
-  ```kotlin
-  applicationId = "com.yourname.eist"  // Your chosen package name
-  namespace = "com.yourname.eist"
-  ```
-- [ ] Update `android/app/src/main/AndroidManifest.xml` if any hardcoded references exist
-- [ ] Run `flutter clean && flutter pub get`
+**✅ COMPLETE** - Package name updated to `io.eist.app`
+
+- [x] Choose a unique package name: `io.eist.app`
+- [x] Update `android/app/build.gradle.kts`
+- [x] Move Kotlin sources to new package path
+- [x] Update platform channel name
+- [x] Clean and verify build
 
 ### 1.3 Update Version Info
 - [ ] Update `pubspec.yaml`:
