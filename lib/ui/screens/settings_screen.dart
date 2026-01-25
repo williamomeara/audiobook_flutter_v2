@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:playback/playback.dart';
 import 'package:tts_engines/tts_engines.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:downloads/downloads.dart' show GranularDownloadState;
 
 import '../../app/calibration_providers.dart';
 import '../../app/config/config_providers.dart';
@@ -1004,6 +1005,7 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
     final runtimeConfig = ref.watch(runtimePlaybackConfigProvider).value;
     final selectedVoice = ref.watch(settingsProvider.select((s) => s.selectedVoice));
     final currentEngine = VoiceIds.engineFor(selectedVoice);
+    final downloadState = ref.watch(granularDownloadManagerProvider).value;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -1028,6 +1030,7 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
             icon: engine.icon,
             isCurrentEngine: engine.type == currentEngine,
             runtimeConfig: runtimeConfig,
+            downloadState: downloadState,
           )),
 
           const SizedBox(height: 16),
@@ -1093,12 +1096,18 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
     required IconData icon,
     required bool isCurrentEngine,
     RuntimePlaybackConfig? runtimeConfig,
+    GranularDownloadState? downloadState,
   }) {
     final isCalibrated = runtimeConfig?.isEngineCalibrated(engine.name) ?? false;
     final speedup = runtimeConfig?.getCalibrationSpeedup(engine.name);
     final rtf = runtimeConfig?.getCalibrationRtf(engine.name);
     final concurrency = runtimeConfig?.getOptimalConcurrency(engine.name) ?? 2;
     final isOptimizingThis = _isOptimizing && _optimizingEngine == engine.name;
+    
+    // Check if any voice is downloaded for this engine
+    final voiceId = _getVoiceForEngine(engine);
+    final hasDownloadedVoice = voiceId != null && 
+        (downloadState?.isVoiceReady(voiceId) ?? false);
     
     // RTF < 1 means faster than real-time (recommended)
     final isRtfGood = rtf != null && rtf < 1.0;
@@ -1163,7 +1172,15 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
                       color: isRtfGood ? Colors.green : Colors.orange,
                     ),
                   ),
-                ] else
+                ] else if (!hasDownloadedVoice)
+                  Text(
+                    'Download voice first',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: widget.colors.textTertiary,
+                    ),
+                  )
+                else
                   Text(
                     'Not calibrated',
                     style: TextStyle(
@@ -1186,6 +1203,8 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
             )
           else if (isCalibrated)
             Icon(Icons.check_circle, color: Colors.green, size: 20)
+          else if (!hasDownloadedVoice)
+            Icon(Icons.file_download_off, color: widget.colors.textTertiary, size: 20)
           else
             IconButton(
               onPressed: () => _optimizeEngine(engine),
@@ -1303,6 +1322,15 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
       );
       return;
     }
+    
+    // Check if voice is downloaded
+    final downloadState = ref.read(granularDownloadManagerProvider).value;
+    if (downloadState == null || !downloadState.isVoiceReady(voiceId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please download a ${engine.name} voice first')),
+      );
+      return;
+    }
 
     setState(() {
       _isOptimizing = true;
@@ -1364,11 +1392,19 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
     });
 
     try {
+      final downloadState = ref.read(granularDownloadManagerProvider).value;
+      int enginesCalibrated = 0;
+      
       for (final engine in _engines) {
         if (!mounted) break;
         
         final voiceId = _getVoiceForEngine(engine.type);
         if (voiceId == null) continue;
+        
+        // Skip engines without downloaded voices
+        if (downloadState == null || !downloadState.isVoiceReady(voiceId)) {
+          continue;
+        }
 
         if (mounted) {
           setState(() {
@@ -1403,6 +1439,7 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
             speedup: result.expectedSpeedup,
             rtf: result.rtfAtOptimal,
           );
+          enginesCalibrated++;
         } catch (e) {
           // Log error but continue with other engines
           if (mounted) {
@@ -1415,7 +1452,13 @@ class _AudioPerformanceSectionState extends ConsumerState<_AudioPerformanceSecti
       
       // After all engines optimized, show restart prompt
       if (mounted) {
-        _showRestartPrompt('All engines optimized!');
+        if (enginesCalibrated == 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No voices downloaded. Please download voices first.')),
+          );
+        } else {
+          _showRestartPrompt('All engines optimized!');
+        }
       }
     } finally {
       if (mounted) {
