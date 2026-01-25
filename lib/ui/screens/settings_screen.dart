@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:playback/playback.dart';
 import 'package:tts_engines/tts_engines.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/calibration_providers.dart';
 import '../../app/config/config_providers.dart';
@@ -13,6 +15,11 @@ import '../../app/tts_providers.dart';
 import '../../app/voice_preview_service.dart';
 import '../theme/app_colors.dart';
 import 'package:core_domain/core_domain.dart';
+
+/// Provider for app package info
+final packageInfoProvider = FutureProvider<PackageInfo>((ref) async {
+  return PackageInfo.fromPlatform();
+});
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -127,20 +134,20 @@ class SettingsScreen extends ConsumerWidget {
                       title: 'Playback',
                       children: [
                         _SettingsRow(
-                          label: 'Smart synthesis',
-                          subLabel: 'Pre-synthesize audio for instant playback',
-                          trailing: Switch(
-                            value: settings.smartSynthesisEnabled,
-                            onChanged: ref.read(settingsProvider.notifier).setSmartSynthesisEnabled,
-                          ),
-                        ),
-                        const Divider(height: 1),
-                        _SettingsRow(
                           label: 'Auto-advance chapters',
                           subLabel: 'Automatically move to next chapter',
                           trailing: Switch(
                             value: settings.autoAdvanceChapters,
                             onChanged: ref.read(settingsProvider.notifier).setAutoAdvanceChapters,
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          label: 'Haptic feedback',
+                          subLabel: 'Vibration for playback controls',
+                          trailing: Switch(
+                            value: settings.hapticFeedbackEnabled,
+                            onChanged: ref.read(settingsProvider.notifier).setHapticFeedbackEnabled,
                           ),
                         ),
                         const Divider(height: 1),
@@ -201,21 +208,6 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 20),
 
-                    // About section
-                    _SectionCard(
-                      title: 'About',
-                      children: [
-                        _SettingsRow(
-                          label: 'Version',
-                          trailing: Text(
-                            '1.0.0',
-                            style: TextStyle(color: colors.textSecondary),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
                     // Developer section
                     _SectionCard(
                       title: 'Developer',
@@ -230,7 +222,7 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 20),
 
-                    // About section
+                    // About section (merged)
                     _SectionCard(
                       title: 'About',
                       children: [
@@ -258,13 +250,36 @@ class SettingsScreen extends ConsumerWidget {
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 8),
-                              Text(
-                                'Version 1.0.0',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: colors.textTertiary,
-                                ),
-                                textAlign: TextAlign.center,
+                              Consumer(
+                                builder: (context, ref, _) {
+                                  final packageInfo = ref.watch(packageInfoProvider);
+                                  return packageInfo.when(
+                                    data: (info) => Text(
+                                      'Version ${info.version} (${info.buildNumber})',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: colors.textTertiary,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    loading: () => Text(
+                                      'Version ...',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: colors.textTertiary,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    error: (_, __) => Text(
+                                      'Version unknown',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: colors.textTertiary,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  );
+                                },
                               ),
                               const SizedBox(height: 12),
                               Text(
@@ -278,6 +293,60 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                             ],
                           ),
+                        ),
+                        const Divider(height: 1),
+                        Consumer(
+                          builder: (context, ref, _) {
+                            final packageInfo = ref.watch(packageInfoProvider);
+                            final version = packageInfo.maybeWhen(
+                              data: (info) => info.version,
+                              orElse: () => '1.0.0',
+                            );
+                            return _SettingsRow(
+                              label: 'Open Source Licenses',
+                              trailing: Icon(Icons.chevron_right, color: colors.textTertiary),
+                              onTap: () => showLicensePage(
+                                context: context,
+                                applicationName: 'Éist',
+                                applicationVersion: version,
+                                applicationLegalese: '© 2025 Éist',
+                              ),
+                            );
+                          },
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          label: 'Privacy Policy',
+                          trailing: Icon(Icons.chevron_right, color: colors.textTertiary),
+                          onTap: () => _showPrivacyPolicy(context),
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          label: 'TTS Model Credits',
+                          subLabel: 'Voice synthesis attributions',
+                          trailing: Icon(Icons.chevron_right, color: colors.textTertiary),
+                          onTap: () => _showTtsCredits(context),
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          label: 'Project Gutenberg',
+                          subLabel: 'Free ebook library attribution',
+                          trailing: Icon(Icons.open_in_new, color: colors.textTertiary),
+                          onTap: () async {
+                            final url = Uri.parse('https://www.gutenberg.org/');
+                            try {
+                              await launchUrl(url, mode: LaunchMode.externalApplication);
+                            } catch (e) {
+                              // Ignore errors - URL might still have opened
+                            }
+                          },
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          label: 'Send Feedback',
+                          subLabel: 'Report bugs or suggest features',
+                          trailing: Icon(Icons.open_in_new, color: colors.textTertiary),
+                          onTap: () => _showFeedbackDialog(context),
                         ),
                       ],
                     ),
@@ -313,6 +382,211 @@ class SettingsScreen extends ConsumerWidget {
       return 'Piper ${key ?? voiceId}';
     }
     return voiceId;
+  }
+
+  void _showPrivacyPolicy(BuildContext context) {
+    final colors = context.appColors;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: colors.card,
+        title: Text('Privacy Policy', style: TextStyle(color: colors.text)),
+        content: SingleChildScrollView(
+          child: Text(
+            '''Éist Privacy Policy
+
+Last updated: January 2025
+
+Data Collection
+Éist does not collect, store, or transmit any personal data. All your books, reading progress, and settings are stored locally on your device only.
+
+Third-Party Services
+• TTS voice models are downloaded from public repositories (GitHub, HuggingFace)
+• Free books are fetched from Project Gutenberg
+• No analytics or tracking services are used
+
+Permissions
+• Storage: To access and store your ebook files
+• Internet: To download voice models and free books
+• Vibration: For haptic feedback
+
+Contact
+For questions about this privacy policy, please open an issue on our GitHub repository.''',
+            style: TextStyle(color: colors.textSecondary, fontSize: 14),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close', style: TextStyle(color: colors.accent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTtsCredits(BuildContext context) {
+    final colors = context.appColors;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: colors.card,
+        title: Text('TTS Model Credits', style: TextStyle(color: colors.text)),
+        content: SingleChildScrollView(
+          child: Text(
+            '''Voice Synthesis Attributions
+
+Kokoro TTS
+High-quality neural TTS model.
+License: Apache 2.0
+Repository: github.com/hexgrad/kokoro
+
+Piper TTS
+Fast, local neural text-to-speech.
+License: MIT
+Repository: github.com/rhasspy/piper
+
+Supertonic
+Multi-speaker TTS model collection.
+License: Various (see model cards)
+Source: HuggingFace
+
+ONNX Runtime
+Neural network inference engine.
+License: MIT
+Repository: github.com/microsoft/onnxruntime
+
+Special thanks to all the open-source contributors who make these incredible voice models freely available.''',
+            style: TextStyle(color: colors.textSecondary, fontSize: 14),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close', style: TextStyle(color: colors.accent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFeedbackDialog(BuildContext context) {
+    final colors = context.appColors;
+    final titleController = TextEditingController();
+    final bodyController = TextEditingController();
+    String feedbackType = 'bug';
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: colors.card,
+          title: Text('Send Feedback', style: TextStyle(color: colors.text)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Type', style: TextStyle(color: colors.textSecondary, fontSize: 12)),
+                const SizedBox(height: 8),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'bug', label: Text('Bug'), icon: Icon(Icons.bug_report)),
+                    ButtonSegment(value: 'feature', label: Text('Feature'), icon: Icon(Icons.lightbulb)),
+                  ],
+                  selected: {feedbackType},
+                  onSelectionChanged: (selected) => setState(() => feedbackType = selected.first),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: titleController,
+                  style: TextStyle(color: colors.text),
+                  decoration: InputDecoration(
+                    labelText: 'Subject',
+                    labelStyle: TextStyle(color: colors.textSecondary),
+                    hintText: feedbackType == 'bug' ? 'Brief description of the bug' : 'Feature you want to suggest',
+                    hintStyle: TextStyle(color: colors.textTertiary),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: colors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: colors.accent),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: bodyController,
+                  style: TextStyle(color: colors.text),
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    labelText: 'Details',
+                    labelStyle: TextStyle(color: colors.textSecondary),
+                    hintText: feedbackType == 'bug' 
+                        ? 'Steps to reproduce, what happened, what you expected...'
+                        : 'Describe the feature and why it would be useful...',
+                    hintStyle: TextStyle(color: colors.textTertiary),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: colors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: colors.accent),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel', style: TextStyle(color: colors.textSecondary)),
+            ),
+            TextButton(
+              onPressed: () async {
+                final title = titleController.text.trim();
+                final body = bodyController.text.trim();
+                if (title.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Please enter a subject')),
+                  );
+                  return;
+                }
+                
+                final prefix = feedbackType == 'bug' ? '[Bug] ' : '[Feature Request] ';
+                final subject = prefix + title;
+                final fullBody = body.isNotEmpty ? body : 'No additional details provided.';
+                
+                // Get device/app info
+                final packageInfo = await PackageInfo.fromPlatform();
+                final deviceInfo = '''
+
+---
+App: Éist v${packageInfo.version} (${packageInfo.buildNumber})
+Sent via in-app feedback''';
+                
+                final emailUrl = Uri(
+                  scheme: 'mailto',
+                  path: 'williamomeara@proton.me',
+                  query: 'subject=${Uri.encodeComponent(subject)}'
+                      '&body=${Uri.encodeComponent(fullBody + deviceInfo)}',
+                );
+                
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                
+                try {
+                  await launchUrl(emailUrl);
+                } catch (e) {
+                  // Dialog already closed, can't show snackbar reliably
+                }
+              },
+              child: Text('Send Email', style: TextStyle(color: colors.accent)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showVoicePicker(BuildContext context, WidgetRef ref) {
@@ -1509,10 +1783,10 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
           ),
           const SizedBox(height: 12),
           Slider(
-            value: settings.cacheQuotaGB,
+            value: settings.cacheQuotaGB.clamp(0.5, 4.0),
             min: 0.5,
-            max: 10.0,
-            divisions: 19, // 0.5 GB steps
+            max: 4.0,
+            divisions: 7, // 0.5 GB steps: 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0
             label: '${settings.cacheQuotaGB.toStringAsFixed(1)} GB',
             onChanged: (value) {
               ref.read(settingsProvider.notifier).setCacheQuotaGB(value);

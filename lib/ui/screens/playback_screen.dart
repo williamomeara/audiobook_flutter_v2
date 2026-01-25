@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io' as java;
 
 import 'package:flutter/gestures.dart';
@@ -6,11 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:playback/playback.dart';
+import 'package:playback/playback.dart' hide SegmentReadinessTracker;
 
 import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
+import '../../utils/app_haptics.dart';
 import '../../utils/app_logger.dart';
 import '../theme/app_colors.dart';
 import '../widgets/optimization_prompt_dialog.dart';
@@ -60,6 +62,10 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   
   // Fullscreen mode for landscape
   bool _wasLandscape = false;
+  
+  // Cache verification: track segment count to verify every N segments
+  int _segmentsPlayedSinceVerification = 0;
+  static const _verificationInterval = 5; // Verify every 5 segments
   
   // Orientation detection
   bool _isLandscape(BuildContext context) {
@@ -151,7 +157,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializePlayback();
       _setupPlaybackListener();
+      _setupHapticListener();
     });
+  }
+  
+  void _setupHapticListener() {
+    // Sync haptic enabled state with settings
+    ref.listenManual(settingsProvider.select((s) => s.hapticFeedbackEnabled), (_, enabled) {
+      AppHaptics.setEnabled(enabled);
+    });
+    // Initialize with current setting
+    AppHaptics.setEnabled(ref.read(settingsProvider).hapticFeedbackEnabled);
   }
   
   void _setupPlaybackListener() {
@@ -162,10 +178,20 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
       // Auto-advance to next chapter when current chapter ends
       _handleAutoAdvanceChapter(previous, next);
       
+      // Periodic cache verification for segment color accuracy
+      final previousIndex = previous?.currentIndex ?? -1;
+      final currentIndex = next.currentIndex;
+      if (currentIndex >= 0 && currentIndex != previousIndex) {
+        _segmentsPlayedSinceVerification++;
+        if (_segmentsPlayedSinceVerification >= _verificationInterval) {
+          _segmentsPlayedSinceVerification = 0;
+          _verifyCacheReadiness(next);
+        }
+      }
+      
       if (!_autoScrollEnabled) return;
       if (_showCover) return; // Don't scroll when showing cover
       
-      final currentIndex = next.currentIndex;
       if (currentIndex >= 0 && currentIndex != _lastAutoScrolledIndex) {
         _lastAutoScrolledIndex = currentIndex;
         // Schedule scroll after the frame is built (so the new key is available)
@@ -174,6 +200,44 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
         });
       }
     });
+  }
+  
+  /// Verify that segments marked as "ready" are actually in cache.
+  /// This catches cache evictions that weren't notified to the tracker.
+  Future<void> _verifyCacheReadiness(PlaybackState state) async {
+    if (state.bookId == null || state.queue.isEmpty) return;
+    
+    final chapterIndex = state.queue.first.chapterIndex;
+    final key = '${state.bookId}:$chapterIndex';
+    final currentSegment = state.currentIndex;
+    
+    try {
+      final cache = await ref.read(audioCacheProvider.future);
+      final settings = ref.read(settingsProvider);
+      final voiceId = settings.selectedVoice;
+      
+      final evicted = await SegmentReadinessTracker.instance.verifyAgainstCache(
+        key: key,
+        startIndex: currentSegment,
+        windowSize: 10, // Check 10 segments ahead
+        isSegmentCached: (index) async {
+          if (index >= state.queue.length) return true; // No segment to check
+          final segment = state.queue[index];
+          final cacheKey = CacheKeyGenerator.generate(
+            voiceId: voiceId,
+            text: segment.text,
+            playbackRate: CacheKeyGenerator.getSynthesisRate(1.0),
+          );
+          return cache.isReady(cacheKey);
+        },
+      );
+      
+      if (evicted.isNotEmpty) {
+        developer.log('[PlaybackScreen] Cache verification found ${evicted.length} evicted segments: $evicted');
+      }
+    } catch (e) {
+      developer.log('[PlaybackScreen] Cache verification error: $e');
+    }
   }
   
   /// Handle auto-advance to next chapter when current chapter ends.
@@ -343,6 +407,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     final state = ref.read(playbackStateProvider);
 
     if (state.isPlaying) {
+      AppHaptics.medium(); // Pausing feels "heavier"
       await notifier.pause();
     } else {
       // Check if a voice is selected
@@ -353,6 +418,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
         }
         return;
       }
+      AppHaptics.light(); // Playing feels "lighter"
       await notifier.play();
     }
   }
@@ -416,8 +482,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     );
 
     // If at last chapter, can't advance further
-    if (currentChapterIndex >= book.chapters.length - 1) return;
+    if (currentChapterIndex >= book.chapters.length - 1) {
+      AppHaptics.heavy(); // Boundary feedback
+      return;
+    }
 
+    AppHaptics.medium(); // Chapter change feedback
     final newChapterIndex = currentChapterIndex + 1;
     setState(() => _currentChapterIndex = newChapterIndex);
 
@@ -438,8 +508,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     if (book == null) return;
 
     final currentChapterIndex = _currentChapterIndex;
-    if (currentChapterIndex <= 0) return;
+    if (currentChapterIndex <= 0) {
+      AppHaptics.heavy(); // Boundary feedback
+      return;
+    }
 
+    AppHaptics.medium(); // Chapter change feedback
     final newChapterIndex = currentChapterIndex - 1;
     setState(() => _currentChapterIndex = newChapterIndex);
 
@@ -459,6 +533,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     _resetSleepTimer(); // Reset sleep timer on user action
     final currentRate = ref.read(playbackStateProvider).playbackRate;
     final newRate = (currentRate + 0.25).clamp(0.5, 2.0);
+    if (newRate == currentRate) {
+      AppHaptics.heavy(); // At max speed limit
+    } else {
+      AppHaptics.selection(); // Speed step change
+    }
     _setPlaybackRate(newRate);
   }
   
@@ -466,6 +545,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     _resetSleepTimer(); // Reset sleep timer on user action
     final currentRate = ref.read(playbackStateProvider).playbackRate;
     final newRate = (currentRate - 0.25).clamp(0.5, 2.0);
+    if (newRate == currentRate) {
+      AppHaptics.heavy(); // At min speed limit
+    } else {
+      AppHaptics.selection(); // Speed step change
+    }
     _setPlaybackRate(newRate);
   }
   

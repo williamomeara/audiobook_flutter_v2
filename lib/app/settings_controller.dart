@@ -13,6 +13,7 @@ class SettingsState {
     this.smartSynthesisEnabled = true,
     this.cacheQuotaGB = 2.0,
     this.showBookCoverBackground = true,
+    this.hapticFeedbackEnabled = true,
   });
 
   /// Whether dark mode is enabled.
@@ -30,11 +31,14 @@ class SettingsState {
   /// Whether smart synthesis (first-segment pre-synthesis) is enabled.
   final bool smartSynthesisEnabled;
 
-  /// Audio cache quota in GB (0.5 to 10.0).
+  /// Audio cache quota in GB (0.5 to 4.0).
   final double cacheQuotaGB;
 
   /// Whether to show book cover as faded background in playback screen.
   final bool showBookCoverBackground;
+
+  /// Whether haptic feedback is enabled for playback controls.
+  final bool hapticFeedbackEnabled;
 
   SettingsState copyWith({
     bool? darkMode,
@@ -44,6 +48,7 @@ class SettingsState {
     bool? smartSynthesisEnabled,
     double? cacheQuotaGB,
     bool? showBookCoverBackground,
+    bool? hapticFeedbackEnabled,
   }) {
     return SettingsState(
       darkMode: darkMode ?? this.darkMode,
@@ -53,6 +58,7 @@ class SettingsState {
       smartSynthesisEnabled: smartSynthesisEnabled ?? this.smartSynthesisEnabled,
       cacheQuotaGB: cacheQuotaGB ?? this.cacheQuotaGB,
       showBookCoverBackground: showBookCoverBackground ?? this.showBookCoverBackground,
+      hapticFeedbackEnabled: hapticFeedbackEnabled ?? this.hapticFeedbackEnabled,
     );
   }
 }
@@ -66,6 +72,7 @@ class SettingsController extends Notifier<SettingsState> {
   static const _keySmartSynthesis = 'smart_synthesis_enabled';
   static const _keyCacheQuotaGB = 'cache_quota_gb';
   static const _keyShowBookCoverBackground = 'show_book_cover_background';
+  static const _keyHapticFeedbackEnabled = 'haptic_feedback_enabled';
 
   @override
   SettingsState build() {
@@ -84,8 +91,9 @@ class SettingsController extends Notifier<SettingsState> {
       autoAdvanceChapters: _prefs?.getBool(_keyAutoAdvance) ?? true,
       defaultPlaybackRate: _prefs?.getDouble(_keyPlaybackRate) ?? 1.0,
       smartSynthesisEnabled: _prefs?.getBool(_keySmartSynthesis) ?? true,
-      cacheQuotaGB: _prefs?.getDouble(_keyCacheQuotaGB) ?? 2.0,
+      cacheQuotaGB: (_prefs?.getDouble(_keyCacheQuotaGB) ?? 2.0).clamp(0.5, 4.0),
       showBookCoverBackground: _prefs?.getBool(_keyShowBookCoverBackground) ?? true,
+      hapticFeedbackEnabled: _prefs?.getBool(_keyHapticFeedbackEnabled) ?? true,
     );
   }
 
@@ -122,6 +130,11 @@ class SettingsController extends Notifier<SettingsState> {
   Future<void> setShowBookCoverBackground(bool value) async {
     state = state.copyWith(showBookCoverBackground: value);
     await _prefs?.setBool(_keyShowBookCoverBackground, value);
+  }
+
+  Future<void> setHapticFeedbackEnabled(bool value) async {
+    state = state.copyWith(hapticFeedbackEnabled: value);
+    await _prefs?.setBool(_keyHapticFeedbackEnabled, value);
   }
 }
 

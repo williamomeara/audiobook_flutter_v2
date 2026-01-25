@@ -68,6 +68,8 @@ dependencies:
     path: packages/platform_android_tts
   platform_ios_tts:
     path: packages/platform_ios_tts
+  url_launcher: ^6.3.2
+  package_info_plus: ^9.0.0
 
 dev_dependencies:
   flutter_test:
