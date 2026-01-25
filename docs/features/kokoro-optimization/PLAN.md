@@ -67,87 +67,113 @@ pod 'KokoroSwift', :git => 'https://github.com/mlalma/kokoro-ios.git'
 ### Step 2.2: Create KokoroMLXInference.swift
 **Files:** `packages/platform_ios_tts/ios/Classes/inference/KokoroMLXInference.swift`
 
-Create new inference class that mirrors KokoroSherpaInference API:
+Create new inference class that mirrors KokoroSherpaInference API.
+
+**Key discoveries from kokoro-ios source:**
+
+1. **API signature**: `generateAudio(voice: MLXArray, language: Language, text: String, speed: Float) -> ([Float], [MToken]?)`
+2. **Voice format**: NPZ file with voices keyed as `"af_bella.npy"` → `MLXArray`
+3. **Model file**: `kokoro-v1_0.safetensors` (~600MB via Git LFS)
+4. **Sample rate**: 24000 Hz (from `KokoroTTS.Constants.samplingRate`)
+5. **Language detection**: Based on voice name prefix (`a` = US English, else GB English)
+6. **Dependencies**: `MLX`, `MLXNN`, `MLXUtilsLibrary`, `MisakiSwift`
+7. **Swift version**: 6.2 minimum (uses modern Swift concurrency)
+8. **NPZ reading**: Uses `NpyzReader.read(fileFromPath:)` from MLXUtilsLibrary
+
+**Corrected implementation:**
 
 ```swift
 import Foundation
-import KokoroSwift  // From kokoro-ios package
+import KokoroSwift
+import MLX
+import MLXUtilsLibrary
 
 /// Kokoro TTS inference using MLX framework.
 /// Uses Apple Neural Engine for ~3.3x faster than realtime synthesis.
 class KokoroMLXInference {
     
     private var tts: KokoroTTS?
+    private var voices: [String: MLXArray] = [:]  // "af_bella" -> MLXArray
     private var currentModelPath: String?
-    private var voiceEmbeddings: [String: MLXArray] = [:]  // Voice ID -> embedding
     
     var isModelLoaded: Bool {
-        return tts != nil
+        return tts != nil && !voices.isEmpty
     }
     
-    /// Load the MLX Kokoro model.
+    /// Load the MLX Kokoro model and voices.
     /// - Parameters:
     ///   - modelPath: Path to kokoro-v1_0.safetensors
-    ///   - voiceStylesPath: Path to voice styles NPZ file
-    func loadModel(modelPath: String, voiceStylesPath: String) throws {
+    ///   - voicesPath: Path to voices.npz file
+    func loadModel(modelPath: String, voicesPath: String) throws {
         let modelURL = URL(fileURLWithPath: modelPath)
         
         guard FileManager.default.fileExists(atPath: modelPath) else {
             throw TtsError.modelNotLoaded
         }
         
+        guard FileManager.default.fileExists(atPath: voicesPath) else {
+            throw TtsError.invalidInput("Voices file not found: \(voicesPath)")
+        }
+        
         // Initialize KokoroTTS with MisakiSwift G2P
         tts = KokoroTTS(modelPath: modelURL, g2p: .misaki)
         
-        // Load voice style embeddings
-        try loadVoiceStyles(from: voiceStylesPath)
-        
-        currentModelPath = modelPath
-        print("[KokoroMLXInference] MLX model loaded: \(modelPath)")
-    }
-    
-    /// Load voice style embeddings from NPZ file.
-    private func loadVoiceStyles(from path: String) throws {
-        // Voice styles are stored as NPZ with shape (511, 1, 256) per voice
-        // See KokoroTestApp StyleLoader for reference
-        guard FileManager.default.fileExists(atPath: path) else {
-            throw TtsError.invalidInput("Voice styles file not found: \(path)")
+        // Load voice embeddings from NPZ file
+        // NPZ contains keys like "af_bella.npy" -> MLXArray
+        let voicesURL = URL(fileURLWithPath: voicesPath)
+        guard let loadedVoices = NpyzReader.read(fileFromPath: voicesURL) else {
+            throw TtsError.invalidInput("Failed to read voices.npz")
         }
         
-        // Load NPZ file using MLXUtilsLibrary
-        // Each voice has a 256-dim style vector
-        // TODO: Implement voice style loading based on KokoroTestApp
+        // Strip .npy extension from keys for easier lookup
+        voices = Dictionary(uniqueKeysWithValues: loadedVoices.map { key, value in
+            let cleanKey = String(key.split(separator: ".")[0])  // "af_bella.npy" -> "af_bella"
+            return (cleanKey, value)
+        })
+        
+        currentModelPath = modelPath
+        print("[KokoroMLXInference] MLX model loaded with \(voices.count) voices")
     }
     
     /// Synthesize text to audio samples.
     /// - Parameters:
     ///   - text: Text to synthesize
-    ///   - voiceName: Voice name (e.g., "af_bella")
-    ///   - speed: Speech speed multiplier
+    ///   - voiceName: Voice name (e.g., "af_bella", "bm_george")
+    ///   - speed: Speech speed multiplier (1.0 = normal)
     /// - Returns: Tuple of (samples, sampleRate)
     func synthesize(text: String, voiceName: String, speed: Float = 1.0) throws -> (samples: [Float], sampleRate: Int) {
         guard let tts = tts else {
             throw TtsError.modelNotLoaded
         }
         
-        guard let voiceEmbedding = voiceEmbeddings[voiceName] else {
+        guard let voiceEmbedding = voices[voiceName] else {
             throw TtsError.voiceNotLoaded(voiceName)
         }
         
-        // Generate audio using MLX
-        let audioBuffer = try tts.generateAudio(
+        // Detect language from voice name prefix
+        // 'a' prefix = American English, 'b' prefix = British English
+        let language: Language = voiceName.first == "a" ? .enUS : .enGB
+        
+        // Generate audio using MLX (returns [Float] and optional token timestamps)
+        let (audioSamples, _) = try tts.generateAudio(
             voice: voiceEmbedding,
-            language: .enUS,  // TODO: Detect from voice name prefix
-            text: text
+            language: language,
+            text: text,
+            speed: speed
         )
         
-        return (Array(audioBuffer), 24000)  // Kokoro outputs 24kHz
+        return (audioSamples, KokoroTTS.Constants.samplingRate)  // 24000 Hz
+    }
+    
+    /// Get list of available voice names.
+    func availableVoices() -> [String] {
+        return voices.keys.sorted()
     }
     
     /// Unload model and free resources.
     func unload() {
         tts = nil
-        voiceEmbeddings.removeAll()
+        voices.removeAll()
         currentModelPath = nil
         print("[KokoroMLXInference] MLX model unloaded")
     }
@@ -156,8 +182,8 @@ class KokoroMLXInference {
 
 **Tasks:**
 - [ ] 2.2.1 Create KokoroMLXInference.swift skeleton
-- [ ] 2.2.2 Implement loadModel() with safetensors loading
-- [ ] 2.2.3 Implement voice style loading from NPZ
+- [ ] 2.2.2 Import KokoroSwift, MLX, MLXUtilsLibrary dependencies
+- [ ] 2.2.3 Implement loadModel() using NpyzReader for voices.npz
 - [ ] 2.2.4 Implement synthesize() using KokoroTTS.generateAudio()
 - [ ] 2.2.5 Map speaker IDs to voice names (af_bella → ID 2)
 - [ ] 2.2.6 Add error handling and logging
@@ -247,25 +273,29 @@ class KokoroTtsService: TtsServiceProtocol {
 ### Step 2.4: Package MLX Model Files
 **Files:** `packages/downloads/lib/manifests/voices_manifest.json`
 
-Need to package MLX model in downloadable format:
+**Model Files from KokoroTestApp (verified):**
+1. `kokoro-v1_0.safetensors` (~600MB via Git LFS) - Main model weights
+2. `voices.npz` (~14.6MB) - Voice embeddings, keyed as `"af_bella.npy"` → MLXArray
 
-**Model Files Required:**
-1. `kokoro-v1_0.safetensors` (~600MB uncompressed) - Main model weights
-2. `voice_styles.npz` (~30MB) - Voice embeddings for all 53 speakers
+**IMPORTANT CORRECTIONS:**
+- Voice file is named `voices.npz` (not `voice_styles.npz`)
+- NPZ keys include `.npy` extension: `"af_bella.npy"`, `"bm_george.npy"`
+- Voices file is 14.6MB (not 30MB as initially estimated)
+- KokoroTestApp includes 28 voices (subset of the 53 in sherpa-onnx)
 
 **Package Structure:**
 ```
 kokoro-mlx-v1_0.tar.gz
-├── kokoro-v1_0.safetensors
-├── voice_styles.npz
-└── .manifest  # Our marker file
+├── kokoro-v1_0.safetensors   # ~600MB
+├── voices.npz                 # ~14.6MB, 28 voices
+└── .manifest                  # Our marker file
 ```
 
 **Tasks:**
-- [ ] 2.4.1 Download kokoro-v1_0.safetensors from KokoroTestApp repo
-- [ ] 2.4.2 Generate voice_styles.npz with all 53 speaker embeddings
-- [ ] 2.4.3 Create tar.gz package for iOS download
-- [ ] 2.4.4 Upload to williamomeara/audiobook_flutter_assets releases
+- [ ] 2.4.1 Clone KokoroTestApp and extract model files (requires Git LFS)
+- [ ] 2.4.2 Verify voices.npz contains our 11 English voices
+- [ ] 2.4.3 Create tar.gz package for iOS download (~620MB compressed)
+- [ ] 2.4.4 Upload to williamomeara/audiobook_flutter_assets releases (use LFS)
 - [ ] 2.4.5 Update manifest with iOS MLX core URL
 
 **Manifest Update:**
@@ -275,7 +305,7 @@ kokoro-mlx-v1_0.tar.gz
   "engineType": "kokoro",
   "displayName": "Kokoro TTS Core (iOS MLX)",
   "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/kokoro-mlx-v1/kokoro-mlx-v1_0.tar.gz",
-  "sizeBytes": 320000000,
+  "sizeBytes": 650000000,
   "required": true,
   "extractType": "tar.gz",
   "platform": "ios"
@@ -284,31 +314,62 @@ kokoro-mlx-v1_0.tar.gz
 
 ---
 
-### Step 2.5: Voice Style Mapping
-**Files:** Create voice_styles.npz with correct speaker ID mapping
+### Step 2.5: Voice Name Mapping
+**Files:** Update `VoiceIds.kokoroSpeakerIds` to include voice names
 
-The MLX model uses voice style vectors (256-dim) instead of integer speaker IDs.
-Need to map our speaker IDs to voice names:
+The MLX model uses voice NAMES (e.g., `"af_bella"`) instead of integer speaker IDs.
+Need bidirectional mapping:
 
-| Speaker ID | Voice Name | Style Index |
-|------------|------------|-------------|
-| 0 | af_alloy | 0 |
-| 2 | af_bella | 1 |
-| 6 | af_nicole | 2 |
-| 9 | af_sarah | 3 |
-| 10 | af_sky | 4 |
-| 11 | am_adam | 5 |
-| 16 | am_michael | 6 |
-| 21 | bf_emma | 7 |
-| 22 | bf_isabella | 8 |
-| 26 | bm_george | 9 |
-| 27 | bm_lewis | 10 |
+**Mapping (from sherpa-onnx documentation):**
+
+| Speaker ID | Voice Name | Available in voices.npz |
+|------------|------------|-------------------------|
+| 0 | af_alloy | ✅ |
+| 2 | af_bella | ✅ |
+| 6 | af_nicole | ✅ |
+| 9 | af_sarah | ✅ |
+| 10 | af_sky | ✅ |
+| 11 | am_adam | ✅ |
+| 16 | am_michael | ✅ |
+| 21 | bf_emma | ✅ |
+| 22 | bf_isabella | ✅ |
+| 26 | bm_george | ✅ |
+| 27 | bm_lewis | ✅ |
+
+**Implementation approach:**
+- MLX uses voice name string directly (e.g., `"af_bella"`)
+- Sherpa-onnx uses integer speaker ID (e.g., `2`)
+- Our Flutter code passes speaker ID; iOS native code needs to convert
+
+**Add to KokoroMLXInference.swift:**
+```swift
+/// Map speaker ID (from manifest) to voice name (for MLX)
+private static let speakerIdToVoiceName: [Int: String] = [
+    0: "af_alloy",
+    2: "af_bella",
+    6: "af_nicole",
+    9: "af_sarah",
+    10: "af_sky",
+    11: "am_adam",
+    16: "am_michael",
+    21: "bf_emma",
+    22: "bf_isabella",
+    26: "bm_george",
+    27: "bm_lewis"
+]
+
+func synthesize(text: String, speakerId: Int, speed: Float = 1.0) throws -> (samples: [Float], sampleRate: Int) {
+    guard let voiceName = Self.speakerIdToVoiceName[speakerId] else {
+        throw TtsError.voiceNotLoaded("Unknown speaker ID: \(speakerId)")
+    }
+    // ... rest of implementation
+}
+```
 
 **Tasks:**
-- [ ] 2.5.1 Extract voice styles from KokoroTestApp Resources
-- [ ] 2.5.2 Convert .npy files to combined .npz
-- [ ] 2.5.3 Create speakerId-to-voiceName mapping in Swift
-- [ ] 2.5.4 Update KokoroMLXInference to use mapping
+- [ ] 2.5.1 Add speakerId → voiceName mapping to KokoroMLXInference.swift
+- [ ] 2.5.2 Update synthesize() to accept speakerId (matching sherpa API)
+- [ ] 2.5.3 Verify all 11 voices are present in voices.npz
 
 ---
 
