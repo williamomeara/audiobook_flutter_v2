@@ -83,7 +83,10 @@ class AudiobookPlaybackController implements PlaybackController {
     PlayIntentOverrideCallback? onPlayIntentOverride,
     MemoryMonitor? memoryMonitor,
     int? parallelConcurrency,
-  })  : _audioOutput = audioOutput ?? JustAudioOutput(),
+  })  : _audioOutput = audioOutput ?? 
+            (PlaybackConfig.gaplessPlaybackEnabled 
+                ? JustAudioGaplessOutput() 
+                : JustAudioOutput()),
         _onStateChange = onStateChange,
         _smartSynthesisManager = smartSynthesisManager,
         _resourceMonitor = resourceMonitor,
@@ -164,6 +167,20 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Whether the controller has been disposed.
   bool _disposed = false;
+  
+  /// Whether we're using gapless audio output.
+  bool get _isGaplessMode => _audioOutput is GaplessAudioOutput;
+  
+  /// Gapless output (only valid when _isGaplessMode is true).
+  GaplessAudioOutput? get _gaplessOutput => 
+      _audioOutput is GaplessAudioOutput ? _audioOutput : null;
+  
+  /// Track which segments are queued in gapless mode (queue index -> cache key).
+  /// Used for pinning/unpinning cache entries.
+  final Map<int, CacheKey> _gaplessQueuedSegments = {};
+  
+  /// Number of segments to keep ahead in gapless queue.
+  static const int _gaplessLookahead = 3;
 
   @override
   Stream<PlaybackState> get stateStream => _stateController.stream;
@@ -199,6 +216,180 @@ class AudiobookPlaybackController implements PlaybackController {
           error: 'Audio playback error',
         ));
         break;
+        
+      case AudioEvent.segmentAdvanced:
+        // Gapless playback advanced to next segment.
+        // Update the current track state to match the new segment.
+        if (_isGaplessMode) {
+          _handleGaplessSegmentAdvanced();
+        }
+        break;
+    }
+  }
+
+  /// Handle gapless segment advanced event.
+  /// Advances the current track state and triggers more queueing if needed.
+  void _handleGaplessSegmentAdvanced() {
+    final gapless = _gaplessOutput;
+    if (gapless == null) return;
+    
+    final playlistIndex = gapless.currentIndex;
+    _logger.info('🔄 Gapless segment advanced to playlist index $playlistIndex');
+    
+    // Find the track at the new segment index relative to the queue
+    final currentQueueIndex = _state.currentIndex;
+    final nextQueueIndex = currentQueueIndex + 1;
+    
+    if (nextQueueIndex < _state.queue.length) {
+      final nextTrack = _state.queue[nextQueueIndex];
+      _speakingTrackId = nextTrack.id;
+      
+      _updateState(_state.copyWith(
+        currentTrack: nextTrack,
+      ));
+      
+      _logger.info('Advanced to track ${nextTrack.segmentIndex}: "${nextTrack.text.substring(0, nextTrack.text.length.clamp(0, 40))}..."');
+      
+      // Unpin played segment and clean up playlist
+      _unpinPlayedGaplessSegments(currentQueueIndex);
+      
+      // Queue more segments if needed
+      _queueMoreSegmentsIfNeeded();
+    } else {
+      // Reached end of queue
+      _logger.info('Reached end of queue after gapless transition');
+      _speakingTrackId = null;
+      _unpinAllGaplessSegments();
+      _updateState(_state.copyWith(
+        isPlaying: false,
+        isBuffering: false,
+      ));
+    }
+  }
+  
+  /// Unpin segments that have been played in gapless mode.
+  void _unpinPlayedGaplessSegments(int playedQueueIndex) {
+    final cacheKey = _gaplessQueuedSegments.remove(playedQueueIndex);
+    if (cacheKey != null) {
+      cache.unpin(cacheKey);
+      _logger.info('Unpinned played segment $playedQueueIndex');
+    }
+    
+    // Remove from gapless playlist to free memory
+    final gapless = _gaplessOutput;
+    if (gapless != null && gapless.queueLength > 1) {
+      // Keep current segment, remove played ones
+      unawaited(gapless.removePlayedSegments(keepCount: 1).catchError((e) {
+        _logger.warning('Failed to remove played segments: $e');
+      }));
+    }
+  }
+  
+  /// Unpin all queued segments (called on stop/seek/dispose).
+  void _unpinAllGaplessSegments() {
+    for (final cacheKey in _gaplessQueuedSegments.values) {
+      cache.unpin(cacheKey);
+    }
+    _gaplessQueuedSegments.clear();
+    _logger.info('Unpinned all gapless segments');
+  }
+  
+  /// Queue more segments to the gapless playlist if needed.
+  void _queueMoreSegmentsIfNeeded() {
+    if (!_isGaplessMode || !_playIntent || _disposed) return;
+    
+    final gapless = _gaplessOutput;
+    if (gapless == null) return;
+    
+    final currentQueueIndex = _state.currentIndex;
+    final segmentsAhead = gapless.queueLength - gapless.currentIndex - 1;
+    
+    // If we have enough segments queued, don't do anything
+    if (segmentsAhead >= _gaplessLookahead) {
+      _logger.info('Gapless queue has $segmentsAhead segments ahead, skipping queue');
+      return;
+    }
+    
+    // Calculate how many segments we need
+    final segmentsNeeded = _gaplessLookahead - segmentsAhead;
+    final lastQueuedIndex = _gaplessQueuedSegments.keys.isEmpty 
+        ? currentQueueIndex 
+        : _gaplessQueuedSegments.keys.reduce((a, b) => a > b ? a : b);
+    
+    _logger.info('Need to queue $segmentsNeeded more segments (last queued: $lastQueuedIndex)');
+    
+    // Queue synthesized segments from cache
+    final opId = _opId;
+    unawaited(_queueSynthesizedSegments(
+      startIndex: lastQueuedIndex + 1,
+      count: segmentsNeeded,
+      opId: opId,
+    ).catchError((e, st) {
+      _logger.severe('Failed to queue segments', e, st);
+    }));
+    
+    // Also trigger prefetch for segments beyond what we're queueing
+    _startImmediateNextPrefetch();
+  }
+  
+  /// Queue synthesized segments from cache to the gapless playlist.
+  Future<void> _queueSynthesizedSegments({
+    required int startIndex,
+    required int count,
+    required int opId,
+  }) async {
+    final gapless = _gaplessOutput;
+    if (gapless == null) return;
+    
+    final voiceId = voiceIdResolver(null);
+    
+    for (var i = startIndex; i < startIndex + count && i < _state.queue.length; i++) {
+      if (!_isCurrentOp(opId) || _isOpCancelled || _disposed || !_playIntent) {
+        _logger.info('Gapless queueing cancelled at index $i');
+        return;
+      }
+      
+      final track = _state.queue[i];
+      final cacheKey = CacheKeyGenerator.generate(
+        voiceId: voiceId,
+        text: track.text,
+        playbackRate: CacheKeyGenerator.getSynthesisRate(_state.playbackRate),
+      );
+      
+      // Check if segment is already synthesized in cache
+      if (!await cache.isReady(cacheKey)) {
+        _logger.info('Segment $i not in cache yet, waiting for synthesis');
+        // Segment not ready - prefetch will handle synthesis
+        // Don't block, just stop queueing here
+        return;
+      }
+      
+      // Already queued?
+      if (_gaplessQueuedSegments.containsKey(i)) {
+        continue;
+      }
+      
+      // Get file path and queue it
+      final file = await cache.fileFor(cacheKey);
+      if (!await file.exists()) {
+        _logger.warning('Cache reported ready but file missing: ${file.path}');
+        continue;
+      }
+      
+      // Pin the segment before queueing
+      cache.pin(cacheKey);
+      _gaplessQueuedSegments[i] = cacheKey;
+      
+      try {
+        await gapless.queueSegment(file.path);
+        _logger.info('📥 Queued segment $i for gapless playback');
+      } catch (e) {
+        // Unpin on error
+        cache.unpin(cacheKey);
+        _gaplessQueuedSegments.remove(i);
+        _logger.warning('Failed to queue segment $i: $e');
+        return;
+      }
     }
   }
 
@@ -535,6 +726,19 @@ class AudiobookPlaybackController implements PlaybackController {
         isBuffering: true,
       ));
 
+      // Gapless mode: if next segment is already queued, skip to it
+      // Otherwise fall through to standard synthesis
+      if (_isGaplessMode && _gaplessQueuedSegments.containsKey(idx + 1)) {
+        _logger.info('Gapless skip: segment ${idx + 1} already queued');
+        // Unpin and skip the current segment
+        _unpinPlayedGaplessSegments(idx);
+        _speakingTrackId = nextTrack.id;
+        _updateState(_state.copyWith(isBuffering: false));
+        _onPlayIntentOverride?.call(false);
+        // The gapless player will advance automatically
+        return;
+      }
+
       await _speakCurrent(opId: opId);
     } else {
       // End of queue
@@ -591,6 +795,7 @@ class AudiobookPlaybackController implements PlaybackController {
   Future<void> dispose() async {
     _disposed = true;
     _cancelSeekDebounce();
+    _unpinAllGaplessSegments(); // Clean up gapless pinned segments
     _scheduler.dispose();
     await _audioSub?.cancel();
     await _stateController.close();
@@ -603,6 +808,11 @@ class AudiobookPlaybackController implements PlaybackController {
   }
 
   Future<void> _stopPlayback() async {
+    // Clear gapless queue and unpin segments
+    if (_isGaplessMode) {
+      _unpinAllGaplessSegments();
+      await _gaplessOutput?.clearQueue();
+    }
     await _audioOutput.stop();
     _speakingTrackId = null;
   }
@@ -685,6 +895,96 @@ class AudiobookPlaybackController implements PlaybackController {
       _logger.info('Voice is ready, starting synthesis...');
       final synthStart = DateTime.now();
       
+      // ════════════════════════════════════════════════════════════════════════
+      // CACHE-FIRST: Check if segment is already synthesized or being prefetched
+      // This prevents "busy" errors when prefetch is already synthesizing this segment
+      // ════════════════════════════════════════════════════════════════════════
+      final cacheKey = CacheKeyGenerator.generate(
+        voiceId: voiceId,
+        text: track.text,
+        playbackRate: CacheKeyGenerator.getSynthesisRate(_state.playbackRate),
+      );
+      
+      // Check if already in cache (prefetch may have completed)
+      if (await cache.isReady(cacheKey)) {
+        _logger.info('✓ Segment already in cache, skipping synthesis');
+        final cachedFile = await cache.fileFor(cacheKey);
+        
+        // Still need to get duration from file for proper playback
+        _speakingTrackId = track.id;
+        _updateState(_state.copyWith(isBuffering: false));
+        _logger.info('Playing from cache: ${cachedFile.path}');
+        
+        // Gapless mode: queue from cache
+        if (_isGaplessMode) {
+          cache.pin(cacheKey);
+          _gaplessQueuedSegments[_state.currentIndex] = cacheKey;
+          
+          final gapless = _gaplessOutput!;
+          await gapless.queueSegment(cachedFile.path);
+          await gapless.playQueue(playbackRate: _state.playbackRate);
+          
+          _queueMoreSegmentsIfNeeded();
+        } else {
+          await _audioOutput.playFile(
+            cachedFile.path,
+            playbackRate: _state.playbackRate,
+          );
+        }
+        
+        _logger.info('Audio playback started successfully (from cache)');
+        _onPlayIntentOverride?.call(false);
+        _startImmediateNextPrefetch();
+        _startPrefetchIfNeeded();
+        return;
+      }
+      
+      // Not in cache - synthesize (but prefetch might be working on it)
+      // Poll briefly in case prefetch is about to complete
+      for (var attempt = 0; attempt < 3; attempt++) {
+        // H8: Check cancellation before each attempt
+        if (!_isCurrentOp(opId) || _isOpCancelled || !_playIntent) {
+          _logger.info('Synthesis wait cancelled');
+          return;
+        }
+        
+        // Short delay to allow prefetch to complete
+        await Future.delayed(const Duration(milliseconds: 200));
+        
+        if (await cache.isReady(cacheKey)) {
+          _logger.info('✓ Prefetch completed during wait (attempt ${attempt + 1})');
+          final cachedFile = await cache.fileFor(cacheKey);
+          
+          _speakingTrackId = track.id;
+          _updateState(_state.copyWith(isBuffering: false));
+          
+          if (_isGaplessMode) {
+            cache.pin(cacheKey);
+            _gaplessQueuedSegments[_state.currentIndex] = cacheKey;
+            
+            final gapless = _gaplessOutput!;
+            await gapless.queueSegment(cachedFile.path);
+            await gapless.playQueue(playbackRate: _state.playbackRate);
+            
+            _queueMoreSegmentsIfNeeded();
+          } else {
+            await _audioOutput.playFile(
+              cachedFile.path,
+              playbackRate: _state.playbackRate,
+            );
+          }
+          
+          _logger.info('Audio playback started (prefetch completed during wait)');
+          _onPlayIntentOverride?.call(false);
+          _startImmediateNextPrefetch();
+          _startPrefetchIfNeeded();
+          return;
+        }
+      }
+      
+      // Still not ready - proceed with synthesis
+      _logger.info('Cache miss, starting direct synthesis...');
+      
       // Synthesize current segment (H3: with timeout to prevent hung playback)
       final result = await engine.synthesizeToWavFile(
         voiceId: voiceId,
@@ -714,10 +1014,33 @@ class AudiobookPlaybackController implements PlaybackController {
       _updateState(_state.copyWith(isBuffering: false));
       _logger.info('Starting audio playback...');
 
-      await _audioOutput.playFile(
-        result.file.path,
-        playbackRate: _state.playbackRate,
-      );
+      // Gapless mode: queue segment and start gapless playback
+      if (_isGaplessMode) {
+        final cacheKey = CacheKeyGenerator.generate(
+          voiceId: voiceId,
+          text: track.text,
+          playbackRate: CacheKeyGenerator.getSynthesisRate(_state.playbackRate),
+        );
+        
+        // Pin and track the segment
+        cache.pin(cacheKey);
+        _gaplessQueuedSegments[_state.currentIndex] = cacheKey;
+        
+        final gapless = _gaplessOutput!;
+        await gapless.queueSegment(result.file.path);
+        await gapless.playQueue(playbackRate: _state.playbackRate);
+        
+        _logger.info('Gapless playback started');
+        
+        // Queue additional segments from cache
+        _queueMoreSegmentsIfNeeded();
+      } else {
+        // Standard mode: play single file
+        await _audioOutput.playFile(
+          result.file.path,
+          playbackRate: _state.playbackRate,
+        );
+      }
 
       _logger.info('Audio playback started successfully');
       

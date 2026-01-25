@@ -70,6 +70,16 @@ class PlaybackConfig {
 
   /// Immediately start prefetching on chapter load (Phase 2 enhancement)
   static const bool immediatePrefetchOnLoad = true;
+  
+  // ═══════════════════════════════════════════════════════════════════
+  // GAPLESS PLAYBACK Configuration
+  // ═══════════════════════════════════════════════════════════════════
+  
+  /// Feature flag for gapless playback.
+  /// When enabled, audio segments are queued in a playlist and played
+  /// sequentially without gaps between them.
+  /// Disabled by default - enable after testing.
+  static const bool gaplessPlaybackEnabled = false;
 
   // ═══════════════════════════════════════════════════════════════════
   // PHASE 4: Parallel Synthesis Configuration

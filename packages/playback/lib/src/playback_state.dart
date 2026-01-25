@@ -84,4 +84,8 @@ enum AudioEvent {
 
   /// An error occurred during playback.
   error,
+  
+  /// Gapless playback advanced to the next segment.
+  /// Used by GaplessAudioOutput to signal segment transitions.
+  segmentAdvanced,
 }

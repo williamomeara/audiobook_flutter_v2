@@ -41,6 +41,32 @@ abstract interface class AudioOutput {
   Future<void> dispose();
 }
 
+/// Extended interface for gapless audio output with queue support.
+abstract interface class GaplessAudioOutput implements AudioOutput {
+  /// Stream of segment index changes (for tracking which segment is playing).
+  Stream<int> get currentIndexStream;
+  
+  /// Current segment index in the queue.
+  int get currentIndex;
+  
+  /// Number of segments currently in the queue.
+  int get queueLength;
+  
+  /// Queue a segment for gapless playback.
+  /// Returns the index of the queued segment.
+  Future<int> queueSegment(String path);
+  
+  /// Remove segments from the queue that have already been played.
+  /// [keepCount] specifies how many played segments to keep (default: 1 for current).
+  Future<void> removePlayedSegments({int keepCount = 1});
+  
+  /// Clear the entire queue and stop playback.
+  Future<void> clearQueue();
+  
+  /// Start playing from the queue if not already playing.
+  Future<void> playQueue({double playbackRate = 1.0});
+}
+
 /// Implementation of AudioOutput using just_audio.
 class JustAudioOutput implements AudioOutput {
   JustAudioOutput() {
@@ -290,7 +316,7 @@ class JustAudioOutput implements AudioOutput {
     PlaybackLog.progress('🏃 Speed updated');
   }
 
-  @override
+   @override
   Future<void> dispose() async {
     PlaybackLog.progress('🗑 Disposing AudioOutput');
     await _playerStateSub?.cancel();
@@ -299,5 +325,329 @@ class JustAudioOutput implements AudioOutput {
     await _eventController.close();
     await _player.dispose();
     PlaybackLog.progress('🗑 AudioOutput disposed');
+  }
+}
+
+/// Gapless audio output implementation using AudioPlayer playlist API.
+/// 
+/// This implementation queues multiple audio files and plays them
+/// sequentially without gaps between segments using just_audio's
+/// built-in playlist management (setAudioSources, addAudioSource, etc.).
+class JustAudioGaplessOutput implements GaplessAudioOutput {
+  JustAudioGaplessOutput() {
+    PlaybackLog.info('Initializing JustAudioGaplessOutput (gapless mode)');
+    _initAudioSession();
+    _setupEventListener();
+  }
+
+  final AudioPlayer _player = AudioPlayer();
+  final StreamController<AudioEvent> _eventController =
+      StreamController<AudioEvent>.broadcast();
+  final StreamController<int> _indexController =
+      StreamController<int>.broadcast();
+
+  StreamSubscription<PlayerState>? _playerStateSub;
+  StreamSubscription<int?>? _currentIndexSub;
+  StreamSubscription<Duration?>? _positionSub;
+  bool _sessionConfigured = false;
+  bool _isPaused = false;
+  int _currentIndex = 0;
+  int _queueLength = 0;
+  
+  /// Track segment paths for debugging/logging
+  final List<String> _segmentPaths = [];
+  
+  /// Track logged progress milestones to avoid spam
+  final Set<int> _loggedProgressMilestones = {};
+
+  @override
+  AudioPlayer? get player => _player;
+
+  @override
+  bool get isPaused => _isPaused;
+
+  @override
+  bool get hasSource => _queueLength > 0;
+  
+  @override
+  Stream<int> get currentIndexStream => _indexController.stream;
+  
+  @override
+  int get currentIndex => _currentIndex;
+  
+  @override
+  int get queueLength => _queueLength;
+
+  /// Initialize audio session with proper configuration for audiobook playback.
+  Future<void> _initAudioSession() async {
+    if (_sessionConfigured) {
+      PlaybackLog.debug('[AudioSession] Already configured, skipping');
+      return;
+    }
+
+    try {
+      PlaybackLog.debug('[AudioSession] Configuring audio session...');
+
+      final session = await AudioSession.instance;
+      await session.configure(AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.duckOthers,
+        avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+        avAudioSessionRouteSharingPolicy:
+            AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+        androidAudioAttributes: const AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.speech,
+          flags: AndroidAudioFlags.none,
+          usage: AndroidAudioUsage.media,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+        androidWillPauseWhenDucked: true,
+      ));
+
+      await session.setActive(true);
+
+      // Handle interruptions (calls, other apps)
+      session.interruptionEventStream.listen((event) {
+        if (event.begin) {
+          PlaybackLog.debug('[AudioSession] Audio session interrupted');
+          _player.pause();
+        }
+      });
+
+      // Handle audio becoming noisy (headphones unplugged)
+      session.becomingNoisyEventStream.listen((_) {
+        PlaybackLog.debug('[AudioSession] Audio becoming noisy');
+        _player.pause();
+      });
+
+      _sessionConfigured = true;
+      PlaybackLog.debug('[AudioSession] Audio session configured and active');
+    } catch (e, st) {
+      PlaybackLog.error('[AudioSession] ERROR: $e', stackTrace: st);
+    }
+  }
+
+  @override
+  Stream<AudioEvent> get events => _eventController.stream;
+
+  void _setupEventListener() {
+    PlaybackLog.info('Setting up gapless event listeners');
+
+    // Listen to player state changes
+    _playerStateSub = _player.playerStateStream.listen((state) {
+      final processingState = state.processingState;
+      final playing = state.playing;
+
+      PlaybackLog.debug(
+          'Gapless player state: $processingState, playing: $playing');
+
+      switch (processingState) {
+        case ProcessingState.idle:
+          break;
+        case ProcessingState.loading:
+          PlaybackLog.debug('↳ Loading next segment...');
+          break;
+        case ProcessingState.buffering:
+          PlaybackLog.debug('↳ Buffering...');
+          break;
+        case ProcessingState.ready:
+          if (playing) {
+            PlaybackLog.debug('↳ Gapless playback active');
+          }
+          break;
+        case ProcessingState.completed:
+          PlaybackLog.debug('↳ Queue completed (all segments played)');
+          _eventController.add(AudioEvent.completed);
+          break;
+      }
+    });
+
+    // Listen to current index changes - this is key for gapless transitions
+    _currentIndexSub = _player.currentIndexStream.listen((index) {
+      if (index != null && index != _currentIndex) {
+        final oldIndex = _currentIndex;
+        _currentIndex = index;
+        PlaybackLog.progress(
+            '🔄 Gapless transition: segment $oldIndex → $index');
+        _indexController.add(index);
+        _loggedProgressMilestones.clear(); // Reset for new segment
+        
+        // Emit segmentAdvanced event for PlaybackController
+        _eventController.add(AudioEvent.segmentAdvanced);
+      }
+    });
+
+    // Listen to position changes for progress tracking
+    _positionSub = _player.positionStream.listen((position) {
+      final duration = _player.duration;
+      if (duration != null && duration.inMilliseconds > 0) {
+        final percent = position.inMilliseconds / duration.inMilliseconds * 100;
+        final milestone = (percent / 25).floor() * 25;
+        if (milestone > 0 &&
+            milestone < 100 &&
+            !_loggedProgressMilestones.contains(milestone)) {
+          _loggedProgressMilestones.add(milestone);
+          PlaybackLog.debug('Segment progress: $milestone%');
+        }
+      }
+    });
+
+    // Listen for errors
+    _player.playbackEventStream.listen((_) {}, onError: (error) {
+      PlaybackLog.error('ERROR in gapless playback: $error');
+      _eventController.add(AudioEvent.error);
+    });
+  }
+
+  @override
+  Future<int> queueSegment(String path) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      PlaybackLog.error('Cannot queue non-existent file: $path');
+      throw FileSystemException('File not found', path);
+    }
+
+    final source = AudioSource.file(path);
+    
+    // Use the new playlist API - addAudioSource
+    await _player.addAudioSource(source);
+    _segmentPaths.add(path);
+    _queueLength++;
+    
+    final index = _queueLength - 1;
+    PlaybackLog.progress('📥 Queued segment $index: ${path.split('/').last}');
+    PlaybackLog.debug('Queue length: $_queueLength');
+    
+    return index;
+  }
+
+  @override
+  Future<void> removePlayedSegments({int keepCount = 1}) async {
+    // Calculate how many segments to remove
+    // Keep current and optionally some before it
+    final removeCount = _currentIndex - keepCount + 1;
+    
+    if (removeCount <= 0) {
+      PlaybackLog.debug('No segments to remove (current: $_currentIndex, keep: $keepCount)');
+      return;
+    }
+
+    PlaybackLog.progress('🗑 Removing $removeCount played segments');
+    
+    // Use the new playlist API - removeAudioSourceRange
+    await _player.removeAudioSourceRange(0, removeCount);
+    
+    // Also clean up our tracking list
+    for (var i = 0; i < removeCount && _segmentPaths.isNotEmpty; i++) {
+      _segmentPaths.removeAt(0);
+    }
+    _queueLength -= removeCount;
+    if (_queueLength < 0) _queueLength = 0;
+    
+    // Adjust current index since we removed items before it
+    _currentIndex = _currentIndex - removeCount;
+    if (_currentIndex < 0) _currentIndex = 0;
+    
+    PlaybackLog.debug('Queue length after cleanup: $_queueLength');
+  }
+
+  @override
+  Future<void> clearQueue() async {
+    PlaybackLog.progress('🗑 Clearing gapless queue');
+    await _player.stop();
+    
+    // Use the new playlist API - clearAudioSources
+    await _player.clearAudioSources();
+    
+    _segmentPaths.clear();
+    _queueLength = 0;
+    _currentIndex = 0;
+    _isPaused = false;
+    PlaybackLog.progress('Queue cleared');
+  }
+
+  @override
+  Future<void> playQueue({double playbackRate = 1.0}) async {
+    if (_queueLength == 0) {
+      PlaybackLog.warning('Cannot play empty queue');
+      return;
+    }
+
+    await _initAudioSession();
+
+    PlaybackLog.progress('▶ Starting gapless playback');
+    PlaybackLog.progress('Queue: $_queueLength segments');
+
+    try {
+      // With the new playlist API, sources are already added via addAudioSource
+      // We just need to set speed and play
+      await _player.setSpeed(playbackRate);
+      await _player.play();
+      _isPaused = false;
+      
+      PlaybackLog.progress('▶ Gapless playback started');
+    } catch (e, st) {
+      PlaybackLog.error('ERROR starting gapless playback: $e', stackTrace: st);
+      _eventController.add(AudioEvent.error);
+    }
+  }
+
+  // ========== AudioOutput interface implementation (for backwards compatibility) ==========
+
+  @override
+  Future<void> playFile(String path, {double playbackRate = 1.0}) async {
+    // For single file playback, clear queue and add just this file
+    await clearQueue();
+    await queueSegment(path);
+    await playQueue(playbackRate: playbackRate);
+  }
+
+  @override
+  Future<void> pause() async {
+    PlaybackLog.progress('⏸ PAUSE requested (gapless)');
+    await _player.pause();
+    _isPaused = true;
+    PlaybackLog.progress('⏸ Paused at segment $_currentIndex');
+  }
+
+  @override
+  Future<void> resume() async {
+    PlaybackLog.progress('▶ RESUME requested (gapless)');
+    if (!hasSource) {
+      PlaybackLog.warning('Cannot resume: no audio source loaded');
+      return;
+    }
+    await _player.play();
+    _isPaused = false;
+    PlaybackLog.progress('▶ Resumed at segment $_currentIndex');
+  }
+
+  @override
+  Future<void> stop() async {
+    PlaybackLog.progress('⏹ STOP requested (gapless)');
+    await _player.stop();
+    _isPaused = false;
+    _eventController.add(AudioEvent.cancelled);
+    PlaybackLog.progress('⏹ Stopped');
+  }
+
+  @override
+  Future<void> setSpeed(double rate) async {
+    PlaybackLog.progress('🏃 Setting speed to ${rate}x (gapless)');
+    await _player.setSpeed(rate);
+    PlaybackLog.progress('🏃 Speed updated');
+  }
+
+  @override
+  Future<void> dispose() async {
+    PlaybackLog.progress('🗑 Disposing GaplessAudioOutput');
+    await _playerStateSub?.cancel();
+    await _currentIndexSub?.cancel();
+    await _positionSub?.cancel();
+    await _eventController.close();
+    await _indexController.close();
+    await _player.dispose();
+    PlaybackLog.progress('🗑 GaplessAudioOutput disposed');
   }
 }
