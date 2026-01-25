@@ -127,12 +127,14 @@ StreamBuilder<Duration>(
 
 ### Phase 1 Implementation Tasks
 
-- [ ] Replace `LinearProgressIndicator` with `Slider` in portrait controls
-- [ ] Replace `LinearProgressIndicator` with `Slider` in landscape bottom bar
-- [ ] Add segment preview while dragging
-- [ ] Add haptic ticks at segment boundaries
-- [ ] Add heavy haptic at chapter boundaries (segment 0 and last)
-- [ ] Show segment number and/or title while dragging
+- [x] Replace `LinearProgressIndicator` with `Slider` in portrait controls
+- [x] Replace `LinearProgressIndicator` with `Slider` in landscape bottom bar
+- [x] Add segment preview while dragging (portrait only)
+- [x] Add haptic ticks at segment boundaries
+- [x] Add heavy haptic at chapter boundaries (segment 0 and last)
+- [x] Show segment number and/or title while dragging
+
+**Status: ✅ COMPLETE** (see `lib/ui/widgets/segment_seek_slider.dart`)
 
 ### UI Mockup
 

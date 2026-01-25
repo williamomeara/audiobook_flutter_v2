@@ -16,6 +16,7 @@ import '../../utils/app_haptics.dart';
 import '../../utils/app_logger.dart';
 import '../theme/app_colors.dart';
 import '../widgets/optimization_prompt_dialog.dart';
+import '../widgets/segment_seek_slider.dart';
 import 'package:core_domain/core_domain.dart';
 
 class PlaybackScreen extends ConsumerStatefulWidget {
@@ -1288,6 +1289,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   }
 
   Widget _buildPlaybackControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
+    final queue = playbackState.queue;
+    
     return Container(
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: colors.border, width: 1)),
@@ -1296,28 +1299,38 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Progress bar
+          // Segment seek slider
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: Row(
               children: [
                 Text(
                   '${currentIndex + 1}',
                   style: TextStyle(fontSize: 13, color: colors.textSecondary),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: queueLength > 0 ? (currentIndex + 1) / queueLength : 0,
-                      backgroundColor: colors.controlBackground,
-                      color: colors.primary,
-                      minHeight: 4,
-                    ),
+                  child: SegmentSeekSlider(
+                    currentIndex: currentIndex,
+                    totalSegments: queueLength,
+                    colors: colors,
+                    height: 4,
+                    showPreview: true,
+                    segmentPreviewBuilder: (index) {
+                      if (index >= 0 && index < queue.length) {
+                        final text = queue[index].text;
+                        // Return first ~50 characters
+                        if (text.length > 50) {
+                          return '${text.substring(0, 50)}...';
+                        }
+                        return text;
+                      }
+                      return '';
+                    },
+                    onSeek: _seekToSegment,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Text(
                   '$queueLength',
                   style: TextStyle(fontSize: 13, color: colors.textSecondary),
@@ -1679,13 +1692,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   /// Bottom bar for landscape mode (chapter controls + progress bar)
   Widget _buildLandscapeBottomBar(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
     return Container(
-      height: _landscapeBottomBarHeight,
+      height: _landscapeBottomBarHeight + 16, // Extra height for slider thumb
       decoration: BoxDecoration(
         color: colors.background.withValues(alpha: 0.95),
         border: Border(top: BorderSide(color: colors.border, width: 1)),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         child: Row(
           children: [
             // Previous chapter (left side)
@@ -1707,7 +1720,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
             
             const SizedBox(width: 8),
             
-            // Progress bar (center, expanded)
+            // Segment seek slider (center, expanded)
             Expanded(
               child: Row(
                 children: [
@@ -1715,19 +1728,18 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                     '${currentIndex + 1}',
                     style: TextStyle(fontSize: 12, color: colors.textSecondary),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: queueLength > 0 ? (currentIndex + 1) / queueLength : 0,
-                        backgroundColor: colors.controlBackground,
-                        color: colors.primary,
-                        minHeight: 4,
-                      ),
+                    child: SegmentSeekSlider(
+                      currentIndex: currentIndex,
+                      totalSegments: queueLength,
+                      colors: colors,
+                      height: 4,
+                      showPreview: false, // No preview in landscape (limited space)
+                      onSeek: _seekToSegment,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   Text(
                     '$queueLength',
                     style: TextStyle(fontSize: 12, color: colors.textSecondary),
