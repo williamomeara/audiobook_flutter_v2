@@ -301,13 +301,16 @@ class AudiobookPlaybackController implements PlaybackController {
     }
 
     _scheduler.reset();
+    _synthesisCoordinator?.reset(); // Reset coordinator queue for new chapter
     _playIntent = autoPlay;
 
     final startTrack = tracks[startIndex.clamp(0, tracks.length - 1)];
     _logger.info('Starting at track ${startIndex.clamp(0, tracks.length - 1)}: "${startTrack.text.substring(0, startTrack.text.length.clamp(0, 50))}..."');
 
-    // Pre-synthesize first segment(s) using SmartSynthesisManager if available
-    if (_smartSynthesisManager != null && autoPlay) {
+    // ════════════════════════════════════════════════════════════════════
+    // LEGACY: Pre-synthesize using SmartSynthesisManager (when coordinator disabled)
+    // ════════════════════════════════════════════════════════════════════
+    if (_synthesisCoordinator == null && _smartSynthesisManager != null && autoPlay) {
       final voiceId = voiceIdResolver(null);
       
       _updateState(PlaybackState(
@@ -625,7 +628,12 @@ class AudiobookPlaybackController implements PlaybackController {
     _scheduler.suspend(
       onResume: () {
         if (!_playIntent || _disposed) return;
-        _startPrefetchIfNeeded();
+        // Use coordinator if enabled, otherwise legacy prefetch
+        if (_synthesisCoordinator != null) {
+          _queueMoreSegmentsIfNeeded();
+        } else {
+          _startPrefetchIfNeeded();
+        }
       },
     );
   }
