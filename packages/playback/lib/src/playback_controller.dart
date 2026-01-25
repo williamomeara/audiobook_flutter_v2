@@ -203,20 +203,25 @@ class AudiobookPlaybackController implements PlaybackController {
   void _handleAudioEvent(AudioEvent event) {
     switch (event) {
       case AudioEvent.completed:
+        _logger.info('[AudioEvent] Completed. speakingTrackId: $_speakingTrackId, currentTrack: ${_state.currentTrack?.id}');
         if (_speakingTrackId == _state.currentTrack?.id) {
           _speakingTrackId = null;
           // C3: Wrap in error handler to catch unexpected errors
           unawaited(nextTrack().catchError((error, stackTrace) {
             _logger.severe('nextTrack failed after audio completed', error, stackTrace);
           }));
+        } else {
+          _logger.warning('[AudioEvent] Track ID mismatch, not advancing');
         }
         break;
 
       case AudioEvent.cancelled:
+        _logger.info('[AudioEvent] Cancelled');
         _speakingTrackId = null;
         break;
 
       case AudioEvent.error:
+        _logger.warning('[AudioEvent] Error');
         _speakingTrackId = null;
         _updateState(_state.copyWith(
           isPlaying: false,
@@ -369,10 +374,12 @@ class AudiobookPlaybackController implements PlaybackController {
   @override
   Future<void> nextTrack() async {
     final idx = _state.currentIndex;
+    _logger.info('[nextTrack] Current index: $idx, queue length: ${_state.queue.length}');
     if (idx < 0) return;
 
     if (idx < _state.queue.length - 1) {
       // More tracks in queue
+      _logger.info('[nextTrack] Advancing from $idx to ${idx + 1}');
       _playIntent = true;
       final opId = _newOp();
       final nextTrack = _state.queue[idx + 1];
@@ -389,6 +396,7 @@ class AudiobookPlaybackController implements PlaybackController {
       await _speakCurrent(opId: opId);
     } else {
       // End of queue
+      _logger.info('[nextTrack] End of queue, pausing');
       await pause();
     }
   }
