@@ -11,6 +11,7 @@ import 'playback_state.dart';
 import 'resource_monitor.dart';
 import 'synthesis/memory_monitor.dart';
 import 'synthesis/parallel_orchestrator.dart';
+import 'synthesis/synthesis_coordinator.dart';
 
 /// Callback for state changes.
 typedef StateCallback = void Function(PlaybackState state);
@@ -96,6 +97,13 @@ class AudiobookPlaybackController implements PlaybackController {
                 maxConcurrency: parallelConcurrency ?? PlaybackConfig.kokoroConcurrency,
                 memoryMonitor: memoryMonitor ?? MockMemoryMonitor(),
               )
+            : null,
+        _synthesisCoordinator = PlaybackConfig.useUnifiedSynthesis
+            ? SynthesisCoordinator(
+                engine: engine,
+                cache: cache,
+                maxQueueSize: PlaybackConfig.synthesisQueueMaxSize,
+              )
             : null {
     _setupEventListeners();
   }
@@ -136,6 +144,10 @@ class AudiobookPlaybackController implements PlaybackController {
   /// Parallel synthesis orchestrator (Phase 4).
   final ParallelSynthesisOrchestrator? _parallelOrchestrator;
 
+  /// Unified synthesis coordinator (experimental).
+  /// When enabled, replaces all legacy synthesis paths.
+  final SynthesisCoordinator? _synthesisCoordinator;
+
   /// State stream controller.
   final _stateController = StreamController<PlaybackState>.broadcast();
 
@@ -144,6 +156,14 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Audio event subscription.
   StreamSubscription<AudioEvent>? _audioSub;
+
+  /// Synthesis coordinator subscriptions.
+  StreamSubscription<SegmentReadyEvent>? _coordinatorReadySub;
+  StreamSubscription<SegmentFailedEvent>? _coordinatorFailedSub;
+
+  /// Completer for waiting on specific segment synthesis (used with coordinator).
+  Completer<void>? _waitingForSegmentCompleter;
+  int? _waitingForSegmentIndex;
 
   /// Current operation ID for cancellation.
   int _opId = 0;
@@ -173,6 +193,41 @@ class AudiobookPlaybackController implements PlaybackController {
 
   void _setupEventListeners() {
     _audioSub = _audioOutput.events.listen(_handleAudioEvent);
+    
+    // Set up coordinator subscriptions if using unified synthesis
+    if (_synthesisCoordinator != null) {
+      _coordinatorReadySub = _synthesisCoordinator.onSegmentReady.listen(_handleCoordinatorReady);
+      _coordinatorFailedSub = _synthesisCoordinator.onSegmentFailed.listen(_handleCoordinatorFailed);
+    }
+  }
+
+  /// Handle segment ready events from the synthesis coordinator.
+  void _handleCoordinatorReady(SegmentReadyEvent event) {
+    _logger.info('[Coordinator] Segment ${event.segmentIndex} ready (cached: ${event.wasFromCache})');
+    
+    // Notify UI callbacks
+    final bookId = _state.bookId ?? '';
+    final chapterIndex = _state.currentTrack?.chapterIndex ?? 0;
+    _onSegmentSynthesisComplete?.call(bookId, chapterIndex, event.segmentIndex);
+    
+    // If we're waiting for this segment, complete the completer
+    if (_waitingForSegmentIndex == event.segmentIndex && _waitingForSegmentCompleter != null) {
+      _waitingForSegmentCompleter!.complete();
+      _waitingForSegmentCompleter = null;
+      _waitingForSegmentIndex = null;
+    }
+  }
+
+  /// Handle segment failed events from the synthesis coordinator.
+  void _handleCoordinatorFailed(SegmentFailedEvent event) {
+    _logger.warning('[Coordinator] Segment ${event.segmentIndex} failed: ${event.error}');
+    
+    // If we're waiting for this segment, complete with error
+    if (_waitingForSegmentIndex == event.segmentIndex && _waitingForSegmentCompleter != null) {
+      _waitingForSegmentCompleter!.completeError(event.error);
+      _waitingForSegmentCompleter = null;
+      _waitingForSegmentIndex = null;
+    }
   }
 
   void _handleAudioEvent(AudioEvent event) {
@@ -592,6 +647,9 @@ class AudiobookPlaybackController implements PlaybackController {
     _disposed = true;
     _cancelSeekDebounce();
     _scheduler.dispose();
+    _synthesisCoordinator?.dispose();
+    await _coordinatorReadySub?.cancel();
+    await _coordinatorFailedSub?.cancel();
     await _audioSub?.cancel();
     await _stateController.close();
     await _audioOutput.dispose();
@@ -605,6 +663,103 @@ class AudiobookPlaybackController implements PlaybackController {
   Future<void> _stopPlayback() async {
     await _audioOutput.stop();
     _speakingTrackId = null;
+  }
+
+  /// Wait for a segment to become ready (used with unified synthesis coordinator).
+  /// Returns when the segment is synthesized and cached.
+  Future<void> _waitForSegmentReady(int segmentIndex) async {
+    if (_synthesisCoordinator == null) return;
+    
+    final voiceId = voiceIdResolver(null);
+    final track = _state.queue[segmentIndex];
+    
+    // Check if already in cache
+    if (await _synthesisCoordinator.isSegmentReady(
+      voiceId: voiceId,
+      text: track.text,
+      playbackRate: _state.playbackRate,
+    )) {
+      _logger.info('[Coordinator] Segment $segmentIndex already in cache');
+      return;
+    }
+    
+    // Wait for the segment ready event
+    _waitingForSegmentIndex = segmentIndex;
+    _waitingForSegmentCompleter = Completer<void>();
+    
+    _logger.info('[Coordinator] Waiting for segment $segmentIndex...');
+    
+    try {
+      await _waitingForSegmentCompleter!.future.timeout(
+        PlaybackConfig.synthesisTimeout,
+        onTimeout: () {
+          throw TimeoutException('Segment $segmentIndex synthesis timed out');
+        },
+      );
+      _logger.info('[Coordinator] Segment $segmentIndex is ready');
+    } finally {
+      _waitingForSegmentCompleter = null;
+      _waitingForSegmentIndex = null;
+    }
+  }
+
+  /// Play a segment from the cache (used with unified synthesis coordinator).
+  Future<void> _playFromCache(int segmentIndex, {required int opId}) async {
+    if (_synthesisCoordinator == null) return;
+    
+    final voiceId = voiceIdResolver(null);
+    final track = _state.queue[segmentIndex];
+    final effectiveRate = PlaybackConfig.rateIndependentSynthesis 
+        ? 1.0 
+        : _state.playbackRate;
+    
+    final cacheKey = CacheKeyGenerator.generate(
+      voiceId: voiceId,
+      text: track.text,
+      playbackRate: CacheKeyGenerator.getSynthesisRate(effectiveRate),
+    );
+    
+    final file = await cache.fileFor(cacheKey);
+    
+    _speakingTrackId = track.id;
+    _updateState(_state.copyWith(isBuffering: false));
+    
+    await _audioOutput.playFile(
+      file.path,
+      playbackRate: _state.playbackRate,
+    );
+    
+    _logger.info('[Coordinator] Playing from cache: ${file.path}');
+    _onPlayIntentOverride?.call(false);
+  }
+
+  /// Queue more segments for synthesis using the coordinator.
+  void _queueMoreSegmentsIfNeeded() {
+    if (_synthesisCoordinator == null) return;
+    
+    final voiceId = voiceIdResolver(null);
+    if (voiceId == VoiceIds.device) return;
+    
+    final currentIdx = _state.currentIndex;
+    if (currentIdx < 0 || _state.queue.isEmpty) return;
+    
+    // Calculate how far ahead to queue based on synthesis mode
+    final mode = _resourceMonitor?.currentMode ?? SynthesisMode.balanced;
+    final maxTracks = mode.maxPrefetchTracks;
+    
+    if (maxTracks <= 0) return; // JIT-only mode
+    
+    final endIndex = (currentIdx + maxTracks).clamp(0, _state.queue.length - 1);
+    
+    // Queue next segments at prefetch priority
+    unawaited(_synthesisCoordinator.queueRange(
+      tracks: _state.queue,
+      voiceId: voiceId,
+      playbackRate: _state.playbackRate,
+      startIndex: currentIdx + 1,
+      endIndex: endIndex,
+      priority: SynthesisPriority.prefetch,
+    ));
   }
   
   /// Q1: Helper to create synthesis callbacks with current context.
@@ -645,15 +800,6 @@ class AudiobookPlaybackController implements PlaybackController {
     final voiceId = voiceIdResolver(null);
     _logger.info('Using voice: $voiceId');
 
-    // Update scheduler context
-    _scheduler.updateContext(
-      bookId: _state.bookId ?? '',
-      chapterIndex: track.chapterIndex,
-      voiceId: voiceId,
-      playbackRate: _state.playbackRate,
-      currentIndex: _state.currentIndex,
-    );
-
     // If device TTS, show helpful message (not yet implemented)
     if (voiceId == VoiceIds.device) {
       _logger.warning('Device TTS selected but not yet implemented');
@@ -663,6 +809,29 @@ class AudiobookPlaybackController implements PlaybackController {
       ));
       return;
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // UNIFIED SYNTHESIS PATH (experimental)
+    // When enabled, uses SynthesisCoordinator for all synthesis operations.
+    // ════════════════════════════════════════════════════════════════════════
+    if (_synthesisCoordinator != null) {
+      await _speakCurrentWithCoordinator(opId: opId, voiceId: voiceId);
+      return;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // LEGACY SYNTHESIS PATH
+    // Multiple overlapping paths: SmartSynthesisManager, BufferScheduler, etc.
+    // ════════════════════════════════════════════════════════════════════════
+    
+    // Update scheduler context
+    _scheduler.updateContext(
+      bookId: _state.bookId ?? '',
+      chapterIndex: track.chapterIndex,
+      voiceId: voiceId,
+      playbackRate: _state.playbackRate,
+      currentIndex: _state.currentIndex,
+    );
 
     try {
       // Check if the voice is available before attempting synthesis
@@ -749,6 +918,92 @@ class AudiobookPlaybackController implements PlaybackController {
       _onPlayIntentOverride?.call(false);
       
       // H8: Check cancellation token
+      if (!_isCurrentOp(opId) || _isOpCancelled) return;
+
+      _updateState(_state.copyWith(
+        isPlaying: false,
+        isBuffering: false,
+        error: e.toString(),
+      ));
+    }
+  }
+
+  /// Speak the current track using the unified synthesis coordinator.
+  /// This is the new simplified path that replaces all legacy synthesis.
+  Future<void> _speakCurrentWithCoordinator({
+    required int opId,
+    required String voiceId,
+  }) async {
+    final coordinator = _synthesisCoordinator;
+    if (coordinator == null) return;
+    
+    final track = _state.currentTrack;
+    if (track == null) return;
+
+    try {
+      // Check voice readiness
+      _logger.info('[Coordinator] Checking voice readiness...');
+      final voiceReadiness = await engine.checkVoiceReady(voiceId);
+
+      if (!voiceReadiness.isReady) {
+        _logger.warning('[Coordinator] Voice not ready: ${voiceReadiness.state}');
+        _updateState(_state.copyWith(
+          isPlaying: false,
+          isBuffering: false,
+          error: voiceReadiness.nextActionUserShouldTake ??
+              'Voice not ready. Please download the required model in Settings.',
+        ));
+        return;
+      }
+
+      // Update coordinator context (clears queue if voice changed)
+      coordinator.updateContext(
+        voiceId: voiceId,
+        playbackRate: _state.playbackRate,
+      );
+
+      // Queue current segment at immediate priority
+      await coordinator.queueRange(
+        tracks: _state.queue,
+        voiceId: voiceId,
+        playbackRate: _state.playbackRate,
+        startIndex: _state.currentIndex,
+        endIndex: _state.currentIndex,
+        priority: SynthesisPriority.immediate,
+      );
+
+      // Also queue next segment at immediate priority for gapless
+      if (_state.currentIndex + 1 < _state.queue.length) {
+        await coordinator.queueRange(
+          tracks: _state.queue,
+          voiceId: voiceId,
+          playbackRate: _state.playbackRate,
+          startIndex: _state.currentIndex + 1,
+          endIndex: _state.currentIndex + 1,
+          priority: SynthesisPriority.immediate,
+        );
+      }
+
+      // Wait for current segment to be ready
+      await _waitForSegmentReady(_state.currentIndex);
+
+      // H8: Check cancellation after synthesis wait
+      if (!_isCurrentOp(opId) || _isOpCancelled || !_playIntent) {
+        _logger.info('[Coordinator] Playback cancelled during wait');
+        return;
+      }
+
+      // Play from cache
+      await _playFromCache(_state.currentIndex, opId: opId);
+
+      _logger.info('[Coordinator] Playback started successfully');
+
+      // Queue more segments in background
+      _queueMoreSegmentsIfNeeded();
+    } catch (e, stackTrace) {
+      _logger.severe('[Coordinator] Playback failed', e, stackTrace);
+      _onPlayIntentOverride?.call(false);
+
       if (!_isCurrentOp(opId) || _isOpCancelled) return;
 
       _updateState(_state.copyWith(
