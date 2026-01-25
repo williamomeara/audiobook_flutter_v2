@@ -1,11 +1,6 @@
-import 'dart:async';
-import 'dart:io';
-
 import 'package:core_domain/core_domain.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:playback/src/synthesis/synthesis_coordinator.dart';
 import 'package:playback/src/synthesis/synthesis_request.dart';
-import 'package:tts_engines/tts_engines.dart';
 
 void main() {
   group('SynthesisRequest', () {

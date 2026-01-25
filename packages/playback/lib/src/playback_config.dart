@@ -103,8 +103,10 @@ class PlaybackConfig {
   /// Feature flag for the unified synthesis coordinator.
   /// When enabled, all synthesis goes through SynthesisCoordinator.
   /// When disabled, uses legacy multi-path synthesis system.
-  /// Disabled by default - enable after testing.
-  static const bool useUnifiedSynthesis = false;
+  /// 
+  /// Enable this to test the new unified synthesis path. The coordinator
+  /// provides automatic deduplication and priority-based synthesis.
+  static const bool useUnifiedSynthesis = true;
 
   /// Maximum queue size for the synthesis coordinator.
   /// Prevents unbounded memory growth if synthesis is slow.
