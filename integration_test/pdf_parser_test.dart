@@ -35,7 +35,7 @@ void main() {
   // Android: App's external storage (more reliable access)
   const desktopPdfDir = 'local_dev/dev_books/pdf';
   // Note: On Android, we use the app's external files directory which has reliable access
-  // Push test PDFs there via: adb push test.pdf /sdcard/Android/data/com.example.audiobook_flutter_v2/files/
+  // Push test PDFs there via: adb push test.pdf /sdcard/Android/data/io.eist.app/files/
   // Or use /data/local/tmp/ for testing
   
   group('PDF Parser Integration', () {

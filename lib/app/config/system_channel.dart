@@ -68,7 +68,7 @@ class SystemChannel {
 
   static final instance = SystemChannel._();
 
-  static const _channelName = 'com.audiobook_flutter/system';
+  static const _channelName = 'io.eist.app/system';
   final _channel = const MethodChannel(_channelName);
 
   final _memoryPressureController =
