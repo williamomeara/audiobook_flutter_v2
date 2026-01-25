@@ -13,6 +13,13 @@ Comprehensive documentation of the state machines used in the app:
 | [tts_synthesis_state_machine.md](tts_synthesis_state_machine.md) | TTS synthesis pipeline states |
 | [audio_synthesis_pipeline_state_machine.md](audio_synthesis_pipeline_state_machine.md) | Audio synthesis pipeline orchestration |
 
+## System Design Documentation
+
+| Document | Description |
+|----------|-------------|
+| [smart-synthesis/](smart-synthesis/) | Smart synthesis prefetch system (cold-start, strategies) |
+| [edge_case_handlers.md](edge_case_handlers.md) | Rate/voice/memory change handlers with rollback |
+
 ## Improvements & Audits
 
 Analysis documents, audits, and optimization plans are in the [improvements/](improvements/) subfolder:
@@ -34,6 +41,12 @@ Analysis documents, audits, and optimization plans are in the [improvements/](im
 
 ### TTS Synthesis States
 - Ready → Synthesizing → Complete/Error
+
+### Edge Case Handlers
+- **RateChangeHandler** - Debounces rate slider, cancels prefetch on significant change
+- **VoiceChangeHandler** - Cancels old prefetch, resynthesizes current segment
+- **MemoryPressureHandler** - Reduces prefetch and pauses synthesis under pressure
+- **AutoTuneRollback** - Snapshots config, rolls back if performance degrades
 
 ## Related Documentation
 
