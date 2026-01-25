@@ -111,7 +111,7 @@
       "displayName": "Kokoro - Michael (US Male)",
       "language": "en-US",
       "gender": "male",
-      "speakerId": 12,
+      "speakerId": 16,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
@@ -120,7 +120,7 @@
       "displayName": "Kokoro - Emma (British Female)",
       "language": "en-GB",
       "gender": "female",
-      "speakerId": 13,
+      "speakerId": 21,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
@@ -129,7 +129,7 @@
       "displayName": "Kokoro - Isabella (British Female)",
       "language": "en-GB",
       "gender": "female",
-      "speakerId": 14,
+      "speakerId": 22,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
@@ -138,7 +138,7 @@
       "displayName": "Kokoro - George (British Male)",
       "language": "en-GB",
       "gender": "male",
-      "speakerId": 15,
+      "speakerId": 26,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
@@ -147,7 +147,7 @@
       "displayName": "Kokoro - Lewis (British Male)",
       "language": "en-GB",
       "gender": "male",
-      "speakerId": 16,
+      "speakerId": 27,
       "coreRequirements": ["kokoro_core_v1"]
     },
     {
