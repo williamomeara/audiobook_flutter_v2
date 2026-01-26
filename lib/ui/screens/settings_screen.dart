@@ -1422,6 +1422,7 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
     
     // Show progress dialog with real-time updates
     bool isCancelled = false;
+    bool runningInBackground = false;
     
     // Create a ValueNotifier to trigger dialog updates
     final progressNotifier = ValueNotifier<(int, int)>((0, 0));
@@ -1495,16 +1496,55 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: () {
-                      isCancelled = true;
-                      Navigator.pop(dialogContext);
-                    },
-                    child: Text(
-                      'Cancel',
-                      style: TextStyle(color: colors.textSecondary),
-                    ),
+                  const SizedBox(height: 20),
+                  // Action buttons row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Cancel button
+                      TextButton(
+                        onPressed: () {
+                          isCancelled = true;
+                          Navigator.pop(dialogContext);
+                        },
+                        child: Text(
+                          'Cancel',
+                          style: TextStyle(color: Colors.red.shade400),
+                        ),
+                      ),
+                      // Run in Background button
+                      TextButton.icon(
+                        onPressed: () {
+                          runningInBackground = true;
+                          Navigator.pop(dialogContext);
+                          // Show snackbar indicating background operation
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  const Expanded(child: Text('Compressing in background...')),
+                                ],
+                              ),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        icon: Icon(Icons.play_circle_outline, size: 18, color: colors.primary),
+                        label: Text(
+                          'Background',
+                          style: TextStyle(color: colors.primary),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               );
@@ -1530,8 +1570,8 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
       // Dispose notifier
       progressNotifier.dispose();
 
-      // Close progress dialog
-      if (mounted && Navigator.canPop(context)) {
+      // Close progress dialog only if not running in background
+      if (mounted && !runningInBackground && Navigator.canPop(context)) {
         Navigator.pop(context);
       }
 
@@ -1544,18 +1584,19 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
               'Compressed ${result.filesCompressed} files, saved ${result.formattedSavings}',
             ),
             duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
     } catch (e) {
       progressNotifier.dispose();
       
-      // Close progress dialog
-      if (mounted && Navigator.canPop(context)) {
+      // Close progress dialog only if not running in background
+      if (mounted && !runningInBackground && Navigator.canPop(context)) {
         Navigator.pop(context);
       }
 
-      if (mounted) {
+      if (mounted && !runningInBackground) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Compression failed: $e')),
         );
