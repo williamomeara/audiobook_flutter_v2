@@ -210,6 +210,15 @@ class SettingsScreen extends ConsumerWidget {
                     _SectionCard(
                       title: 'Storage',
                       children: [
+                        _SettingsRow(
+                          label: 'Compress synthesized audio',
+                          subLabel: 'Automatically compress audio (saves ~90% space)',
+                          trailing: Switch(
+                            value: settings.compressOnSynthesize,
+                            onChanged: ref.read(settingsProvider.notifier).setCompressOnSynthesize,
+                          ),
+                        ),
+                        const Divider(height: 1),
                         _CacheStorageRow(colors: colors),
                       ],
                     ),

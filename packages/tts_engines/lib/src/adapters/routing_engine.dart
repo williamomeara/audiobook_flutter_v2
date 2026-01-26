@@ -25,6 +25,7 @@ class RoutingEngine implements AiVoiceEngine {
     this.supertonicEngine,
     this.kokoroEngine,
     EngineMemoryManager? memoryManager,
+    this.onSynthesisComplete,
   }) : _memoryManager = memoryManager ?? EngineMemoryManager();
 
   /// Audio cache for storing synthesized files.
@@ -50,6 +51,11 @@ class RoutingEngine implements AiVoiceEngine {
   
   /// Stream subscriptions for core readiness aggregation.
   final Map<String, List<StreamSubscription<CoreReadiness>>> _readinessSubscriptions = {};
+
+  /// Callback invoked after successful synthesis, before returning result.
+  /// Can be used for post-processing like compression.
+  /// Receives the output file path.
+  final Future<void> Function(String filePath)? onSynthesisComplete;
 
   @override
   EngineType get engineType => EngineType.device; // Router has no specific type
@@ -196,6 +202,11 @@ class RoutingEngine implements AiVoiceEngine {
 
     // Synthesize
     final result = await engine.synthesizeToFile(modifiedRequest);
+
+    // Post-synthesis callback (e.g., compression)
+    if (onSynthesisComplete != null) {
+      await onSynthesisComplete!(result.file.path);
+    }
 
     // Mark as used
     await cache.markUsed(cacheKey);

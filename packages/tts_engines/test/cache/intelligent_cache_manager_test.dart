@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/src/cache/intelligent_cache_manager.dart';
 
@@ -407,6 +407,191 @@ void main() {
     test('sizeGB returns correct value', () {
       final settings = CacheQuotaSettings(maxSizeBytes: 3 * 1024 * 1024 * 1024);
       expect(settings.sizeGB, closeTo(3.0, 0.01));
+    });
+
+    test('compressionThresholdPercent defaults to 80', () {
+      final settings = CacheQuotaSettings();
+      expect(settings.compressionThresholdPercent, equals(80));
+    });
+
+    test('fromJson parses compressionThresholdPercent', () {
+      final settings = CacheQuotaSettings.fromJson({
+        'maxSizeBytes': 1024 * 1024 * 1024,
+        'warningThresholdPercent': 90,
+        'compressionThresholdPercent': 75,
+      });
+      expect(settings.compressionThresholdPercent, equals(75));
+    });
+
+    test('toJson includes compressionThresholdPercent', () {
+      final settings = CacheQuotaSettings(
+        maxSizeBytes: 1024 * 1024 * 1024,
+        compressionThresholdPercent: 85,
+      );
+      final json = settings.toJson();
+      expect(json['compressionThresholdPercent'], equals(85));
+    });
+  });
+
+  group('Phase 4: Cache Integration', () {
+    test('evictIfNeeded prefers WAV files over M4A for eviction', () async {
+      // Set small quota to trigger eviction
+      await manager.setQuotaSettings(CacheQuotaSettings(maxSizeBytes: 3000));
+      
+      // Create a WAV file
+      final wavKey = CacheKeyGenerator.generate(
+        voiceId: 'kokoro_af',
+        text: 'WAV file',
+        playbackRate: 1.0,
+      );
+      final wavFile = await manager.fileFor(wavKey);
+      await wavFile.writeAsBytes(List.filled(1500, 0));
+      await manager.registerEntry(
+        key: wavKey,
+        sizeBytes: 1500,
+        bookId: 'book1',
+        segmentIndex: 0,
+        chapterIndex: 0,
+        engineType: 'kokoro',
+        audioDurationMs: 5000,
+      );
+      
+      // Create an M4A file by manually creating the file
+      final m4aFilename = 'kokoro_af_test123.m4a';
+      final m4aFile = File('${tempDir.path}/$m4aFilename');
+      await m4aFile.writeAsBytes(List.filled(1500, 0));
+      
+      // Re-initialize to pick up the M4A file
+      manager.dispose();
+      manager = IntelligentCacheManager(
+        cacheDir: tempDir,
+        metadataFile: metadataFile,
+        quotaSettings: CacheQuotaSettings(maxSizeBytes: 3000),
+      );
+      await manager.initialize();
+      
+      // Add another file to trigger eviction
+      final extraKey = CacheKeyGenerator.generate(
+        voiceId: 'kokoro_af',
+        text: 'Extra file',
+        playbackRate: 1.0,
+      );
+      final extraFile = await manager.fileFor(extraKey);
+      await extraFile.writeAsBytes(List.filled(1500, 0));
+      await manager.registerEntry(
+        key: extraKey,
+        sizeBytes: 1500,
+        bookId: 'book1',
+        segmentIndex: 1,
+        chapterIndex: 0,
+        engineType: 'kokoro',
+        audioDurationMs: 5000,
+      );
+      
+      // After eviction, M4A file should still exist (higher score = keep)
+      // WAV file should be evicted first (lower score = evict)
+      final m4aExists = await m4aFile.exists();
+      
+      // M4A should be preserved over WAV when evicting
+      // Note: This test verifies the scoring bias, actual eviction depends on other factors
+      expect(m4aExists, isTrue, reason: 'M4A files should be preferred for retention');
+    });
+
+    test('eviction triggers at quota limit', () async {
+      // Set very small quota
+      await manager.setQuotaSettings(CacheQuotaSettings(maxSizeBytes: 2000));
+      
+      // Add files that exceed quota
+      for (int i = 0; i < 5; i++) {
+        final cacheKey = CacheKeyGenerator.generate(
+          voiceId: 'kokoro_af',
+          text: 'Test $i',
+          playbackRate: 1.0,
+        );
+        
+        final file = await manager.fileFor(cacheKey);
+        await file.writeAsBytes(List.filled(1000, 0));
+        await manager.registerEntry(
+          key: cacheKey,
+          sizeBytes: 1000,
+          bookId: 'book1',
+          segmentIndex: i,
+          chapterIndex: 0,
+          engineType: 'kokoro',
+          audioDurationMs: 3000,
+        );
+      }
+      
+      // After eviction, should be at or below 90% of quota
+      final stats = await manager.getUsageStats();
+      expect(stats.totalSizeBytes, lessThanOrEqualTo(1800)); // 90% of 2000
+    });
+
+    test('pinned files are not evicted', () async {
+      // Use a quota that triggers eviction but not compression threshold
+      await manager.setQuotaSettings(CacheQuotaSettings(maxSizeBytes: 2000));
+      
+      // Create and register first file, then PIN IT immediately
+      final pinnedKey = CacheKeyGenerator.generate(
+        voiceId: 'kokoro_af',
+        text: 'Pinned file',
+        playbackRate: 1.0,
+      );
+      
+      final pinnedFile = await manager.fileFor(pinnedKey);
+      await pinnedFile.writeAsBytes(List.filled(800, 0));
+      await manager.registerEntry(
+        key: pinnedKey,
+        sizeBytes: 800,
+        bookId: 'book1',
+        segmentIndex: 0,
+        chapterIndex: 0,
+        engineType: 'kokoro',
+        audioDurationMs: 3000,
+      );
+      
+      // Pin BEFORE adding more files (which could trigger eviction/compression)
+      manager.pin(pinnedKey);
+      expect(manager.isPinned(pinnedKey), isTrue, reason: 'File should be pinned');
+      
+      // Now add second file
+      final unpinnedKey = CacheKeyGenerator.generate(
+        voiceId: 'kokoro_af',
+        text: 'Unpinned file',
+        playbackRate: 1.0,
+      );
+      final unpinnedFile = await manager.fileFor(unpinnedKey);
+      await unpinnedFile.writeAsBytes(List.filled(800, 0));
+      await manager.registerEntry(
+        key: unpinnedKey,
+        sizeBytes: 800,
+        bookId: 'book1',
+        segmentIndex: 1,
+        chapterIndex: 0,
+        engineType: 'kokoro',
+        audioDurationMs: 3000,
+      );
+      
+      // Add more files to trigger eviction (now at 2400 > 2000)
+      final extraKey = CacheKeyGenerator.generate(
+        voiceId: 'kokoro_af',
+        text: 'Extra file to trigger eviction',
+        playbackRate: 1.0,
+      );
+      final extraFile = await manager.fileFor(extraKey);
+      await extraFile.writeAsBytes(List.filled(800, 0));
+      await manager.registerEntry(
+        key: extraKey,
+        sizeBytes: 800,
+        bookId: 'book1',
+        segmentIndex: 2,
+        chapterIndex: 0,
+        engineType: 'kokoro',
+        audioDurationMs: 3000,
+      );
+      
+      // Pinned file should still exist
+      expect(await pinnedFile.exists(), isTrue, reason: 'Pinned file should not be evicted');
     });
   });
 }

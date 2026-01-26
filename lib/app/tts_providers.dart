@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:flutter/services.dart' show BinaryMessenger;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import 'package:platform_ios_tts/platform_ios_tts.dart' as ios;
 import 'app_paths.dart';
 import 'granular_download_manager.dart';
 import 'playback_providers.dart';
+import 'settings_controller.dart';
 
 /// Provider for TTS Native API (Pigeon-generated).
 /// Returns the platform-appropriate API (Android or iOS).
@@ -239,12 +241,44 @@ final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
   final kokoro = await ref.watch(kokoroAdapterProvider.future);
   final piper = await ref.watch(piperAdapterProvider.future);
   final supertonic = await ref.watch(supertonicAdapterProvider.future);
+  final settings = ref.watch(settingsProvider);
+
+  // Create compression service for on-the-fly compression
+  final compressionService = AacCompressionService();
 
   return RoutingEngine(
     cache: cache,
     kokoroEngine: kokoro,
     piperEngine: piper,
     supertonicEngine: supertonic,
+    onSynthesisComplete: settings.compressOnSynthesize
+        ? (filePath) async {
+            // Only compress WAV files
+            if (!filePath.endsWith('.wav')) return;
+            
+            final wavFile = File(filePath);
+            if (!await wavFile.exists()) return;
+            
+            try {
+              final result = await compressionService.compressFile(
+                wavFile,
+                deleteOriginal: true,
+              );
+              if (result != null) {
+                developer.log(
+                  '🗜️ Compressed on-the-fly: ${wavFile.path} → ${result.path}',
+                  name: 'TtsProviders',
+                );
+              }
+            } catch (e) {
+              developer.log(
+                '⚠️ On-the-fly compression failed: $e',
+                name: 'TtsProviders',
+              );
+              // Don't throw - WAV is still valid
+            }
+          }
+        : null,
   );
 });
 

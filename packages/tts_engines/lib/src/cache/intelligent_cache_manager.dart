@@ -5,6 +5,7 @@ import 'dart:developer' as developer;
 
 import 'package:core_domain/core_domain.dart';
 
+import 'aac_compression_service.dart';
 import 'audio_cache.dart';
 import 'cache_entry_metadata.dart';
 
@@ -13,6 +14,7 @@ class CacheQuotaSettings {
   const CacheQuotaSettings({
     this.maxSizeBytes = 2 * 1024 * 1024 * 1024, // 2 GB default
     this.warningThresholdPercent = 90,
+    this.compressionThresholdPercent = 80,
   });
 
   /// Maximum cache size in bytes.
@@ -20,6 +22,9 @@ class CacheQuotaSettings {
 
   /// Percentage of quota at which to warn user.
   final int warningThresholdPercent;
+
+  /// Percentage of quota at which to auto-compress WAV files.
+  final int compressionThresholdPercent;
 
   /// Get size in GB for display.
   double get sizeGB => maxSizeBytes / (1024 * 1024 * 1024);
@@ -36,18 +41,21 @@ class CacheQuotaSettings {
     return CacheQuotaSettings(
       maxSizeBytes: maxSizeBytes ?? this.maxSizeBytes,
       warningThresholdPercent: warningThresholdPercent,
+      compressionThresholdPercent: compressionThresholdPercent,
     );
   }
 
   Map<String, dynamic> toJson() => {
         'maxSizeBytes': maxSizeBytes,
         'warningThresholdPercent': warningThresholdPercent,
+        'compressionThresholdPercent': compressionThresholdPercent,
       };
 
   factory CacheQuotaSettings.fromJson(Map<String, dynamic> json) {
     return CacheQuotaSettings(
       maxSizeBytes: json['maxSizeBytes'] as int? ?? (2 * 1024 * 1024 * 1024),
       warningThresholdPercent: json['warningThresholdPercent'] as int? ?? 90,
+      compressionThresholdPercent: json['compressionThresholdPercent'] as int? ?? 80,
     );
   }
 }
@@ -194,8 +202,28 @@ class IntelligentCacheManager implements AudioCache {
   }
 
   /// Evict entries to meet quota.
+  /// First tries to compress WAV files, then evicts if still over quota.
   Future<void> evictIfNeeded({EvictionContext? context}) async {
-    final totalSize = await getTotalSize();
+    var totalSize = await getTotalSize();
+    
+    // Check compression threshold (80% default)
+    final compressionThreshold = _quotaSettings.maxSizeBytes *
+        _quotaSettings.compressionThresholdPercent ~/
+        100;
+    
+    // If over compression threshold, compress WAV files first
+    if (totalSize > compressionThreshold) {
+      final compressed = await _compressUncompressedFiles();
+      if (compressed > 0) {
+        totalSize = await getTotalSize();
+        developer.log(
+          '🗜️ Auto-compressed $compressed WAV files, new size: '
+          '${CacheUsageStats._formatBytes(totalSize)}',
+          name: 'IntelligentCacheManager',
+        );
+      }
+    }
+    
     if (totalSize <= _quotaSettings.maxSizeBytes) {
       // Check for warning threshold
       final warningThreshold = _quotaSettings.maxSizeBytes *
@@ -218,11 +246,16 @@ class IntelligentCacheManager implements AudioCache {
     // Build eviction context if not provided
     final ctx = context ?? _buildDefaultContext();
 
-    // Score all entries
+    // Score all entries - WAV files get lower scores (evict first)
     final scoredEntries = _metadata.values.map((m) {
+      var score = _scoreCalculator.calculateScore(m, ctx);
+      // Penalty for WAV files (prefer to evict over compressed)
+      if (m.key.endsWith('.wav')) {
+        score *= 0.5; // Lower score = higher eviction priority
+      }
       return ScoredCacheEntry(
         metadata: m,
-        score: _scoreCalculator.calculateScore(m, ctx),
+        score: score,
       );
     }).toList();
 
@@ -274,6 +307,76 @@ class IntelligentCacheManager implements AudioCache {
     );
 
     await _saveMetadata();
+  }
+
+  /// Compress all uncompressed WAV files in the cache.
+  /// Returns the number of files compressed.
+  Future<int> _compressUncompressedFiles() async {
+    final compressionService = AacCompressionService();
+    int compressed = 0;
+    
+    // Find all WAV files
+    final wavEntries = _metadata.entries
+        .where((e) => e.key.endsWith('.wav'))
+        .toList();
+    
+    if (wavEntries.isEmpty) return 0;
+    
+    developer.log(
+      '🗜️ Auto-compressing ${wavEntries.length} WAV files...',
+      name: 'IntelligentCacheManager',
+    );
+    
+    for (final entry in wavEntries) {
+      // Skip pinned files
+      if (_pinnedFiles.contains(entry.key)) continue;
+      
+      final wavFile = File('${_cacheDir.path}/${entry.key}');
+      if (!await wavFile.exists()) continue;
+      
+      try {
+        final result = await compressionService.compressFile(
+          wavFile,
+          deleteOriginal: true,
+        );
+        
+        if (result != null) {
+          compressed++;
+          
+          // Update metadata: remove old WAV entry, add new M4A entry
+          final oldMeta = entry.value;
+          _metadata.remove(entry.key);
+          
+          final m4aKey = entry.key.replaceAll('.wav', '.m4a');
+          final m4aStat = await result.stat();
+          
+          _metadata[m4aKey] = CacheEntryMetadata(
+            key: m4aKey,
+            sizeBytes: m4aStat.size,
+            createdAt: oldMeta.createdAt,
+            lastAccessed: oldMeta.lastAccessed,
+            accessCount: oldMeta.accessCount,
+            bookId: oldMeta.bookId,
+            voiceId: oldMeta.voiceId,
+            segmentIndex: oldMeta.segmentIndex,
+            chapterIndex: oldMeta.chapterIndex,
+            engineType: oldMeta.engineType,
+            audioDurationMs: oldMeta.audioDurationMs,
+          );
+        }
+      } catch (e) {
+        developer.log(
+          '⚠️ Failed to compress ${entry.key}: $e',
+          name: 'IntelligentCacheManager',
+        );
+      }
+    }
+    
+    if (compressed > 0) {
+      await _saveMetadata();
+    }
+    
+    return compressed;
   }
 
   /// Build default eviction context from current state.
