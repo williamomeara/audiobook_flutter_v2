@@ -259,34 +259,34 @@ class PerformanceStore {
 
 ## Implementation Plan
 
-### Phase 1: Foundation (Week 1)
-- [ ] Create `DemandController` class
-- [ ] Add `BufferGauge` tracking (uses existing `estimateBufferedAheadMs`)
-- [ ] Implement `DemandSignal` with zone calculations
-- [ ] Add playback rate scaling to thresholds
+### Phase 1: Foundation (Week 1) ✅ COMPLETE
+- [x] Create `DemandController` class
+- [x] Add `BufferGauge` tracking (uses `BufferScheduler.estimateBufferedAheadMs`)
+- [x] Implement `DemandSignal` with zone calculations
+- [x] Add playback rate scaling to thresholds
 
-### Phase 2: Dynamic Concurrency (Week 1-2)
-- [ ] Make `Semaphore` support dynamic slot adjustment
-- [ ] Create `ConcurrencyGovernor` that responds to DemandSignal
-- [ ] Wire governor into SynthesisCoordinator
-- [ ] Add hysteresis to prevent thrashing (cooldown periods)
+### Phase 2: Dynamic Concurrency (Week 1-2) ✅ COMPLETE
+- [x] Make `Semaphore` support dynamic slot adjustment (`DynamicSemaphore`)
+- [x] Create `ConcurrencyGovernor` that responds to DemandSignal
+- [x] Wire governor into SynthesisCoordinator
+- [x] Add hysteresis to prevent thrashing (cooldown periods)
 
-### Phase 3: Device Detection (Week 2)
-- [ ] Create `DeviceCapabilities` class
-- [ ] Add Android MethodChannel for CPU info
-- [ ] Add iOS equivalent (or use reasonable defaults)
-- [ ] Set per-device concurrency ceilings
+### Phase 3: Device Detection (Week 2) ✅ COMPLETE
+- [x] Create `DeviceCapabilities` class
+- [x] Add battery_plus for battery/power state (no custom MethodChannel needed)
+- [x] Use `Platform.numberOfProcessors` + heuristics (works cross-platform)
+- [x] Set per-device concurrency ceilings
 
-### Phase 4: RTF Monitoring & Recommendations (Week 2)
-- [ ] Create `RTFMonitor` class with rolling window
-- [ ] Create `PerformanceAdvisor` with recommendation logic
-- [ ] Define model speed tiers in `ModelCatalog`
-- [ ] Create `VoiceCompatibilityEstimator` for proactive warnings
-- [ ] Wire RTF recording into synthesis callbacks
-- [ ] Create `DeviceCapabilityAssessor` for overall capability check
-- [ ] Implement performance warning dialogs (model switch + incapable device)
+### Phase 4: RTF Monitoring & Recommendations (Week 2) ✅ COMPLETE (core logic)
+- [x] Create `RTFMonitor` class with rolling window
+- [x] Create `PerformanceAdvisor` with recommendation logic
+- [x] Define model speed tiers in `ModelCatalog`
+- [x] Create `VoiceCompatibilityEstimator` for proactive warnings
+- [ ] Wire RTF recording into synthesis callbacks (integration pending)
+- [x] Create `DeviceCapabilityAssessor` - merged into `GracefulDegradation`
+- [ ] Implement performance warning dialogs (model switch + incapable device) - UI pending
 
-### Phase 5: Graceful Degradation (Week 2-3)
+### Phase 5: Graceful Degradation (Week 2-3) ✅ CORE COMPLETE
 
 **Philosophy: User Choice, Not Forced Waiting**
 
@@ -304,10 +304,11 @@ Key behaviors:
 Tasks:
 - [x] Implement `BufferAwarePlayback` - shows buffer status, warns of low buffer
 - [x] Add `OptionalBuffering` - user can choose to wait for buffer
-- [ ] Create buffer status UI (progress indicator during playback)
-- [ ] Add "Wait for buffer" option in playback controls
-- [ ] Implement "interruption possible" warning (dismissible)
-- [x] Create pre-synthesis as OPTIONAL feature (not required)
+- [x] Create `GracefulDegradation` class with recommendation logic
+- [x] Create pre-synthesis as OPTIONAL feature (`OptionalPreSynthesis`)
+- [ ] Create buffer status UI (progress indicator during playback) - UI pending
+- [ ] Add "Wait for buffer" option in playback controls - UI pending
+- [ ] Implement "interruption possible" warning (dismissible) - UI pending
 
 ### Phase 6: Performance Learning (Week 3) - DEFERRED
 
@@ -321,7 +322,7 @@ The auto-calibration works without persistent learning:
 If persistent storage is added app-wide (for books, progress, etc.), 
 performance learning can be added then.
 
-### Phase 7: Settings & UI Integration (Week 3-4)
+### Phase 7: Settings & UI Integration (Week 3-4) ⏳ PENDING
 - [ ] Add "Synthesis Mode" setting: Auto / Performance / Efficiency
 - [ ] Add performance warning dialog UI
 - [ ] Update voice picker with compatibility indicators
@@ -1106,7 +1107,9 @@ Show estimated compatibility in voice picker:
 
 ## Audit Report
 
-### Review Date: Current Session
+### Review Date: January 2026 (Pre-Implementation)
+
+> **Note**: This audit was written before implementation began. Most issues identified here have since been addressed in the actual code. See "Resolution Status" notes below.
 
 ### Summary
 
@@ -1126,48 +1129,35 @@ This audit identifies gaps between the plan and existing implementation, potenti
 
 ---
 
-### ❌ Critical Gaps
+### ❌ Critical Gaps (Pre-Implementation)
 
 #### 1. `estimateBufferedAheadMs()` Does Not Exist
 **Plan Reference:** BufferGauge assumes `_coordinator.estimateBufferedAheadMs()`
 **Reality:** SynthesisCoordinator has no such method. Only has `_estimateDurationFromCache()` (private, limited).
 
-**Fix Required:** Implement `estimateBufferedAheadMs()` in SynthesisCoordinator:
-```dart
-int estimateBufferedAheadMs({
-  required int currentSegmentIndex,
-  required Duration currentPositionInSegment,
-}) {
-  // Sum durations of cached segments from currentIndex onwards
-  // Subtract currentPositionInSegment from first segment
-}
-```
+**Resolution Status:** ✅ **RESOLVED** - Used `BufferScheduler.estimateBufferedAheadMs()` instead. The architecture was adjusted so BufferGauge accepts callbacks, decoupling it from SynthesisCoordinator.
 
 #### 2. PlaybackState Missing Segment-Level Tracking
 **Plan Reference:** BufferGauge uses `state.segmentIndex`, `state.positionInSegment`
 **Reality:** PlaybackState only has track-level info: `currentTrack`, `currentIndex`, `playbackRate`
 
-**Fix Required:** Either:
-- Add segment tracking to PlaybackState
-- Or use alternative: track segment position via separate stream/callback
+**Resolution Status:** ✅ **RESOLVED** - BufferGauge uses callback injection (`getBufferAheadMs`, `getPlaybackRate`, `isPlaying`) rather than direct PlaybackState access. This allows flexibility in how buffer status is obtained.
 
 #### 3. Semaphore Is Immutable
 **Plan Reference:** DynamicSemaphore with `set maxSlots(int value)`
 **Reality:** Existing Semaphore has `final int _maxCount`, cannot be changed at runtime
 
-**Fix Required:** Either:
-- Create new DynamicSemaphore class (as planned)
-- Or modify existing Semaphore to support dynamic slot adjustment
+**Resolution Status:** ✅ **RESOLVED** - Created new `DynamicSemaphore` class with runtime slot adjustment. SynthesisCoordinator now uses `DynamicSemaphore`.
 
 #### 4. Property Naming Mismatch
 **Plan:** Uses `speed` property
 **Reality:** Named `playbackRate` in PlaybackState
 
-**Fix:** Minor - just use correct property name
+**Resolution Status:** ✅ **RESOLVED** - Implementation uses `playbackRate` consistently.
 
 ---
 
-### ⚠️ Potential Issues
+### ⚠️ Potential Issues (Pre-Implementation Notes)
 
 #### 1. RTF Calculation Uses Audio Duration, Not Text Duration
 **Plan (SynthesisPerformanceTracker):**
@@ -1180,7 +1170,7 @@ final rtf = synthesisTime.inMilliseconds / audioDuration.inMilliseconds;
 ```
 **Issue:** Inconsistent - "textDuration" vs "audioDuration". RTF should use **audio duration** (the output), not text length.
 
-**Recommendation:** Standardize on `audioDuration` - how long the synthesized audio plays for.
+**Resolution Status:** ✅ **RESOLVED** - Implementation uses `audioDuration` consistently in `RTFMonitor`.
 
 #### 2. Effective RTF Calculation May Be Misleading
 **Plan:**
@@ -1192,7 +1182,7 @@ double get effectiveRTF => overallRTF / avgConcurrency;
 - Some engines may have internal locks
 - Memory pressure may reduce effective parallelism
 
-**Recommendation:** Add note that this is an approximation, or measure actual throughput directly.
+**Resolution Status:** ⚠️ **ACKNOWLEDGED** - Implementation keeps this approximation with documentation noting it's an estimate.
 
 #### 3. Model Speed Tiers Are Simplified
 **Plan:**
@@ -1201,19 +1191,13 @@ if (engineId == 'kokoro') return ModelSpeedTier.slow;
 ```
 **Issue:** Kokoro voices have different model sizes. Some Kokoro voices may be faster than assumed.
 
-**Recommendation:** Make tiers per-voice, not just per-engine. The plan partially acknowledges this but doesn't fully implement it.
+**Resolution Status:** ⚠️ **PARTIAL** - Implementation (`ModelCatalog`) uses per-engine tiers. Per-voice granularity can be added when more performance data is collected.
 
 #### 4. Pre-Synthesis Storage Estimation
 **Plan:** "Storage needed: ~45 MB"
-**Issue:** No formula provided. Audio storage varies by:
-- Segment count
-- Audio duration per segment
-- Compression (WAV vs FLAC vs MP3)
+**Issue:** No formula provided. Audio storage varies by segment count, duration, compression.
 
-**Recommendation:** Add formula:
-```dart
-estimatedStorageBytes = segmentCount * avgAudioDuration * sampleRate * bytesPerSample / compressionFactor
-```
+**Resolution Status:** ✅ **RESOLVED** - `PreSynthesisEstimate.fromRTF()` factory provides formula with configurable `bytesPerSecondAudio`.
 
 #### 5. GracefulDegradation RTF Logic Inverted?
 **Plan:**
@@ -1225,13 +1209,10 @@ return PlaybackMode.preSynthesized;
 ```
 **Issue:** RTF < 0.5 means FASTER than realtime (0.5x = synthesis is 2x faster than playback). This condition is backwards.
 
-**Fix:**
-```dart
-if (rtf > 2.0) {  // Very slow - synthesis takes 2x longer than playback
-  return PlaybackMode.preSynthesized;
-}
-return PlaybackMode.interruptible;  // Might work with warnings
-```
+**Resolution Status:** ✅ **RESOLVED** - Implementation uses correct thresholds:
+- RTF < 0.8 = capable (fast)
+- RTF < 1.2 = marginal  
+- RTF > 1.2 = incapable (slow)
 
 ---
 
@@ -1266,7 +1247,7 @@ return PlaybackMode.interruptible;  // Might work with warnings
 
 ---
 
-### 📁 Missing File Considerations
+### 📁 Missing File Considerations (Pre-Implementation Notes)
 
 #### 1. Database Migration
 If `PerformanceStore` uses SQLite/Hive, need migration strategy for:
@@ -1274,24 +1255,23 @@ If `PerformanceStore` uses SQLite/Hive, need migration strategy for:
 - Handling corrupted data
 - Clearing stale data from old engine versions
 
+**Resolution Status:** ⏸️ **DEFERRED** - Performance learning (Phase 6) was deferred. No persistent storage needed yet.
+
 #### 2. Platform Channel for Android CPU Info
 **Plan mentions:** `methodChannel.invokeMethod('getCpuInfo')`
-**Missing:** Need to create:
-- `android/app/src/main/kotlin/.../CpuInfoPlugin.kt` (or Java)
-- Method channel registration in MainActivity
-- Dart-side channel definition
+
+**Resolution Status:** ✅ **NOT NEEDED** - Implementation uses `Platform.numberOfProcessors` + heuristics instead of custom native code. Battery state uses `battery_plus` package.
 
 #### 3. iOS Thermal State Access
 **Plan mentions:** `ProcessInfo.processInfo.thermalState`
-**Note:** This is Swift/ObjC API. Need:
-- Swift/ObjC wrapper in iOS native code
-- Method channel or FFI bridge to Dart
+
+**Resolution Status:** ⏸️ **DEFERRED** - Thermal monitoring not implemented. Could be added later with platform plugin if needed.
 
 ---
 
-### 🔄 Implementation Order Recommendation
+### 🔄 Implementation Order Recommendation (Historical)
 
-Revise phase order for dependencies:
+> **Note:** This section was written before implementation. The actual implementation followed this order successfully.
 
 1. **Phase 1: Core Infrastructure** (unchanged)
    - DemandController, BufferGauge, DemandSignal
@@ -1317,49 +1297,79 @@ Revise phase order for dependencies:
 
 ---
 
-### ✏️ Recommended Plan Changes
+### ✏️ Recommended Plan Changes (Historical)
 
-1. **Fix GracefulDegradation RTF logic** - threshold is inverted
-2. **Standardize RTF terminology** - use "audioDuration" consistently
-3. **Add Phase for prerequisites** - estimateBufferedAheadMs, segment tracking
-4. **Add model loading warm-up handling**
-5. **Add background/foreground transition handling**
-6. **Add storage estimation formula for pre-synthesis**
-7. **Note Semaphore enhancement requirement** in prerequisites
+> **Note:** These recommendations from the pre-implementation audit have been addressed.
+
+1. ~~**Fix GracefulDegradation RTF logic** - threshold is inverted~~ ✅ Done
+2. ~~**Standardize RTF terminology** - use "audioDuration" consistently~~ ✅ Done
+3. ~~**Add Phase for prerequisites** - estimateBufferedAheadMs, segment tracking~~ ✅ Done (via callback injection)
+4. **Add model loading warm-up handling** ⏳ Future enhancement
+5. **Add background/foreground transition handling** ⏳ Future enhancement
+6. ~~**Add storage estimation formula for pre-synthesis**~~ ✅ Done
+7. ~~**Note Semaphore enhancement requirement** in prerequisites~~ ✅ Done
 
 ---
 
 ### Conclusion
 
 The plan is comprehensive and well-designed. Main issues are:
-1. Several assumed APIs don't exist (need implementation)
-2. One RTF threshold logic is inverted (bug)
-3. Some edge cases around app lifecycle not covered
+1. ~~Several assumed APIs don't exist (need implementation)~~ ✅ Resolved with callback injection
+2. ~~One RTF threshold logic is inverted (bug)~~ ✅ Fixed in implementation
+3. Some edge cases around app lifecycle not covered ⏳ Future enhancement
 
-With the fixes identified above, the plan should be ready for implementation.
+~~With the fixes identified above, the plan should be ready for implementation.~~ **Implementation complete for core logic. UI integration pending.**
 
-### New Files
+### Implemented Files ✅
 - `packages/playback/lib/src/synthesis/demand_controller.dart`
 - `packages/playback/lib/src/synthesis/buffer_gauge.dart`
+- `packages/playback/lib/src/synthesis/demand_signal.dart`
 - `packages/playback/lib/src/synthesis/concurrency_governor.dart`
 - `packages/playback/lib/src/synthesis/device_capabilities.dart`
-- `packages/playback/lib/src/synthesis/performance_store.dart`
 - `packages/playback/lib/src/synthesis/dynamic_semaphore.dart`
 - `packages/playback/lib/src/synthesis/rtf_monitor.dart`
 - `packages/playback/lib/src/synthesis/performance_advisor.dart`
 - `packages/playback/lib/src/synthesis/model_catalog.dart`
-- `packages/playback/lib/src/synthesis/device_capability_assessor.dart`
-- `packages/playback/lib/src/synthesis/pre_synthesis_mode.dart`
 - `packages/playback/lib/src/synthesis/graceful_degradation.dart`
+- `packages/playback/lib/src/synthesis/optional_pre_synthesis.dart`
+- `packages/playback/lib/src/synthesis/buffer_aware_playback.dart`
+- `packages/playback/lib/src/synthesis/optional_buffering.dart`
+- `packages/playback/lib/src/synthesis/buffer_status.dart`
+- `packages/playback/lib/src/synthesis/memory_monitor.dart`
+
+### Pending UI Files ⏳
 - `lib/ui/widgets/performance_warning_dialog.dart`
 - `lib/ui/widgets/pre_synthesis_prompt.dart`
+- Buffer status indicator in playback screen
+- Voice picker compatibility indicators
+- Settings UI for synthesis mode
 
-### Modified Files
-- `packages/playback/lib/src/synthesis/synthesis_coordinator.dart` - Use DynamicSemaphore, record RTF
-- `packages/playback/lib/src/synthesis/semaphore.dart` - Enhance or replace
+### Modified Files (To Complete UI Integration)
 - `packages/playback/lib/playback_config.dart` - Add synthesis mode enum, playback modes
 - `lib/ui/screens/settings_screen.dart` - Add synthesis mode picker, voice compatibility
-- `lib/ui/screens/playback_screen.dart` - Pre-synthesis prompts for incapable devices
+- `lib/ui/screens/playback_screen.dart` - Buffer status indicator, pre-synthesis prompts
 - `lib/ui/screens/book_details_screen.dart` - Show pre-synthesis option per chapter
 - `lib/ui/widgets/voice_picker.dart` - Add compatibility indicators
 - `lib/app/playback_providers.dart` - Wire up DemandController, RTFMonitor, graceful degradation
+
+---
+
+## Implementation Summary
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| DemandController | ✅ Complete | `packages/playback/lib/src/synthesis/demand_controller.dart` |
+| BufferGauge | ✅ Complete | `packages/playback/lib/src/synthesis/buffer_gauge.dart` |
+| DemandSignal | ✅ Complete | `packages/playback/lib/src/synthesis/demand_signal.dart` |
+| DynamicSemaphore | ✅ Complete | `packages/playback/lib/src/synthesis/dynamic_semaphore.dart` |
+| ConcurrencyGovernor | ✅ Complete | `packages/playback/lib/src/synthesis/concurrency_governor.dart` |
+| DeviceCapabilities | ✅ Complete | `packages/playback/lib/src/synthesis/device_capabilities.dart` |
+| RTFMonitor | ✅ Complete | `packages/playback/lib/src/synthesis/rtf_monitor.dart` |
+| PerformanceAdvisor | ✅ Complete | `packages/playback/lib/src/synthesis/performance_advisor.dart` |
+| ModelCatalog | ✅ Complete | `packages/playback/lib/src/synthesis/model_catalog.dart` |
+| GracefulDegradation | ✅ Complete | `packages/playback/lib/src/synthesis/graceful_degradation.dart` |
+| OptionalPreSynthesis | ✅ Complete | `packages/playback/lib/src/synthesis/optional_pre_synthesis.dart` |
+| BufferAwarePlayback | ✅ Complete | `packages/playback/lib/src/synthesis/buffer_aware_playback.dart` |
+| OptionalBuffering | ✅ Complete | `packages/playback/lib/src/synthesis/optional_buffering.dart` |
+| Performance Learning | ⏸️ Deferred | See GitHub Issue #71 |
+| UI Integration | ⏳ Pending | See Phase 7 above |
