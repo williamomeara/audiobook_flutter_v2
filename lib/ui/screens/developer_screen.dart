@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../app/granular_download_manager.dart';
 import '../../app/library_controller.dart';
@@ -318,8 +319,10 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
         return;
       }
 
-      // Get external storage path for saving previews
-      final directory = Directory('/storage/emulated/0/Download/voice_previews');
+      // Use app's cache directory (no permissions needed)
+      // Files will be accessible via: adb shell run-as io.eist.app cat <path>
+      final appCacheDir = await getApplicationCacheDirectory();
+      final directory = Directory('${appCacheDir.path}/voice_previews');
       if (!await directory.exists()) {
         await directory.create(recursive: true);
       }
@@ -374,7 +377,8 @@ ${directory.path}
 Generated Files:
 ${successPaths.map((p) => '• $p.wav').join('\n')}
 
-Copy these files to assets/voice_previews/ in your project.
+To copy files to your project, run:
+adb shell "run-as io.eist.app cat ${directory.path}/<voice_id>.wav" > assets/voice_previews/<voice_id>.wav
 ''';
       });
 
