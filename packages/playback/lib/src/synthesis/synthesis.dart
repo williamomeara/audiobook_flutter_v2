@@ -1,6 +1,7 @@
 /// Synthesis utilities for the unified synthesis coordinator.
 library;
 
+export 'auto_calibration_manager.dart';
 export 'buffer_aware_playback.dart';
 export 'buffer_gauge.dart';
 export 'buffer_status.dart';

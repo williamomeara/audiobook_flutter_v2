@@ -1,6 +1,10 @@
 import 'dart:async';
 
+import 'package:logging/logging.dart';
+
 import 'demand_signal.dart';
+
+final _logger = Logger('BufferGauge');
 
 /// Monitors buffer status and emits [DemandSignal]s.
 ///
@@ -103,6 +107,9 @@ class BufferGauge {
     final playbackRate = getPlaybackRate();
 
     final level = DemandThresholds.calculateLevel(bufferSeconds, playbackRate);
+    
+    // Log buffer state for debugging
+    _logger.info('Buffer: ${bufferSeconds.toStringAsFixed(1)}s @ ${playbackRate}x -> ${level.name}');
 
     final signal = DemandSignal(
       level: level,

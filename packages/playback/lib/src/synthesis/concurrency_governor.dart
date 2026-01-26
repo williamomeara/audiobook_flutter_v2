@@ -44,6 +44,9 @@ class ConcurrencyGovernor {
   final _changeHistory = <ConcurrencyChangeEvent>[];
   static const int _maxHistorySize = 20;
 
+  /// Current target concurrency (applied to new semaphores).
+  int _currentTargetConcurrency = 2;
+
   ConcurrencyGovernor({
     required this.engineSemaphores,
     this.enableLogging = true,
@@ -51,6 +54,25 @@ class ConcurrencyGovernor {
 
   /// Stream of concurrency change events.
   Stream<ConcurrencyChangeEvent> get changes => _changeController.stream;
+
+  /// Register a new semaphore (call when coordinator creates one).
+  /// Applies current target concurrency to the new semaphore.
+  void registerSemaphore(String engineType, DynamicSemaphore semaphore) {
+    engineSemaphores[engineType] = semaphore;
+    
+    // Apply current target concurrency to new semaphore
+    if (semaphore.maxSlots != _currentTargetConcurrency) {
+      _setConcurrencyForEngine(engineType, _currentTargetConcurrency);
+    }
+    
+    if (enableLogging) {
+      dev.log(
+        '[$engineType] Registered semaphore (maxSlots: ${semaphore.maxSlots}, '
+        'target: $_currentTargetConcurrency)',
+        name: 'ConcurrencyGovernor',
+      );
+    }
+  }
 
   /// Get current concurrency for a specific engine.
   int getConcurrency(String engineType) {
@@ -66,6 +88,7 @@ class ConcurrencyGovernor {
   ///
   /// This is the main method called by [DemandController] when demand changes.
   void setConcurrency(int concurrency, {DemandLevel? reason}) {
+    _currentTargetConcurrency = concurrency;
     for (final entry in engineSemaphores.entries) {
       _setConcurrencyForEngine(entry.key, concurrency, reason: reason);
     }

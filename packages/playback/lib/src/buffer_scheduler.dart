@@ -135,6 +135,14 @@ class BufferScheduler {
     _cancellationToken.cancel();
   }
 
+  /// Mark a segment as ready (e.g., found in cache after app restart).
+  /// 
+  /// This updates the buffer tracking to reflect segments that are already
+  /// available, even if they weren't prefetched in this session.
+  Future<void> markSegmentReady(int segmentIndex) async {
+    await _updatePrefetchedIndex(segmentIndex);
+  }
+
   /// Safely update _prefetchedThroughIndex with lock protection.
   /// Only updates if newIndex is greater than current value.
   Future<void> _updatePrefetchedIndex(int newIndex) async {
