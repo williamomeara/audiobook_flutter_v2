@@ -993,6 +993,15 @@ class _CacheStorageRow extends ConsumerStatefulWidget {
 
 class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
   @override
+  void initState() {
+    super.initState();
+    // Refresh cache stats when this widget is first displayed
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(cacheUsageStatsProvider);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     final cacheStats = ref.watch(cacheUsageStatsProvider);
