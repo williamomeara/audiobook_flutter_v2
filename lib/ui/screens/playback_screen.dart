@@ -1177,8 +1177,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
         ));
       }
       
-      // Add synthesizing indicator if not ready
-      if (!isReady && !isPast && !isActive) {
+      // Add synthesizing indicator ONLY for segments currently being synthesized
+      if (readiness?.state == SegmentState.synthesizing && !isPast && !isActive) {
         spans.add(TextSpan(
           text: '(synthesizing...) ',
           style: TextStyle(
@@ -1217,6 +1217,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
             controller: _scrollController,
             padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
             child: RichText(
+              // Key forces rebuild when readiness state changes
+              key: ValueKey('richtext_${segmentReadiness.hashCode}_$currentIndex'),
               text: TextSpan(children: spans),
             ),
           ),
@@ -1291,6 +1293,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   Widget _buildPlaybackControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
     final queue = playbackState.queue;
     
+    // Get segment readiness for synthesis status display
+    final readinessKey = '${widget.bookId}:$_currentChapterIndex';
+    final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
+    final segmentReadiness = segmentReadinessAsync.value ?? {};
+    
     return Container(
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: colors.border, width: 1)),
@@ -1311,11 +1318,14 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                 const SizedBox(width: 8),
                 Expanded(
                   child: SegmentSeekSlider(
+                    // Key forces rebuild when readiness state changes
+                    key: ValueKey('slider_${segmentReadiness.hashCode}'),
                     currentIndex: currentIndex,
                     totalSegments: queueLength,
                     colors: colors,
                     height: 4,
                     showPreview: true,
+                    segmentReadiness: segmentReadiness,
                     segmentPreviewBuilder: (index) {
                       if (index >= 0 && index < queue.length) {
                         final text = queue[index].text;
@@ -1691,6 +1701,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
 
   /// Bottom bar for landscape mode (chapter controls + progress bar)
   Widget _buildLandscapeBottomBar(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
+    // Get segment readiness for synthesis status display
+    final readinessKey = '${widget.bookId}:$_currentChapterIndex';
+    final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
+    final segmentReadiness = segmentReadinessAsync.value ?? {};
+    
     return Container(
       height: _landscapeBottomBarHeight + 16, // Extra height for slider thumb
       decoration: BoxDecoration(
@@ -1731,11 +1746,14 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                   const SizedBox(width: 4),
                   Expanded(
                     child: SegmentSeekSlider(
+                      // Key forces rebuild when readiness state changes
+                      key: ValueKey('slider_landscape_${segmentReadiness.hashCode}'),
                       currentIndex: currentIndex,
                       totalSegments: queueLength,
                       colors: colors,
                       height: 4,
                       showPreview: false, // No preview in landscape (limited space)
+                      segmentReadiness: segmentReadiness,
                       onSeek: _seekToSegment,
                     ),
                   ),

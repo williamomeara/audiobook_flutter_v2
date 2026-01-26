@@ -51,6 +51,7 @@ class SegmentReadinessTracker {
   void onSynthesisStarted(String key, int index) {
     _readiness[key] ??= {};
     _readiness[key]![index] = SegmentReadiness.synthesizing(index);
+    PlaybackLogger.debug('[SegmentReadinessTracker] onSynthesisStarted: key=$key, index=$index');
     _notify(key);
   }
   
@@ -58,6 +59,7 @@ class SegmentReadinessTracker {
   void onSynthesisComplete(String key, int index) {
     _readiness[key] ??= {};
     _readiness[key]![index] = SegmentReadiness.ready(index);
+    PlaybackLogger.debug('[SegmentReadinessTracker] onSynthesisComplete: key=$key, index=$index');
     _notify(key);
   }
   
@@ -89,7 +91,9 @@ class SegmentReadinessTracker {
   }
   
   void _notify(String key) {
-    if (_controllers[key] != null && !_controllers[key]!.isClosed) {
+    // Ensure controller exists before notifying
+    _controllers[key] ??= StreamController.broadcast();
+    if (!_controllers[key]!.isClosed) {
       _controllers[key]!.add(_readiness[key] ?? {});
     }
   }
@@ -348,10 +352,18 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           // Update Riverpod state when controller state changes
           state = AsyncData(newState);
         },
-        // Wire up segment readiness callback for UI feedback
+        // Wire up segment readiness callbacks for UI feedback
+        onSegmentSynthesisStarted: (bookId, chapterIndex, segmentIndex) {
+          final key = '$bookId:$chapterIndex';
+          SegmentReadinessTracker.instance.onSynthesisStarted(key, segmentIndex);
+          // Force provider refresh to pick up the new state
+          ref.invalidate(segmentReadinessStreamProvider(key));
+        },
         onSegmentSynthesisComplete: (bookId, chapterIndex, segmentIndex) {
           final key = '$bookId:$chapterIndex';
           SegmentReadinessTracker.instance.onSynthesisComplete(key, segmentIndex);
+          // Force provider refresh to pick up the new state
+          ref.invalidate(segmentReadinessStreamProvider(key));
         },
         // Prevent play button flicker during segment transitions
         onPlayIntentOverride: (override) {
