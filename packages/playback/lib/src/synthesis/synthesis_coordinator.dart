@@ -6,7 +6,7 @@ import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/tts_engines.dart';
 
 import '../playback_config.dart';
-import 'semaphore.dart';
+import 'dynamic_semaphore.dart';
 import 'synthesis_request.dart';
 
 export 'synthesis_request.dart' show SynthesisPriority;
@@ -137,7 +137,8 @@ class SynthesisCoordinator {
   final Set<String> _inFlightKeys = {};
 
   /// Semaphores per engine type for concurrency control.
-  final Map<String, Semaphore> _engineSemaphores = {};
+  /// Uses DynamicSemaphore to support runtime concurrency adjustment.
+  final Map<String, DynamicSemaphore> _engineSemaphores = {};
 
   /// Whether the coordinator has been disposed.
   bool _disposed = false;
@@ -397,7 +398,7 @@ class SynthesisCoordinator {
       if (!semaphore.hasAvailable) {
         developer.log(
           '[SynthesisCoordinator] Waiting for $engineType slot '
-          '(active: ${semaphore.activeCount}/${semaphore.maxCount})',
+          '(active: ${semaphore.activeCount}/${semaphore.maxSlots})',
         );
       }
 
@@ -411,7 +412,7 @@ class SynthesisCoordinator {
   /// Process a single synthesis request.
   Future<void> _processRequest(
     SynthesisRequest request,
-    Semaphore semaphore,
+    DynamicSemaphore semaphore,
   ) async {
     // Acquire semaphore slot
     await semaphore.acquire();
@@ -567,12 +568,17 @@ class SynthesisCoordinator {
   }
 
   /// Get or create semaphore for engine type.
-  Semaphore _getSemaphore(String engineType) {
+  DynamicSemaphore _getSemaphore(String engineType) {
     return _engineSemaphores.putIfAbsent(
       engineType,
-      () => Semaphore(PlaybackConfig.getConcurrencyForEngine(engineType)),
+      () => DynamicSemaphore(PlaybackConfig.getConcurrencyForEngine(engineType)),
     );
   }
+
+  /// Get all engine semaphores for external concurrency control.
+  /// 
+  /// Used by [ConcurrencyGovernor] to adjust concurrency at runtime.
+  Map<String, DynamicSemaphore> get engineSemaphores => _engineSemaphores;
 
   /// Extract engine type from voice ID (e.g., "kokoro_af_bella" -> "kokoro").
   String _getEngineType(String voiceId) {
