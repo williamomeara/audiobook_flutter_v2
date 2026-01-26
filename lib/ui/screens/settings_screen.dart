@@ -1148,6 +1148,14 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
             color: widget.colors.textSecondary,
           ),
         ),
+        if (stats.compressedCount > 0 || stats.uncompressedCount > 0)
+          Text(
+            '${stats.compressedCount} compressed, ${stats.uncompressedCount} uncompressed',
+            style: TextStyle(
+              fontSize: 12,
+              color: widget.colors.textSecondary,
+            ),
+          ),
       ],
     );
   }

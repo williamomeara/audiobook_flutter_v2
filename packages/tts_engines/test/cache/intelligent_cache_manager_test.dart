@@ -360,12 +360,15 @@ void main() {
         totalSizeBytes: 500 * 1024 * 1024, // 500 MB
         quotaSizeBytes: 2 * 1024 * 1024 * 1024, // 2 GB
         entryCount: 100,
+        compressedCount: 80,
         byBook: {},
         byVoice: {},
         hitRate: 0.95,
       );
       
       expect(stats.usagePercent, closeTo(24.41, 0.1)); // 500MB / 2GB = 24.41%
+      expect(stats.compressedCount, equals(80));
+      expect(stats.uncompressedCount, equals(20)); // 100 - 80
     });
 
     test('formatBytes formats correctly', () {
@@ -373,6 +376,7 @@ void main() {
         totalSizeBytes: 500,
         quotaSizeBytes: 1000,
         entryCount: 0,
+        compressedCount: 0,
         byBook: {},
         byVoice: {},
         hitRate: 0,
@@ -382,6 +386,7 @@ void main() {
         totalSizeBytes: 1536,
         quotaSizeBytes: 1000,
         entryCount: 0,
+        compressedCount: 0,
         byBook: {},
         byVoice: {},
         hitRate: 0,
@@ -391,6 +396,7 @@ void main() {
         totalSizeBytes: 1572864,
         quotaSizeBytes: 1000,
         entryCount: 0,
+        compressedCount: 0,
         byBook: {},
         byVoice: {},
         hitRate: 0,

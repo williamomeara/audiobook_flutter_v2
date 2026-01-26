@@ -66,6 +66,7 @@ class CacheUsageStats {
     required this.totalSizeBytes,
     required this.quotaSizeBytes,
     required this.entryCount,
+    required this.compressedCount,
     required this.byBook,
     required this.byVoice,
     required this.hitRate,
@@ -74,9 +75,13 @@ class CacheUsageStats {
   final int totalSizeBytes;
   final int quotaSizeBytes;
   final int entryCount;
+  final int compressedCount; // Number of M4A (compressed) files
   final Map<String, int> byBook; // bookId -> size
   final Map<String, int> byVoice; // voiceId -> size
   final double hitRate;
+
+  /// Number of uncompressed (WAV) files
+  int get uncompressedCount => entryCount - compressedCount;
 
   double get usagePercent =>
       quotaSizeBytes > 0 ? (totalSizeBytes / quotaSizeBytes * 100) : 0;
@@ -152,10 +157,14 @@ class IntelligentCacheManager implements AudioCache {
   Future<CacheUsageStats> getUsageStats() async {
     final byBook = <String, int>{};
     final byVoice = <String, int>{};
+    var compressedCount = 0;
 
     for (final entry in _metadata.values) {
       byBook[entry.bookId] = (byBook[entry.bookId] ?? 0) + entry.sizeBytes;
       byVoice[entry.voiceId] = (byVoice[entry.voiceId] ?? 0) + entry.sizeBytes;
+      if (entry.key.endsWith('.m4a')) {
+        compressedCount++;
+      }
     }
 
     final totalHits = _hits + _misses;
@@ -165,6 +174,7 @@ class IntelligentCacheManager implements AudioCache {
       totalSizeBytes: await getTotalSize(),
       quotaSizeBytes: _quotaSettings.maxSizeBytes,
       entryCount: _metadata.length,
+      compressedCount: compressedCount,
       byBook: byBook,
       byVoice: byVoice,
       hitRate: hitRate,
