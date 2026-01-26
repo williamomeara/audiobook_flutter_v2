@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:developer' as developer;
 
 import 'package:core_domain/core_domain.dart';
+import 'package:logging/logging.dart';
 import 'package:tts_engines/tts_engines.dart';
 
 import '../playback_config.dart';
@@ -10,6 +11,31 @@ import 'dynamic_semaphore.dart';
 import 'synthesis_request.dart';
 
 export 'synthesis_request.dart' show SynthesisPriority;
+
+final _logger = Logger('SynthesisCoordinator');
+
+/// Simple async lock for protecting shared state.
+///
+/// Ensures only one async operation can hold the lock at a time.
+/// Uses FIFO ordering to prevent starvation.
+class _AsyncLock {
+  Completer<void>? _lock;
+
+  /// Acquire the lock. Returns when lock is acquired.
+  Future<void> acquire() async {
+    while (_lock != null) {
+      await _lock!.future;
+    }
+    _lock = Completer<void>();
+  }
+
+  /// Release the lock. Must be called after acquire().
+  void release() {
+    final lock = _lock;
+    _lock = null;
+    lock?.complete();
+  }
+}
 
 /// Result of a segment becoming ready (either from cache or synthesis).
 class SegmentReadyEvent {
@@ -127,6 +153,10 @@ class SynthesisCoordinator {
   // State
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /// Async lock for protecting shared state (_queue, _pendingByKey, _inFlightKeys).
+  /// Prevents race conditions when concurrent queueRange/reset calls occur.
+  final _stateLock = _AsyncLock();
+
   /// Priority queue of pending synthesis requests.
   final SplayTreeSet<SynthesisRequest> _queue = SplayTreeSet();
 
@@ -139,6 +169,10 @@ class SynthesisCoordinator {
   /// Semaphores per engine type for concurrency control.
   /// Uses DynamicSemaphore to support runtime concurrency adjustment.
   final Map<String, DynamicSemaphore> _engineSemaphores = {};
+
+  /// Callback when a new engine semaphore is created.
+  /// Used by [ConcurrencyGovernor] to sync with dynamically created semaphores.
+  void Function(String engineType, DynamicSemaphore semaphore)? onSemaphoreCreated;
 
   /// Whether the coordinator has been disposed.
   bool _disposed = false;
@@ -225,7 +259,7 @@ class SynthesisCoordinator {
         : playbackRate;
 
     developer.log(
-      '[SynthesisCoordinator] queueRange: $startIndex-$effectiveEnd '
+      '[DEDUP] queueRange: $startIndex-$effectiveEnd '
       '(${priority.name}, voice: $voiceId)',
     );
 
@@ -242,10 +276,11 @@ class SynthesisCoordinator {
       );
       final dedupeKey = cacheKey.toFilename();
 
-      // Check if already cached
+      // Check if already cached (no lock needed - readonly cache check)
       if (await cache.isReady(cacheKey)) {
         skippedCached++;
         _cacheHits++;
+        _logger.info('[DEDUP] seg $i: CACHED (skip)');
         // Emit ready event immediately for cached segments
         _emitReady(
           segmentIndex: i,
@@ -256,45 +291,58 @@ class SynthesisCoordinator {
         continue;
       }
 
-      // Check if already in-flight
-      if (_inFlightKeys.contains(dedupeKey)) {
-        skippedDuplicate++;
-        continue;
+      // Lock for state modifications (queue, pending, inFlight checks)
+      await _stateLock.acquire();
+      try {
+        // Re-check disposed after acquiring lock
+        if (_disposed) return;
+
+        // Check if already in-flight
+        if (_inFlightKeys.contains(dedupeKey)) {
+          skippedDuplicate++;
+          _logger.info('[DEDUP] seg $i: IN-FLIGHT (skip), key=$dedupeKey');
+          continue;
+        }
+
+        // Check if already queued
+        final existing = _pendingByKey[dedupeKey];
+        if (existing != null) {
+          // Upgrade priority if the new request has higher priority
+          existing.upgradePriority(priority);
+          skippedDuplicate++;
+          _logger.info('[DEDUP] seg $i: QUEUED (skip), key=$dedupeKey, upgraded to ${existing.priority.name}');
+          continue;
+        }
+
+        // Atomically check queue size limit and drop if needed
+        if (_queue.length >= _maxQueueSize) {
+          _dropLowestPriorityLocked();
+        }
+
+        // Add to queue
+        final request = SynthesisRequest(
+          track: track,
+          voiceId: voiceId,
+          playbackRate: effectiveRate,
+          segmentIndex: i,
+          priority: priority,
+          cacheKey: cacheKey,
+        );
+
+        _queue.add(request);
+        _pendingByKey[dedupeKey] = request;
+        _totalQueued++;
+        added++;
+        _logger.info('[DEDUP] seg $i: ADDED to queue, key=$dedupeKey');
+      } finally {
+        _stateLock.release();
       }
-
-      // Check if already queued
-      final existing = _pendingByKey[dedupeKey];
-      if (existing != null) {
-        // Upgrade priority if the new request has higher priority
-        existing.upgradePriority(priority);
-        skippedDuplicate++;
-        continue;
-      }
-
-      // Respect queue size limit (drop lowest priority if full)
-      if (_queue.length >= _maxQueueSize) {
-        _dropLowestPriority();
-      }
-
-      // Add to queue
-      final request = SynthesisRequest(
-        track: track,
-        voiceId: voiceId,
-        playbackRate: effectiveRate,
-        segmentIndex: i,
-        priority: priority,
-        cacheKey: cacheKey,
-      );
-
-      _queue.add(request);
-      _pendingByKey[dedupeKey] = request;
-      _totalQueued++;
-      added++;
     }
 
     developer.log(
-      '[SynthesisCoordinator] Queued: $added, cached: $skippedCached, '
-      'duplicates: $skippedDuplicate, queue size: ${_queue.length}',
+      '[DEDUP] Result: added=$added, cached=$skippedCached, '
+      'duplicates=$skippedDuplicate, queue=${_queue.length}, '
+      'inFlight=${_inFlightKeys.length}',
     );
 
     // Wake up worker if items were added
@@ -306,20 +354,106 @@ class SynthesisCoordinator {
   /// Queue a single segment at immediate priority.
   ///
   /// Convenience method for the current playback segment.
+  /// The [segmentIndex] is used for event emission to identify this segment.
   Future<void> queueImmediate({
     required AudioTrack track,
     required String voiceId,
     required double playbackRate,
     required int segmentIndex,
   }) async {
-    await queueRange(
-      tracks: [track],
+    await _queueSingleSegment(
+      track: track,
       voiceId: voiceId,
       playbackRate: playbackRate,
-      startIndex: 0,
-      endIndex: 0,
+      segmentIndex: segmentIndex,
       priority: SynthesisPriority.immediate,
     );
+  }
+
+  /// Queue a single segment with explicit segment index.
+  ///
+  /// Unlike [queueRange], this properly tracks the original segment index
+  /// for event emission.
+  Future<void> _queueSingleSegment({
+    required AudioTrack track,
+    required String voiceId,
+    required double playbackRate,
+    required int segmentIndex,
+    required SynthesisPriority priority,
+  }) async {
+    if (_disposed) return;
+
+    final effectiveRate = PlaybackConfig.rateIndependentSynthesis
+        ? 1.0
+        : playbackRate;
+
+    final cacheKey = CacheKeyGenerator.generate(
+      voiceId: voiceId,
+      text: track.text,
+      playbackRate: CacheKeyGenerator.getSynthesisRate(effectiveRate),
+    );
+    final dedupeKey = cacheKey.toFilename();
+
+    // Check if already cached (no lock needed - readonly cache check)
+    if (await cache.isReady(cacheKey)) {
+      _cacheHits++;
+      _logger.info('[DEDUP] seg $segmentIndex: CACHED (skip)');
+      // Emit ready event immediately for cached segments
+      _emitReady(
+        segmentIndex: segmentIndex,
+        cacheKey: cacheKey,
+        durationMs: await _estimateDurationFromCache(cacheKey),
+        wasFromCache: true,
+      );
+      return;
+    }
+
+    // Lock for state modifications
+    await _stateLock.acquire();
+    try {
+      // Re-check disposed after acquiring lock
+      if (_disposed) return;
+
+      // Check if already in-flight
+      if (_inFlightKeys.contains(dedupeKey)) {
+        _logger.info('[DEDUP] seg $segmentIndex: IN-FLIGHT (skip), key=$dedupeKey');
+        return;
+      }
+
+      // Check if already queued
+      final existing = _pendingByKey[dedupeKey];
+      if (existing != null) {
+        // Upgrade priority if the new request has higher priority
+        existing.upgradePriority(priority);
+        _logger.info('[DEDUP] seg $segmentIndex: QUEUED (skip), key=$dedupeKey, upgraded to ${existing.priority.name}');
+        return;
+      }
+
+      // Atomically check queue size limit and drop if needed
+      if (_queue.length >= _maxQueueSize) {
+        _dropLowestPriorityLocked();
+      }
+
+      // Add to queue
+      final request = SynthesisRequest(
+        track: track,
+        voiceId: voiceId,
+        playbackRate: effectiveRate,
+        segmentIndex: segmentIndex,
+        priority: priority,
+        cacheKey: cacheKey,
+      );
+
+      _queue.add(request);
+      _pendingByKey[dedupeKey] = request;
+      _totalQueued++;
+      _logger.info('[DEDUP] seg $segmentIndex: ADDED to queue, key=$dedupeKey');
+    } finally {
+      _stateLock.release();
+    }
+
+    // Wake up worker
+    _wakeWorker();
   }
 
   /// Check if a segment is ready (in cache).
@@ -374,6 +508,9 @@ class SynthesisCoordinator {
   }
 
   /// Main worker loop - processes queue items respecting concurrency limits.
+  /// 
+  /// Uses proper backpressure: waits for semaphore availability before 
+  /// dispatching requests to prevent unbounded task accumulation.
   Future<void> _workerLoop() async {
     developer.log('[SynthesisCoordinator] Worker started');
 
@@ -386,45 +523,55 @@ class SynthesisCoordinator {
         if (_disposed) break;
       }
 
-      // Get next request
-      final request = _getNextRequest();
+      // Get next request (does NOT add to _inFlightKeys yet)
+      final request = await _getNextRequestLocked();
       if (request == null) continue;
 
       // Get semaphore for this engine type
       final engineType = _getEngineType(request.voiceId);
       final semaphore = _getSemaphore(engineType);
 
-      // Wait for concurrency slot (non-blocking if available)
+      // BACKPRESSURE: Wait for a concurrency slot BEFORE dispatching
+      // This prevents unbounded task accumulation in the event loop
       if (!semaphore.hasAvailable) {
         developer.log(
           '[SynthesisCoordinator] Waiting for $engineType slot '
           '(active: ${semaphore.activeCount}/${semaphore.maxSlots})',
         );
       }
+      
+      // Acquire semaphore (blocking wait for slot)
+      await semaphore.acquire();
+      if (_disposed) {
+        semaphore.release();
+        continue;
+      }
 
-      // Process asynchronously to allow multiple concurrent syntheses
-      unawaited(_processRequest(request, semaphore));
+      // Now that we have a slot, atomically add to in-flight tracking
+      await _stateLock.acquire();
+      _inFlightKeys.add(request.deduplicationKey);
+      _stateLock.release();
+
+      // Process asynchronously (semaphore already acquired)
+      unawaited(_processRequestWithAcquiredSlot(request, semaphore));
     }
 
     developer.log('[SynthesisCoordinator] Worker stopped');
   }
 
-  /// Process a single synthesis request.
-  Future<void> _processRequest(
+  /// Process a single synthesis request when semaphore is already acquired.
+  Future<void> _processRequestWithAcquiredSlot(
     SynthesisRequest request,
     DynamicSemaphore semaphore,
   ) async {
-    // Acquire semaphore slot
-    await semaphore.acquire();
-    if (_disposed) {
-      semaphore.release();
-      return;
-    }
-
     final dedupeKey = request.deduplicationKey;
-    _inFlightKeys.add(dedupeKey);
+    
+    _logger.info('[DEDUP] seg ${request.segmentIndex}: STARTED, key=$dedupeKey, inFlight=${_inFlightKeys.length}');
 
     try {
+      // Early exit if disposed
+      if (_disposed) return;
+
       developer.log(
         '[SynthesisCoordinator] Synthesizing segment ${request.segmentIndex} '
         '(${request.priority.name})',
@@ -436,8 +583,7 @@ class SynthesisCoordinator {
       if (await cache.isReady(request.cacheKey)) {
         stopwatch.stop();
         developer.log(
-          '[SynthesisCoordinator] Segment ${request.segmentIndex} '
-          'appeared in cache (race won)',
+          '[DEDUP] seg ${request.segmentIndex}: RACE WON (already in cache), key=$dedupeKey',
         );
         _totalCompleted++;
         _cacheHits++;
@@ -482,9 +628,8 @@ class SynthesisCoordinator {
 
       _totalCompleted++;
       developer.log(
-        '[SynthesisCoordinator] ✓ Segment ${request.segmentIndex} '
-        'synthesized in ${stopwatch.elapsedMilliseconds}ms '
-        '(duration: ${result.durationMs}ms)',
+        '[DEDUP] seg ${request.segmentIndex}: COMPLETED in ${stopwatch.elapsedMilliseconds}ms '
+        '(duration: ${result.durationMs}ms), key=$dedupeKey',
       );
 
       _emitReady(
@@ -496,7 +641,7 @@ class SynthesisCoordinator {
     } on TimeoutException catch (e) {
       _totalFailed++;
       developer.log(
-        '[SynthesisCoordinator] ✗ Segment ${request.segmentIndex} timed out: $e',
+        '[DEDUP] seg ${request.segmentIndex}: TIMEOUT, key=$dedupeKey',
       );
       _emitFailed(
         segmentIndex: request.segmentIndex,
@@ -507,7 +652,7 @@ class SynthesisCoordinator {
     } catch (e) {
       _totalFailed++;
       developer.log(
-        '[SynthesisCoordinator] ✗ Segment ${request.segmentIndex} failed: $e',
+        '[DEDUP] seg ${request.segmentIndex}: FAILED ($e), key=$dedupeKey',
       );
       _emitFailed(
         segmentIndex: request.segmentIndex,
@@ -516,7 +661,12 @@ class SynthesisCoordinator {
         isTimeout: false,
       );
     } finally {
+      // Remove from in-flight tracking (with lock for consistency)
+      await _stateLock.acquire();
       _inFlightKeys.remove(dedupeKey);
+      _stateLock.release();
+      
+      _logger.info('[DEDUP] seg ${request.segmentIndex}: RELEASED, key=$dedupeKey, inFlight=${_inFlightKeys.length}');
       semaphore.release();
 
       // Check if queue is now empty
@@ -530,14 +680,21 @@ class SynthesisCoordinator {
   // Helpers
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Get next request from queue.
-  SynthesisRequest? _getNextRequest() {
-    if (_queue.isEmpty) return null;
+  /// Get next request from queue (with lock protection).
+  /// Does NOT add to _inFlightKeys - that happens after semaphore acquisition.
+  Future<SynthesisRequest?> _getNextRequestLocked() async {
+    await _stateLock.acquire();
+    try {
+      if (_queue.isEmpty) return null;
 
-    final request = _queue.first;
-    _queue.remove(request);
-    _pendingByKey.remove(request.deduplicationKey);
-    return request;
+      final request = _queue.first;
+      _queue.remove(request);
+      _pendingByKey.remove(request.deduplicationKey);
+      
+      return request;
+    } finally {
+      _stateLock.release();
+    }
   }
 
   /// Wake up the worker loop.
@@ -555,8 +712,8 @@ class SynthesisCoordinator {
     _wakeWorker();
   }
 
-  /// Drop the lowest priority item from the queue.
-  void _dropLowestPriority() {
+  /// Drop the lowest priority item from the queue (assumes lock is held).
+  void _dropLowestPriorityLocked() {
     if (_queue.isEmpty) return;
     final lowest = _queue.last; // Lowest priority is last due to compareTo
     _queue.remove(lowest);
@@ -569,10 +726,21 @@ class SynthesisCoordinator {
 
   /// Get or create semaphore for engine type.
   DynamicSemaphore _getSemaphore(String engineType) {
-    return _engineSemaphores.putIfAbsent(
-      engineType,
-      () => DynamicSemaphore(PlaybackConfig.getConcurrencyForEngine(engineType)),
-    );
+    if (!_engineSemaphores.containsKey(engineType)) {
+      final semaphore = DynamicSemaphore(
+        PlaybackConfig.getConcurrencyForEngine(engineType),
+      );
+      _engineSemaphores[engineType] = semaphore;
+      
+      // Notify external listeners (e.g., ConcurrencyGovernor) about new semaphore
+      onSemaphoreCreated?.call(engineType, semaphore);
+      
+      developer.log(
+        '[SynthesisCoordinator] Created semaphore for $engineType '
+        '(maxSlots: ${semaphore.maxSlots})',
+      );
+    }
+    return _engineSemaphores[engineType]!;
   }
 
   /// Get all engine semaphores for external concurrency control.
