@@ -283,14 +283,23 @@ class PerformanceStore {
 - [ ] Define model speed tiers in `ModelCatalog`
 - [ ] Create `VoiceCompatibilityEstimator` for proactive warnings
 - [ ] Wire RTF recording into synthesis callbacks
+- [ ] Create `DeviceCapabilityAssessor` for overall capability check
+- [ ] Implement performance warning dialogs (model switch + incapable device)
 
-### Phase 5: Performance Learning (Week 2-3)
+### Phase 5: Graceful Degradation (Week 2-3)
+- [ ] Implement `PreSynthesisMode` for incapable devices
+- [ ] Add `GracefulDegradation` strategy selection
+- [ ] Create pre-synthesis UI (chapter view)
+- [ ] Add "buffered mode" startup delay
+- [ ] Create storage for pre-synthesized chapters
+
+### Phase 6: Performance Learning (Week 3)
 - [ ] Create `PerformanceStore` (SQLite/Hive)
 - [ ] Add synthesis performance recording
 - [ ] Implement profile analysis for optimal concurrency
 - [ ] Add voice/engine-specific learned ceilings
 
-### Phase 6: Settings & UI Integration (Week 3)
+### Phase 7: Settings & UI Integration (Week 3-4)
 - [ ] Add "Synthesis Mode" setting: Auto / Performance / Efficiency
 - [ ] Add performance warning dialog UI
 - [ ] Update voice picker with compatibility indicators
@@ -684,6 +693,187 @@ Only show after:
 4. **User already acknowledged**: Don't nag, once per session max
 5. **Already switching to faster model**: In transition
 
+### Critical Failure: Cannot Achieve Real-Time Synthesis
+
+When **no voice/engine combination** can achieve RTS on the device, we need a clear notification:
+
+```dart
+enum SynthesisCapability {
+  capable,           // Can synthesize faster than realtime with at least one voice
+  marginal,          // Barely keeping up, some voices unusable
+  incapable,         // Cannot achieve RTS with ANY available voice
+}
+
+class DeviceCapabilityAssessor {
+  final PerformanceStore _store;
+  final List<AvailableVoice> _downloadedVoices;
+  
+  /// Check if ANY downloaded voice can achieve RTS
+  Future<SynthesisCapability> assessOverallCapability() async {
+    final device = await DeviceCapabilities.detect();
+    
+    // Check each downloaded voice
+    final voiceCapabilities = <String, double>{};
+    for (final voice in _downloadedVoices) {
+      final profile = await _store.getProfile(voice.engineId, voice.voiceId);
+      if (profile != null) {
+        final effectiveRTF = profile.expectedRTF / device.recommendedMaxConcurrency;
+        voiceCapabilities['${voice.engineId}:${voice.voiceId}'] = effectiveRTF;
+      }
+    }
+    
+    if (voiceCapabilities.isEmpty) {
+      return SynthesisCapability.capable; // No data yet, assume capable
+    }
+    
+    final bestRTF = voiceCapabilities.values.reduce(min);
+    
+    if (bestRTF < 0.8) return SynthesisCapability.capable;
+    if (bestRTF < 1.2) return SynthesisCapability.marginal;
+    return SynthesisCapability.incapable;
+  }
+  
+  /// Get the fastest working voice, if any
+  Future<AvailableVoice?> findFastestWorkingVoice() async {
+    // Returns the voice with lowest RTF that can achieve RTS
+    // Returns null if no voice can achieve RTS
+  }
+}
+```
+
+### Incapable Device Notification
+
+Show this notification when:
+1. Tested at least 3 different voices
+2. All voices have RTF > 1.2 at max concurrency
+3. User hasn't dismissed permanently
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  ❌ Device Performance Issue                                    │
+├────────────────────────────────────────────────────────────────┤
+│  Unfortunately, your device cannot synthesize speech fast      │
+│  enough for real-time playback with any available voice.       │
+│                                                                │
+│  This may be because:                                          │
+│  • Your device has limited processing power                    │
+│  • Battery saver mode is active                                │
+│  • Other apps are using significant resources                  │
+│                                                                │
+│  Options:                                                      │
+│  • Pre-synthesize chapters before listening                   │
+│  • Try downloading a faster voice (Piper)                     │
+│  • Listen at reduced playback speed                           │
+│  • Try again when device is less busy                         │
+│                                                                │
+│  Best achievable: 0.7x realtime (need 1.0x minimum)           │
+│                                                                │
+│  ┌────────────────────┐  ┌───────────────────┐                │
+│  │  Pre-synthesize    │  │   Slower Playback │                │
+│  └────────────────────┘  └───────────────────┘                │
+│                                                                │
+│  ┌────────────────────────────────────────────┐               │
+│  │     Don't show again for this device      │               │
+│  └────────────────────────────────────────────┘               │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Pre-Synthesis Mode
+
+For incapable devices, offer a "pre-synthesis" option:
+
+```dart
+class PreSynthesisMode {
+  /// Synthesize entire chapter(s) before allowing playback
+  Future<void> preSynthesizeChapter(
+    String bookId,
+    int chapterIndex, {
+    ProgressCallback? onProgress,
+  }) async {
+    // 1. Calculate total segments in chapter
+    // 2. Synthesize all segments (no playback pressure)
+    // 3. Cache results
+    // 4. Mark chapter as "ready for playback"
+    // 5. User can then play without synthesis delay
+  }
+  
+  /// Estimate time to pre-synthesize
+  Duration estimatePreSynthesisTime(int chapterIndex) {
+    final segments = _getSegmentCount(chapterIndex);
+    final avgAudioDuration = Duration(seconds: 15); // typical segment
+    final rtf = _currentRTF;
+    return avgAudioDuration * segments * rtf;
+  }
+}
+```
+
+### Pre-Synthesis UI
+
+Add to chapter/book screen:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Chapter 5: The Journey Begins                                   │
+├─────────────────────────────────────────────────────────────────┤
+│ ⚠️ Your device needs to pre-synthesize this chapter            │
+│                                                                 │
+│ Estimated time: ~12 minutes                                     │
+│ Storage needed: ~45 MB                                          │
+│                                                                 │
+│ ┌───────────────────────────────────────────────────────────┐  │
+│ │          Pre-synthesize Chapter 5                         │  │
+│ └───────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│ Or try listening anyway (may have interruptions)               │
+│ ┌───────────────────────────────────────────────────────────┐  │
+│ │              Play Anyway                                  │  │
+│ └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Graceful Degradation Modes
+
+For incapable devices, offer multiple fallback strategies:
+
+```dart
+enum PlaybackMode {
+  realtime,        // Normal: synthesize on-demand
+  preSynthesized,  // Chapter must be pre-synthesized
+  buffered,        // Start playback only after X minutes buffered
+  interruptible,   // Play with warnings about possible interruptions
+}
+
+class GracefulDegradation {
+  /// Determine best playback mode for device
+  PlaybackMode recommendedMode(SynthesisCapability capability, double rtf) {
+    switch (capability) {
+      case SynthesisCapability.capable:
+        return PlaybackMode.realtime;
+      case SynthesisCapability.marginal:
+        // Can work but might stutter at high speeds
+        return PlaybackMode.buffered;
+      case SynthesisCapability.incapable:
+        // Can't keep up - need pre-synthesis
+        if (rtf < 0.5) {
+          // Very slow but might work with enough buffer
+          return PlaybackMode.interruptible;
+        }
+        return PlaybackMode.preSynthesized;
+    }
+  }
+  
+  /// Minimum buffer before starting playback in buffered mode
+  Duration minimumBufferForMode(PlaybackMode mode, double rtf) {
+    switch (mode) {
+      case PlaybackMode.realtime: return Duration.zero;
+      case PlaybackMode.buffered: return Duration(minutes: 2);
+      case PlaybackMode.interruptible: return Duration(seconds: 30);
+      case PlaybackMode.preSynthesized: return Duration.zero; // Chapter done
+    }
+  }
+}
+```
+
 ### Proactive Prevention
 
 Before user even starts a book, estimate compatibility:
@@ -772,12 +962,18 @@ Show estimated compatibility in voice picker:
 - `packages/playback/lib/src/synthesis/rtf_monitor.dart`
 - `packages/playback/lib/src/synthesis/performance_advisor.dart`
 - `packages/playback/lib/src/synthesis/model_catalog.dart`
+- `packages/playback/lib/src/synthesis/device_capability_assessor.dart`
+- `packages/playback/lib/src/synthesis/pre_synthesis_mode.dart`
+- `packages/playback/lib/src/synthesis/graceful_degradation.dart`
 - `lib/ui/widgets/performance_warning_dialog.dart`
+- `lib/ui/widgets/pre_synthesis_prompt.dart`
 
 ### Modified Files
 - `packages/playback/lib/src/synthesis/synthesis_coordinator.dart` - Use DynamicSemaphore, record RTF
 - `packages/playback/lib/src/synthesis/semaphore.dart` - Enhance or replace
-- `packages/playback/lib/playback_config.dart` - Add synthesis mode enum
+- `packages/playback/lib/playback_config.dart` - Add synthesis mode enum, playback modes
 - `lib/ui/screens/settings_screen.dart` - Add synthesis mode picker, voice compatibility
+- `lib/ui/screens/playback_screen.dart` - Pre-synthesis prompts for incapable devices
+- `lib/ui/screens/book_details_screen.dart` - Show pre-synthesis option per chapter
 - `lib/ui/widgets/voice_picker.dart` - Add compatibility indicators
-- `lib/app/playback_providers.dart` - Wire up DemandController, RTFMonitor
+- `lib/app/playback_providers.dart` - Wire up DemandController, RTFMonitor, graceful degradation
