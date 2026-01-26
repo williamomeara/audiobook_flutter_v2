@@ -34,7 +34,7 @@ Users need a way to compress cached audio to reclaim storage space while preserv
 
 ## Implementation Approach
 
-### Option A: ffmpeg_kit_flutter_audio (Recommended)
+### ~~Option A: ffmpeg_kit_flutter_audio~~ (Rejected)
 **Pros:**
 - Mature, well-documented
 - Handles AAC encoding natively on both platforms
@@ -44,30 +44,36 @@ Users need a way to compress cached audio to reclaim storage space while preserv
 **Cons:**
 - Adds ~15-30 MB to APK (audio-only variant)
 - Requires separate iOS/Android variants
+- Package retired in 2025 - maintenance risk
+- Software CPU encoding (higher battery drain)
+- Inferior AAC quality at low bitrates vs native
 
-### Option B: flutter_audio_toolkit
+### Option B: flutter_audio_toolkit (Chosen)
 **Pros:**
-- Flutter-native API
-- Newer, more Dart-idiomatic
+- Uses native OS encoders (MediaCodec on Android, AVFoundation on iOS)
+- **Zero app size impact** - uses OS built-in codecs
+- Hardware-accelerated encoding (faster, less battery)
+- Better quality at low bitrates (native codecs optimized for speech)
+- Actively maintained, modern Flutter API
+- Progress callbacks
 
 **Cons:**
-- Less mature than ffmpeg_kit
-- Fewer examples/community support
+- Newer package (less community examples)
 
-**Decision: Use ffmpeg_kit_flutter_audio** - More mature and battle-tested.
+**Decision: Use flutter_audio_toolkit** - Native codecs with zero size impact and better quality.
 
 ## Workplan
 
-### Phase 1: Foundation
-- [ ] Add ffmpeg_kit_flutter_audio dependency
-- [ ] Create CompressionService in tts_engines package
-- [ ] Add compressed file detection to AudioCache (support .m4a files)
-- [ ] Modify cache key handling to support both .wav and .m4a
+### Phase 1: Foundation ✅
+- [x] Add flutter_audio_toolkit dependency
+- [x] Create AacCompressionService in tts_engines package
+- [x] Add compressed file detection to AudioCache (support .m4a files)
+- [x] Implement playableFileFor() for transparent WAV/M4A playback
 
 ### Phase 2: Compression Engine
-- [ ] Implement WAV to M4A conversion with progress callbacks
-- [ ] Add batch compression with concurrency control
-- [ ] Implement abort/cancel support
+- [x] Implement WAV to M4A conversion with progress callbacks
+- [x] Add batch compression with concurrency control
+- [x] Implement abort/cancel support
 - [ ] Add compression statistics tracking (space saved)
 
 ### Phase 3: Settings UI
@@ -83,9 +89,18 @@ Users need a way to compress cached audio to reclaim storage space while preserv
 
 ## Technical Details
 
-### FFmpeg Command
-```bash
-ffmpeg -i input.wav -c:a aac -b:a 64k output.m4a
+### Native Conversion API
+```dart
+await audioToolkit.convertAudio(
+  inputPath: '/path/to/input.wav',
+  outputPath: '/path/to/output.m4a',
+  format: AudioFormat.m4a,
+  bitRate: 64,      // 64 kbps - excellent for speech
+  sampleRate: 24000, // Match TTS output
+  onProgress: (progress) {
+    print('${(progress * 100).toInt()}%');
+  },
+);
 ```
 
 ### Dart Implementation Sketch

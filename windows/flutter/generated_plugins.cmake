@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   battery_plus
+  flutter_audio_toolkit
   flutter_tts
   opus_flutter_windows
   permission_handler_windows

@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  flutter_audio_toolkit
   url_launcher_linux
 )
 

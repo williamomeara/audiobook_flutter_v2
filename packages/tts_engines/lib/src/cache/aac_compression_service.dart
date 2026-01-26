@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'dart:developer' as developer;
 
-import 'package:ffmpeg_kit_flutter_audio/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_audio/return_code.dart';
+import 'package:flutter_audio_toolkit/flutter_audio_toolkit.dart';
 
 /// Result of compressing the audio cache.
 class AacCompressionResult {
@@ -55,16 +54,28 @@ class AacCompressionResult {
 
 /// Service for compressing WAV audio cache to AAC/M4A format.
 ///
-/// Uses FFmpeg via ffmpeg_kit_flutter_audio for cross-platform compression.
-/// AAC in M4A container is chosen for native playback support on iOS and Android
-/// via just_audio - no decompression needed at playback time.
+/// Uses flutter_audio_toolkit for native platform-optimized compression
+/// via MediaCodec (Android) and AVFoundation (iOS).
+/// 
+/// Benefits over FFmpeg:
+/// - Zero app size impact (uses OS built-in encoders)
+/// - Hardware-accelerated encoding (faster, less battery)
+/// - Better quality at low bitrates
+/// - No third-party binary maintenance
 class AacCompressionService {
   AacCompressionService({
-    this.bitrate = 64000, // 64 kbps - excellent for speech
+    this.bitrate = 64, // 64 kbps - excellent for speech
+    this.sampleRate = 24000, // Match TTS output sample rate
   });
 
-  /// Target bitrate in bits per second.
+  /// Target bitrate in kbps.
   final int bitrate;
+
+  /// Sample rate in Hz.
+  final int sampleRate;
+
+  /// The native audio toolkit instance.
+  final _audioToolkit = FlutterAudioToolkit();
 
   /// Check if a file is already compressed (M4A format).
   bool isCompressed(String path) =>
@@ -78,13 +89,14 @@ class AacCompressionService {
     return '$wavPath.m4a';
   }
 
-  /// Compress a single WAV file to M4A.
+  /// Compress a single WAV file to M4A using native codecs.
   ///
   /// Returns the compressed file, or null if compression failed.
   /// The original WAV file is deleted on success.
   Future<File?> compressFile(
     File wavFile, {
     bool deleteOriginal = true,
+    void Function(double progress)? onProgress,
   }) async {
     if (!await wavFile.exists()) {
       developer.log(
@@ -102,54 +114,47 @@ class AacCompressionService {
       await m4aFile.delete();
     }
 
-    // Build FFmpeg command: -i input.wav -c:a aac -b:a 64k output.m4a
-    final bitrateKbps = bitrate ~/ 1000;
-    final command = '-i "${wavFile.path}" -c:a aac -b:a ${bitrateKbps}k "$m4aPath"';
-
     developer.log(
       'Compressing: ${wavFile.path}',
       name: 'AacCompressionService',
     );
 
     try {
-      final session = await FFmpegKit.execute(command);
-      final returnCode = await session.getReturnCode();
+      final result = await _audioToolkit.convertAudio(
+        inputPath: wavFile.path,
+        outputPath: m4aPath,
+        format: AudioFormat.m4a,
+        bitRate: bitrate,
+        sampleRate: sampleRate,
+        onProgress: onProgress,
+      );
 
-      if (ReturnCode.isSuccess(returnCode)) {
-        // Verify the output file exists and has content
-        if (await m4aFile.exists()) {
-          final m4aStat = await m4aFile.stat();
-          if (m4aStat.size > 0) {
-            // Success - delete original if requested
-            if (deleteOriginal) {
-              await wavFile.delete();
-            }
-
-            developer.log(
-              '✅ Compressed ${wavFile.path} → $m4aPath',
-              name: 'AacCompressionService',
-            );
-            return m4aFile;
+      // Verify the output file exists and has content
+      if (await m4aFile.exists()) {
+        final m4aStat = await m4aFile.stat();
+        if (m4aStat.size > 0) {
+          // Success - delete original if requested
+          if (deleteOriginal) {
+            await wavFile.delete();
           }
-        }
 
-        developer.log(
-          '❌ FFmpeg succeeded but output file is missing/empty',
-          name: 'AacCompressionService',
-        );
-        return null;
-      } else {
-        final logs = await session.getAllLogs();
-        final output = logs.map((l) => l.getMessage()).join('\n');
-        developer.log(
-          '❌ FFmpeg failed: $output',
-          name: 'AacCompressionService',
-        );
-        return null;
+          developer.log(
+            '✅ Compressed ${wavFile.path} → $m4aPath '
+            '(${result.bitRate}bps, ${result.sampleRate}Hz)',
+            name: 'AacCompressionService',
+          );
+          return m4aFile;
+        }
       }
+
+      developer.log(
+        '❌ Conversion succeeded but output file is missing/empty',
+        name: 'AacCompressionService',
+      );
+      return null;
     } catch (e) {
       developer.log(
-        '❌ FFmpeg exception: $e',
+        '❌ Conversion failed: $e',
         name: 'AacCompressionService',
       );
       return null;
