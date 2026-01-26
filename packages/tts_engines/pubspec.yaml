@@ -18,6 +18,7 @@ dependencies:
   opus_dart: ^3.0.1
   opus_flutter: ^3.0.3
   logging: ^1.2.0
+  ffmpeg_kit_flutter_audio: ^6.0.3
 
 dev_dependencies:
   test: ^1.25.0

@@ -25,9 +25,16 @@ class CacheBudget {
 /// Interface for audio file caching.
 abstract interface class AudioCache {
   /// Get or create the file for a cache key.
+  /// Returns the WAV file path (for writing new entries).
   Future<File> fileFor(CacheKey key);
 
+  /// Get the actual playable file for a cache key.
+  /// Returns the M4A file if it exists, otherwise the WAV file.
+  /// This allows transparent playback of both compressed and uncompressed entries.
+  Future<File?> playableFileFor(CacheKey key);
+
   /// Check if a cached file is ready (exists and is complete).
+  /// Returns true if either WAV or M4A version exists.
   Future<bool> isReady(CacheKey key);
 
   /// Mark a cache entry as recently used (for LRU).
@@ -55,6 +62,9 @@ abstract interface class AudioCache {
   
   /// Check if a file is currently pinned.
   bool isPinned(CacheKey key);
+  
+  /// Get the cache directory.
+  Directory get directory;
 }
 
 /// File-based audio cache implementation with LRU eviction.
@@ -71,19 +81,54 @@ class FileAudioCache implements AudioCache {
   final Set<String> _pinnedFiles = {};
 
   @override
+  Directory get directory => cacheDir;
+
+  @override
   Future<File> fileFor(CacheKey key) async {
     await cacheDir.create(recursive: true);
     return File('${cacheDir.path}/${key.toFilename()}');
   }
 
   @override
-  Future<bool> isReady(CacheKey key) async {
-    final file = await fileFor(key);
-    if (!await file.exists()) return false;
+  Future<File?> playableFileFor(CacheKey key) async {
+    final wavFile = await fileFor(key);
+    final m4aPath = wavFile.path.replaceAll('.wav', '.m4a');
+    final m4aFile = File(m4aPath);
     
-    // Check file has content (not empty or incomplete)
-    final stat = await file.stat();
-    return stat.size > kWavHeaderSize;
+    // Prefer M4A (compressed) if it exists
+    if (await m4aFile.exists()) {
+      final stat = await m4aFile.stat();
+      if (stat.size > 0) return m4aFile;
+    }
+    
+    // Fall back to WAV
+    if (await wavFile.exists()) {
+      final stat = await wavFile.stat();
+      if (stat.size > kWavHeaderSize) return wavFile;
+    }
+    
+    return null;
+  }
+
+  @override
+  Future<bool> isReady(CacheKey key) async {
+    final wavFile = await fileFor(key);
+    final m4aPath = wavFile.path.replaceAll('.wav', '.m4a');
+    final m4aFile = File(m4aPath);
+    
+    // Check M4A first (compressed version)
+    if (await m4aFile.exists()) {
+      final stat = await m4aFile.stat();
+      if (stat.size > 0) return true;
+    }
+    
+    // Check WAV (uncompressed)
+    if (await wavFile.exists()) {
+      final stat = await wavFile.stat();
+      return stat.size > kWavHeaderSize;
+    }
+    
+    return false;
   }
 
   @override
