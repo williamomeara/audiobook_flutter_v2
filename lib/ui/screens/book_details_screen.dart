@@ -1,10 +1,13 @@
 import 'dart:io';
 
+import 'package:core_domain/core_domain.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/chapter_synthesis_provider.dart';
 import '../../app/library_controller.dart';
+import '../../app/settings_controller.dart';
 import '../theme/app_colors.dart';
 
 class BookDetailsScreen extends ConsumerStatefulWidget {
@@ -18,11 +21,18 @@ class BookDetailsScreen extends ConsumerStatefulWidget {
 
 class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   bool _showAllChapters = false;
+  
+  // Track which chapters we've already notified about
+  final Set<int> _notifiedChapters = {};
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final libraryAsync = ref.watch(libraryProvider);
+    
+    // Listen for synthesis completion events
+    final allSynthState = ref.watch(chapterSynthesisProvider);
+    _checkForCompletedSynthesis(allSynthState, context);
 
     return Scaffold(
       backgroundColor: colors.background,
@@ -283,13 +293,49 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Chapters',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                                color: colors.text,
-                              ),
+                            Row(
+                              children: [
+                                Text(
+                                  'Chapters',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                    color: colors.text,
+                                  ),
+                                ),
+                                // Show synthesis status if any chapters are being prepared
+                                if (_hasActiveSynthesis(allSynthState, book.id)) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: colors.primary.withAlpha(25),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox(
+                                          width: 10,
+                                          height: 10,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 1.5,
+                                            color: colors.primary,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Preparing',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: colors.primary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                             Row(
                               children: [
@@ -319,6 +365,12 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                               ? (book.progress.segmentIndex / 10 * 100).clamp(0, 99).round()
                               : null;
 
+                          // Watch synthesis state for this chapter
+                          final synthKey = (bookId: book.id, chapterIndex: index);
+                          final synthState = ref.watch(chapterSynthesisStateProvider(synthKey));
+                          final isSynthesizing = synthState?.status == ChapterSynthesisStatus.synthesizing;
+                          final isSynthComplete = synthState?.status == ChapterSynthesisStatus.complete;
+
                           return GestureDetector(
                             onTap: () {
                               ref.read(libraryProvider.notifier).updateProgress(
@@ -328,13 +380,13 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                               );
                               context.push('/playback/${widget.bookId}');
                             },
-                            onLongPress: () {
-                              // Long press to toggle read/unread
-                              ref.read(libraryProvider.notifier).toggleChapterComplete(
-                                widget.bookId,
-                                index,
-                              );
-                            },
+                            onLongPress: () => _showChapterMenu(
+                              context,
+                              book,
+                              index,
+                              chapter,
+                              synthState,
+                            ),
                             child: Container(
                               margin: const EdgeInsets.only(bottom: 12),
                               padding: const EdgeInsets.all(16),
@@ -353,22 +405,26 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         decoration: BoxDecoration(
                                           color: isRead
                                               ? colors.primary
-                                              : isInProgress
-                                                  ? colors.primary.withAlpha(128)
-                                                  : colors.background,
+                                              : isSynthComplete
+                                                  ? colors.accent
+                                                  : isInProgress
+                                                      ? colors.primary.withAlpha(128)
+                                                      : colors.background,
                                           shape: BoxShape.circle,
                                         ),
                                         child: Center(
-                                          child: Text(
-                                            '${index + 1}',
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w500,
-                                              color: isRead || isInProgress
-                                                  ? colors.primaryForeground
-                                                  : colors.textTertiary,
-                                            ),
-                                          ),
+                                          child: isSynthComplete 
+                                              ? Icon(Icons.check, size: 16, color: colors.primaryForeground)
+                                              : Text(
+                                                  '${index + 1}',
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: isRead || isInProgress || isSynthComplete
+                                                        ? colors.primaryForeground
+                                                        : colors.textTertiary,
+                                                  ),
+                                                ),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
@@ -383,7 +439,39 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      if (isRead)
+                                      // Status indicators
+                                      if (isSynthesizing)
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                value: synthState?.progress,
+                                                color: colors.primary,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '${synthState?.progressPercent ?? 0}%',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: colors.textTertiary,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      else if (isSynthComplete)
+                                        Text(
+                                          'Ready',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: colors.accent,
+                                          ),
+                                        )
+                                      else if (isRead)
                                         Text(
                                           '✓ Read',
                                           style: TextStyle(
@@ -418,6 +506,32 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                           child: Container(
                                             decoration: BoxDecoration(
                                               color: colors.primary,
+                                              borderRadius: BorderRadius.circular(2),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  // Synthesis progress bar
+                                  if (isSynthesizing) ...[
+                                    const SizedBox(height: 8),
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 44),
+                                      child: Container(
+                                        height: 4,
+                                        decoration: BoxDecoration(
+                                          color: colors.background,
+                                          borderRadius: BorderRadius.circular(2),
+                                        ),
+                                        child: FractionallySizedBox(
+                                          alignment: Alignment.centerLeft,
+                                          widthFactor: synthState?.progress ?? 0,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                colors: [colors.primary, colors.accent],
+                                              ),
                                               borderRadius: BorderRadius.circular(2),
                                             ),
                                           ),
@@ -486,6 +600,278 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
 
   int _countReadChapters(book) {
     return book.completedChapters.length;
+  }
+
+  /// Check if any chapters for this book are currently being synthesized.
+  bool _hasActiveSynthesis(AllChapterSynthesisState allSynthState, String bookId) {
+    return allSynthState.jobs.entries.any((e) =>
+        e.key.bookId == bookId && e.value.status == ChapterSynthesisStatus.synthesizing);
+  }
+
+  /// Check for newly completed synthesis jobs and show notification.
+  void _checkForCompletedSynthesis(AllChapterSynthesisState allSynthState, BuildContext context) {
+    // Only check jobs for the current book
+    for (final entry in allSynthState.jobs.entries) {
+      final key = entry.key;
+      final state = entry.value;
+      
+      if (key.bookId != widget.bookId) continue;
+      
+      // Check if this chapter just completed and we haven't notified yet
+      if (state.status == ChapterSynthesisStatus.complete && 
+          !_notifiedChapters.contains(key.chapterIndex)) {
+        _notifiedChapters.add(key.chapterIndex);
+        
+        // Show notification using post-frame callback to avoid build conflicts
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Chapter ${key.chapterIndex + 1} ready for offline playback'),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+              action: SnackBarAction(
+                label: 'Play',
+                onPressed: () {
+                  ref.read(libraryProvider.notifier).updateProgress(
+                    widget.bookId,
+                    key.chapterIndex,
+                    0,
+                  );
+                  context.push('/playback/${widget.bookId}');
+                },
+              ),
+            ),
+          );
+        });
+      }
+    }
+  }
+
+  void _showChapterMenu(
+    BuildContext context,
+    dynamic book,
+    int chapterIndex,
+    dynamic chapter,
+    ChapterSynthesisState? synthState,
+  ) {
+    final colors = context.appColors;
+    final isSynthesizing = synthState?.status == ChapterSynthesisStatus.synthesizing;
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.textTertiary.withAlpha(77),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Chapter title
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  chapter.title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: colors.text,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Prepare chapter option
+              if (isSynthesizing)
+                ListTile(
+                  leading: Icon(Icons.stop_circle_outlined, color: colors.danger),
+                  title: Text(
+                    'Cancel Preparation',
+                    style: TextStyle(color: colors.text),
+                  ),
+                  subtitle: Text(
+                    '${synthState?.progressPercent ?? 0}% complete',
+                    style: TextStyle(color: colors.textTertiary),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    ref.read(chapterSynthesisProvider.notifier).cancelSynthesis(
+                      book.id,
+                      chapterIndex,
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Cancelled preparation')),
+                    );
+                  },
+                )
+              else
+                ListTile(
+                  leading: Icon(Icons.cloud_download_outlined, color: colors.primary),
+                  title: Text(
+                    'Prepare Chapter',
+                    style: TextStyle(color: colors.text),
+                  ),
+                  subtitle: Text(
+                    'Pre-synthesize for smooth playback',
+                    style: TextStyle(color: colors.textTertiary),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _startChapterSynthesis(book, chapterIndex, chapter);
+                  },
+                ),
+              
+              // Mark as read/unread
+              ListTile(
+                leading: Icon(
+                  book.completedChapters.contains(chapterIndex)
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: colors.primary,
+                ),
+                title: Text(
+                  book.completedChapters.contains(chapterIndex)
+                      ? 'Mark as Unread'
+                      : 'Mark as Read',
+                  style: TextStyle(color: colors.text),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ref.read(libraryProvider.notifier).toggleChapterComplete(
+                    widget.bookId,
+                    chapterIndex,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _startChapterSynthesis(dynamic book, int chapterIndex, dynamic chapter) async {
+    // Get the voice ID from settings
+    final settings = ref.read(settingsProvider);
+    final voiceId = settings.selectedVoice.isNotEmpty 
+        ? settings.selectedVoice 
+        : 'supertonic_m5';
+    
+    // Parse chapter content to tracks
+    final tracks = _parseChapterToTracks(book.id, chapterIndex, chapter.content);
+    
+    if (tracks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No content to synthesize')),
+      );
+      return;
+    }
+
+    // Show confirmation with estimate
+    final estimate = ref.read(chapterSynthesisProvider.notifier).getEstimate(
+      tracks: tracks,
+      voiceId: voiceId,
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final colors = context.appColors;
+        return AlertDialog(
+          backgroundColor: colors.card,
+          title: Text(
+            'Prepare Chapter?',
+            style: TextStyle(color: colors.text),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This will synthesize all audio for this chapter in the background.',
+                style: TextStyle(color: colors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Icon(Icons.timer_outlined, size: 18, color: colors.textTertiary),
+                  const SizedBox(width: 8),
+                  Text(
+                    estimate?.timeDisplay ?? 'Unknown',
+                    style: TextStyle(color: colors.text),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.storage_outlined, size: 18, color: colors.textTertiary),
+                  const SizedBox(width: 8),
+                  Text(
+                    estimate?.storageDisplay ?? 'Unknown',
+                    style: TextStyle(color: colors.text),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancel', style: TextStyle(color: colors.textTertiary)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Prepare', style: TextStyle(color: colors.primary)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    // Start synthesis
+    ref.read(chapterSynthesisProvider.notifier).startSynthesis(
+      bookId: book.id,
+      chapterIndex: chapterIndex,
+      tracks: tracks,
+      voiceId: voiceId,
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Preparing chapter...')),
+    );
+  }
+
+  List<AudioTrack> _parseChapterToTracks(String bookId, int chapterIndex, String content) {
+    // Use the same segmentation as playback_providers.dart to ensure
+    // cache keys match when synthesizing audio
+    final segments = segmentText(content);
+    
+    return segments.asMap().entries.map((e) => AudioTrack(
+      id: IdGenerator.audioTrackId(bookId, chapterIndex, e.key),
+      text: e.value.text,
+      chapterIndex: chapterIndex,
+      segmentIndex: e.key,
+      estimatedDuration: e.value.estimatedDuration,
+    )).toList();
   }
 }
 

@@ -571,6 +571,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   
   /// Pre-synthesize the first segment of the next chapter in the background.
   /// This runs fire-and-forget to eliminate cold-start delays at chapter boundaries.
+  /// 
+  /// Uses the SynthesisCoordinator with background priority so that current
+  /// chapter playback is always prioritized over pre-synthesis.
   void _preSynthNextChapterFirstSegment({
     required Book book,
     required int currentChapterIndex,
@@ -618,18 +621,36 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           return;
         }
         
-        // Synthesize the first segment
-        final engine = await ref.read(routingEngineProvider.future);
-        final outFile = await cache.fileFor(cacheKey);
+        // Use the SynthesisCoordinator with background priority
+        // This ensures current chapter playback is always prioritized
+        final controller = _controller;
+        if (controller == null) {
+          PlaybackLogger.debug('[NextChapterPresynth] Controller not ready, skipping');
+          return;
+        }
         
-        await engine.synthesizeToFile(SynthRequest(
-          voiceId: voiceId,
+        // Create an AudioTrack for the presynth segment
+        final track = AudioTrack(
+          id: '${book.id}_ch${nextChapterIndex}_seg0_presynth',
           text: firstSegmentText,
-          playbackRate: CacheKeyGenerator.getSynthesisRate(synthRate),
-          outFile: outFile,
-        ));
+          chapterIndex: nextChapterIndex,
+          segmentIndex: 0,
+          bookId: book.id,
+          title: nextChapter.title,
+        );
         
-        PlaybackLogger.info('[NextChapterPresynth] ✓ Pre-synthesized first segment of chapter $nextChapterIndex');
+        // Queue through the coordinator with background priority
+        // This yields to immediate/prefetch requests for current chapter
+        await controller.synthesisCoordinator.queueRange(
+          tracks: [track],
+          voiceId: voiceId,
+          startIndex: 0,
+          endIndex: 1,
+          playbackRate: synthRate,
+          priority: SynthesisPriority.background,
+        );
+        
+        PlaybackLogger.info('[NextChapterPresynth] ✓ Queued first segment of chapter $nextChapterIndex (background priority)');
       } catch (e) {
         // Don't fail silently but don't crash either - this is best-effort
         PlaybackLogger.error('[NextChapterPresynth] Failed to pre-synth next chapter: $e');
