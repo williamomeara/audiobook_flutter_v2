@@ -16,6 +16,7 @@ import '../../app/settings_controller.dart';
 import '../../app/tts_providers.dart';
 import '../../app/voice_preview_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/synthesis_mode_picker.dart';
 import 'package:core_domain/core_domain.dart';
 
 /// Provider for app package info
@@ -186,6 +187,24 @@ class SettingsScreen extends ConsumerWidget {
                                 ),
                               ),
                             ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Synthesis Mode section (Phase 7: Auto-calibration)
+                    _SectionCard(
+                      title: 'Synthesis',
+                      children: [
+                        const SynthesisModePicker(),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          label: 'Show buffer indicator',
+                          subLabel: 'Display buffer status during playback',
+                          trailing: Switch(
+                            value: settings.showBufferIndicator,
+                            onChanged: ref.read(settingsProvider.notifier).setShowBufferIndicator,
                           ),
                         ),
                       ],
