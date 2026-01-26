@@ -76,11 +76,11 @@ Users need a way to compress cached audio to reclaim storage space while preserv
 - [x] Implement abort/cancel support
 - [x] Add compression statistics tracking (CacheCompressionStats class)
 
-### Phase 3: Settings UI
-- [ ] Add "Compress Cache" button in Storage section of settings
-- [ ] Show compression progress dialog
-- [ ] Display space saved after compression
-- [ ] Add option to auto-compress on cache fill (optional, Phase 4)
+### Phase 3: Settings UI ✅
+- [x] Add "Compress Cache" button in Storage section of settings
+- [x] Show compression progress dialog
+- [x] Display space saved after compression
+- [ ] Add option to auto-compress on cache fill (moved to Phase 4)
 
 ### Phase 4: Cache Integration (Future)
 - [ ] Auto-compress old entries when cache approaches limit

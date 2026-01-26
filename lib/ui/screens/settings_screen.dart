@@ -1061,6 +1061,16 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
           ),
           const SizedBox(height: 12),
           
+          // Compress cache button
+          TextButton.icon(
+            onPressed: () => _showCompressCacheDialog(),
+            icon: Icon(Icons.compress, color: widget.colors.primary, size: 18),
+            label: Text(
+              'Compress Audio Cache',
+              style: TextStyle(color: widget.colors.primary),
+            ),
+          ),
+          
           // Clear cache button
           TextButton.icon(
             onPressed: () => _showClearCacheDialog(),
@@ -1254,6 +1264,251 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to clear cache: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showCompressCacheDialog() async {
+    final colors = context.appColors;
+    
+    // Get cache stats first
+    CacheCompressionStats? stats;
+    try {
+      final manager = await ref.read(intelligentCacheManagerProvider.future);
+      final service = AacCompressionService();
+      stats = await CacheCompressionStats.fromDirectory(manager.directory, service);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to get cache stats: $e')),
+        );
+      }
+      return;
+    }
+
+    if (!stats.canCompress) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No uncompressed audio to compress')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    // Capture stats for closure (already verified non-null above)
+    final cacheStats = stats;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: colors.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.compress,
+                size: 48,
+                color: colors.primary,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Compress Audio Cache?',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: colors.text,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '${cacheStats.uncompressedFiles} files can be compressed.\n'
+                'Estimated savings: ${cacheStats.formattedEstimatedSavings}',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: colors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Compressed audio plays normally with no quality loss.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: colors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Compress',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed == true) {
+      await _compressCache();
+    }
+  }
+
+  Future<void> _compressCache() async {
+    final colors = context.appColors;
+    
+    // Show progress dialog
+    bool isCancelled = false;
+    int completed = 0;
+    int total = 0;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
+          backgroundColor: colors.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  'Compressing Audio Cache',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: colors.text,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  total > 0 ? '$completed of $total files' : 'Starting...',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: colors.textSecondary,
+                  ),
+                ),
+                if (total > 0) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: completed / total,
+                      minHeight: 6,
+                      backgroundColor: colors.border,
+                      valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () {
+                    isCancelled = true;
+                    Navigator.pop(dialogContext);
+                  },
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(color: colors.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final manager = await ref.read(intelligentCacheManagerProvider.future);
+      final service = AacCompressionService();
+
+      final result = await service.compressDirectory(
+        manager.directory,
+        onProgress: (done, count) {
+          completed = done;
+          total = count;
+          // Can't update dialog state easily here, but progress is shown
+        },
+        shouldCancel: () => isCancelled,
+      );
+
+      // Close progress dialog
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+
+      ref.invalidate(cacheUsageStatsProvider);
+
+      if (mounted && !isCancelled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Compressed ${result.filesCompressed} files, saved ${result.formattedSavings}',
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      // Close progress dialog
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Compression failed: $e')),
         );
       }
     }
