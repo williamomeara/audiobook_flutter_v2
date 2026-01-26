@@ -1478,7 +1478,6 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
         onProgress: (done, count) {
           completed = done;
           total = count;
-          // Can't update dialog state easily here, but progress is shown
         },
         shouldCancel: () => isCancelled,
       );

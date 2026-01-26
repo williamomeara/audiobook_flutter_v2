@@ -65,7 +65,7 @@ class AacCompressionResult {
 class AacCompressionService {
   AacCompressionService({
     this.bitrate = 64, // 64 kbps - excellent for speech
-    this.sampleRate = 24000, // Match TTS output sample rate
+    this.sampleRate = 44100, // Match TTS output sample rate (must be standard rate)
   });
 
   /// Target bitrate in kbps.
