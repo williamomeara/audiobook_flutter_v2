@@ -1420,68 +1420,95 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
   Future<void> _compressCache() async {
     final colors = context.appColors;
     
-    // Show progress dialog
+    // Show progress dialog with real-time updates
     bool isCancelled = false;
-    int completed = 0;
-    int total = 0;
+    
+    // Create a ValueNotifier to trigger dialog updates
+    final progressNotifier = ValueNotifier<(int, int)>((0, 0));
 
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-          backgroundColor: colors.card,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                Text(
-                  'Compressing Audio Cache',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: colors.text,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: colors.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ValueListenableBuilder<(int, int)>(
+            valueListenable: progressNotifier,
+            builder: (context, progress, child) {
+              final (done, count) = progress;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Show determinate progress if we know the total
+                  if (count > 0)
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: CircularProgressIndicator(
+                        value: done / count,
+                        strokeWidth: 4,
+                        backgroundColor: colors.border,
+                        valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
+                      ),
+                    )
+                  else
+                    const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Compressing Audio Cache',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: colors.text,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  total > 0 ? '$completed of $total files' : 'Starting...',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: colors.textSecondary,
+                  const SizedBox(height: 8),
+                  Text(
+                    count > 0 ? '$done of $count files' : 'Analyzing cache...',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: colors.textSecondary,
+                    ),
                   ),
-                ),
-                if (total > 0) ...[
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: completed / total,
-                      minHeight: 6,
-                      backgroundColor: colors.border,
-                      valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
+                  if (count > 0) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${(done / count * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: colors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: done / count,
+                        minHeight: 6,
+                        backgroundColor: colors.border,
+                        valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () {
+                      isCancelled = true;
+                      Navigator.pop(dialogContext);
+                    },
+                    child: Text(
+                      'Cancel',
+                      style: TextStyle(color: colors.textSecondary),
                     ),
                   ),
                 ],
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () {
-                    isCancelled = true;
-                    Navigator.pop(dialogContext);
-                  },
-                  child: Text(
-                    'Cancel',
-                    style: TextStyle(color: colors.textSecondary),
-                  ),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
@@ -1494,11 +1521,14 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
       final result = await service.compressDirectory(
         manager.directory,
         onProgress: (done, count) {
-          completed = done;
-          total = count;
+          // Update the dialog via ValueNotifier
+          progressNotifier.value = (done, count);
         },
         shouldCancel: () => isCancelled,
       );
+
+      // Dispose notifier
+      progressNotifier.dispose();
 
       // Close progress dialog
       if (mounted && Navigator.canPop(context)) {
@@ -1518,6 +1548,8 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
         );
       }
     } catch (e) {
+      progressNotifier.dispose();
+      
       // Close progress dialog
       if (mounted && Navigator.canPop(context)) {
         Navigator.pop(context);
