@@ -214,7 +214,7 @@ class KokoroAdapter implements AiVoiceEngine {
 
         // Kokoro: load the voice model if not loaded
         if (!_loadedVoices.containsKey(request.voiceId)) {
-          final modelPath = '${_coreDir.path}/kokoro/kokoro_core_v1';
+          final modelPath = _getCoreDir().path;
           TtsLog.info('Loading Kokoro voice from: $modelPath');
           await _loadVoice(request.voiceId, modelPath, 
             speakerId: VoiceIds.kokoroSpeakerId(request.voiceId));
@@ -360,13 +360,14 @@ class KokoroAdapter implements AiVoiceEngine {
   // Private helpers
 
   Directory _getCoreDir() {
-    // New path structure: {coreDir}/kokoro/kokoro_core_v1/
-    return Directory('${_coreDir.path}/kokoro/kokoro_core_v1');
+    // Platform-specific core paths after Phase 1 migration
+    final coreId = Platform.isIOS ? 'kokoro_core_ios_v1' : 'kokoro_core_android_v1';
+    return Directory('${_coreDir.path}/kokoro/$coreId');
   }
 
   String _coreIdFor(CoreSelector selector) {
-    // Simplified to single core
-    return 'kokoro_core_v1';
+    // Platform-specific core IDs
+    return Platform.isIOS ? 'kokoro_core_ios_v1' : 'kokoro_core_android_v1';
   }
 
   Future<void> _initEngine(String corePath) async {

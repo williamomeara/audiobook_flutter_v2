@@ -171,8 +171,9 @@ final kokoroAdapterProvider = FutureProvider<KokoroAdapter?>((ref) async {
   final paths = await ref.read(appPathsProvider.future);
   final granularState = await ref.watch(granularDownloadManagerProvider.future);
   
-  // Check if Kokoro core is ready via granular system
-  final isReady = granularState.cores['kokoro_core_v1']?.isReady ?? false;
+  // Check if any Kokoro core is ready (platform-specific: kokoro_core_android_v1 or kokoro_core_ios_v1)
+  final kokoroCores = granularState.cores.values.where((c) => c.engineType == 'kokoro');
+  final isReady = kokoroCores.any((c) => c.isReady);
   
   if (!isReady) return null;
 
