@@ -51,6 +51,7 @@ class SegmentReadinessTracker {
   void onSynthesisStarted(String key, int index) {
     _readiness[key] ??= {};
     _readiness[key]![index] = SegmentReadiness.synthesizing(index);
+    PlaybackLogger.debug('[SegmentReadinessTracker] onSynthesisStarted: key=$key, index=$index');
     _notify(key);
   }
   
@@ -58,6 +59,7 @@ class SegmentReadinessTracker {
   void onSynthesisComplete(String key, int index) {
     _readiness[key] ??= {};
     _readiness[key]![index] = SegmentReadiness.ready(index);
+    PlaybackLogger.debug('[SegmentReadinessTracker] onSynthesisComplete: key=$key, index=$index');
     _notify(key);
   }
   
@@ -89,7 +91,9 @@ class SegmentReadinessTracker {
   }
   
   void _notify(String key) {
-    if (_controllers[key] != null && !_controllers[key]!.isClosed) {
+    // Ensure controller exists before notifying
+    _controllers[key] ??= StreamController.broadcast();
+    if (!_controllers[key]!.isClosed) {
       _controllers[key]!.add(_readiness[key] ?? {});
     }
   }
@@ -348,10 +352,18 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           // Update Riverpod state when controller state changes
           state = AsyncData(newState);
         },
-        // Wire up segment readiness callback for UI feedback
+        // Wire up segment readiness callbacks for UI feedback
+        onSegmentSynthesisStarted: (bookId, chapterIndex, segmentIndex) {
+          final key = '$bookId:$chapterIndex';
+          SegmentReadinessTracker.instance.onSynthesisStarted(key, segmentIndex);
+          // Force provider refresh to pick up the new state
+          ref.invalidate(segmentReadinessStreamProvider(key));
+        },
         onSegmentSynthesisComplete: (bookId, chapterIndex, segmentIndex) {
           final key = '$bookId:$chapterIndex';
           SegmentReadinessTracker.instance.onSynthesisComplete(key, segmentIndex);
+          // Force provider refresh to pick up the new state
+          ref.invalidate(segmentReadinessStreamProvider(key));
         },
         // Prevent play button flicker during segment transitions
         onPlayIntentOverride: (override) {
@@ -559,6 +571,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   
   /// Pre-synthesize the first segment of the next chapter in the background.
   /// This runs fire-and-forget to eliminate cold-start delays at chapter boundaries.
+  /// 
+  /// Uses the SynthesisCoordinator with background priority so that current
+  /// chapter playback is always prioritized over pre-synthesis.
   void _preSynthNextChapterFirstSegment({
     required Book book,
     required int currentChapterIndex,
@@ -606,18 +621,36 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           return;
         }
         
-        // Synthesize the first segment
-        final engine = await ref.read(routingEngineProvider.future);
-        final outFile = await cache.fileFor(cacheKey);
+        // Use the SynthesisCoordinator with background priority
+        // This ensures current chapter playback is always prioritized
+        final controller = _controller;
+        if (controller == null) {
+          PlaybackLogger.debug('[NextChapterPresynth] Controller not ready, skipping');
+          return;
+        }
         
-        await engine.synthesizeToFile(SynthRequest(
-          voiceId: voiceId,
+        // Create an AudioTrack for the presynth segment
+        final track = AudioTrack(
+          id: '${book.id}_ch${nextChapterIndex}_seg0_presynth',
           text: firstSegmentText,
-          playbackRate: CacheKeyGenerator.getSynthesisRate(synthRate),
-          outFile: outFile,
-        ));
+          chapterIndex: nextChapterIndex,
+          segmentIndex: 0,
+          bookId: book.id,
+          title: nextChapter.title,
+        );
         
-        PlaybackLogger.info('[NextChapterPresynth] ✓ Pre-synthesized first segment of chapter $nextChapterIndex');
+        // Queue through the coordinator with background priority
+        // This yields to immediate/prefetch requests for current chapter
+        await controller.synthesisCoordinator.queueRange(
+          tracks: [track],
+          voiceId: voiceId,
+          startIndex: 0,
+          endIndex: 1,
+          playbackRate: synthRate,
+          priority: SynthesisPriority.background,
+        );
+        
+        PlaybackLogger.info('[NextChapterPresynth] ✓ Queued first segment of chapter $nextChapterIndex (background priority)');
       } catch (e) {
         // Don't fail silently but don't crash either - this is best-effort
         PlaybackLogger.error('[NextChapterPresynth] Failed to pre-synth next chapter: $e');

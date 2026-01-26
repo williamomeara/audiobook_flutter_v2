@@ -91,7 +91,7 @@ class VoiceIds {
   ];
 
   // Kokoro voices (AF = American Female, AM = American Male, BF = British Female, BM = British Male)
-  // Using Kokoro v1.1 multi-lingual model voice names
+  // Using Kokoro v1.0 multi-lingual model voice names
   static const kokoroAfAlloy = 'kokoro_af_alloy';
   static const kokoroAfBella = 'kokoro_af_bella';
   static const kokoroAfNicole = 'kokoro_af_nicole';
@@ -118,8 +118,8 @@ class VoiceIds {
     kokoroBmLewis,
   ];
 
-  /// Speaker ID mapping for Kokoro v1.1 multi-lingual model.
-  /// Based on https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
+  /// Speaker ID mapping for Kokoro v1.0 multi-lingual model.
+  /// Based on https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html
   static const kokoroSpeakerIds = <String, int>{
     kokoroAfAlloy: 0,     // af_alloy - US English Female
     kokoroAfBella: 2,     // af_bella - US English Female

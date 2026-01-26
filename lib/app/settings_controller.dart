@@ -3,6 +3,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:core_domain/core_domain.dart';
 
+/// Synthesis speed mode - how aggressively to synthesize ahead.
+///
+/// These are user preferences that affect buffer behavior:
+/// - Auto: Adapts to device and listening (recommended)
+/// - Performance: Maximum speed, uses more battery
+/// - Efficiency: Minimum resource usage, may pause briefly
+enum SynthesisMode {
+  /// Auto-calibrates based on device capability and demand.
+  /// Saves battery when ahead, speeds up when needed.
+  auto,
+
+  /// Maximum synthesis speed. Uses more battery.
+  /// Good for older devices that need aggressive buffering.
+  performance,
+
+  /// Minimum resource usage. May briefly pause on seeks.
+  /// Good for battery-conscious users.
+  efficiency,
+}
+
 /// Settings state.
 class SettingsState {
   const SettingsState({
@@ -14,6 +34,8 @@ class SettingsState {
     this.cacheQuotaGB = 2.0,
     this.showBookCoverBackground = true,
     this.hapticFeedbackEnabled = true,
+    this.synthesisMode = SynthesisMode.auto,
+    this.showBufferIndicator = true,
   });
 
   /// Whether dark mode is enabled.
@@ -40,6 +62,12 @@ class SettingsState {
   /// Whether haptic feedback is enabled for playback controls.
   final bool hapticFeedbackEnabled;
 
+  /// Synthesis speed mode (auto/performance/efficiency).
+  final SynthesisMode synthesisMode;
+
+  /// Whether to show buffer indicator in playback screen.
+  final bool showBufferIndicator;
+
   SettingsState copyWith({
     bool? darkMode,
     String? selectedVoice,
@@ -49,6 +77,8 @@ class SettingsState {
     double? cacheQuotaGB,
     bool? showBookCoverBackground,
     bool? hapticFeedbackEnabled,
+    SynthesisMode? synthesisMode,
+    bool? showBufferIndicator,
   }) {
     return SettingsState(
       darkMode: darkMode ?? this.darkMode,
@@ -59,6 +89,8 @@ class SettingsState {
       cacheQuotaGB: cacheQuotaGB ?? this.cacheQuotaGB,
       showBookCoverBackground: showBookCoverBackground ?? this.showBookCoverBackground,
       hapticFeedbackEnabled: hapticFeedbackEnabled ?? this.hapticFeedbackEnabled,
+      synthesisMode: synthesisMode ?? this.synthesisMode,
+      showBufferIndicator: showBufferIndicator ?? this.showBufferIndicator,
     );
   }
 }
@@ -73,6 +105,8 @@ class SettingsController extends Notifier<SettingsState> {
   static const _keyCacheQuotaGB = 'cache_quota_gb';
   static const _keyShowBookCoverBackground = 'show_book_cover_background';
   static const _keyHapticFeedbackEnabled = 'haptic_feedback_enabled';
+  static const _keySynthesisMode = 'synthesis_mode';
+  static const _keyShowBufferIndicator = 'show_buffer_indicator';
 
   @override
   SettingsState build() {
@@ -94,7 +128,20 @@ class SettingsController extends Notifier<SettingsState> {
       cacheQuotaGB: (_prefs?.getDouble(_keyCacheQuotaGB) ?? 2.0).clamp(0.5, 4.0),
       showBookCoverBackground: _prefs?.getBool(_keyShowBookCoverBackground) ?? true,
       hapticFeedbackEnabled: _prefs?.getBool(_keyHapticFeedbackEnabled) ?? true,
+      synthesisMode: _parseSynthesisMode(_prefs?.getString(_keySynthesisMode)),
+      showBufferIndicator: _prefs?.getBool(_keyShowBufferIndicator) ?? true,
     );
+  }
+
+  SynthesisMode _parseSynthesisMode(String? value) {
+    switch (value) {
+      case 'performance':
+        return SynthesisMode.performance;
+      case 'efficiency':
+        return SynthesisMode.efficiency;
+      default:
+        return SynthesisMode.auto;
+    }
   }
 
   Future<void> setDarkMode(bool value) async {
@@ -135,6 +182,16 @@ class SettingsController extends Notifier<SettingsState> {
   Future<void> setHapticFeedbackEnabled(bool value) async {
     state = state.copyWith(hapticFeedbackEnabled: value);
     await _prefs?.setBool(_keyHapticFeedbackEnabled, value);
+  }
+
+  Future<void> setSynthesisMode(SynthesisMode mode) async {
+    state = state.copyWith(synthesisMode: mode);
+    await _prefs?.setString(_keySynthesisMode, mode.name);
+  }
+
+  Future<void> setShowBufferIndicator(bool value) async {
+    state = state.copyWith(showBufferIndicator: value);
+    await _prefs?.setBool(_keyShowBufferIndicator, value);
   }
 }
 

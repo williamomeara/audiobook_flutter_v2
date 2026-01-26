@@ -9,6 +9,7 @@ import 'buffer_scheduler.dart';
 import 'playback_config.dart';
 import 'playback_state.dart';
 import 'resource_monitor.dart';
+import 'synthesis/auto_calibration_manager.dart';
 import 'synthesis/synthesis_coordinator.dart';
 
 /// Callback for state changes.
@@ -77,11 +78,13 @@ class AudiobookPlaybackController implements PlaybackController {
     StateCallback? onStateChange,
     ResourceMonitor? resourceMonitor,
     SegmentSynthesisCallback? onSegmentSynthesisComplete,
+    SegmentSynthesisCallback? onSegmentSynthesisStarted,
     PlayIntentOverrideCallback? onPlayIntentOverride,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _resourceMonitor = resourceMonitor,
         _onSegmentSynthesisComplete = onSegmentSynthesisComplete,
+        _onSegmentSynthesisStarted = onSegmentSynthesisStarted,
         _onPlayIntentOverride = onPlayIntentOverride,
         _scheduler = BufferScheduler(resourceMonitor: resourceMonitor),
         _synthesisCoordinator = SynthesisCoordinator(
@@ -112,6 +115,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Callback for segment synthesis complete (for UI feedback).
   final SegmentSynthesisCallback? _onSegmentSynthesisComplete;
+
+  /// Callback for segment synthesis started (for UI feedback).
+  final SegmentSynthesisCallback? _onSegmentSynthesisStarted;
   
   /// Callback to set play intent override (prevents play button flicker).
   final PlayIntentOverrideCallback? _onPlayIntentOverride;
@@ -121,6 +127,12 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Synthesis coordinator - handles all synthesis with deduplication and priority.
   final SynthesisCoordinator _synthesisCoordinator;
+
+  /// Public getter for synthesis coordinator (for pre-synthesis feature).
+  SynthesisCoordinator get synthesisCoordinator => _synthesisCoordinator;
+
+  /// Auto-calibration manager for dynamic concurrency adjustment.
+  AutoCalibrationManager? _autoCalibration;
 
   /// State stream controller.
   final _stateController = StreamController<PlaybackState>.broadcast();
@@ -134,6 +146,7 @@ class AudiobookPlaybackController implements PlaybackController {
   /// Synthesis coordinator subscriptions.
   StreamSubscription<SegmentReadyEvent>? _coordinatorReadySub;
   StreamSubscription<SegmentFailedEvent>? _coordinatorFailedSub;
+  StreamSubscription<SegmentSynthesisStartedEvent>? _coordinatorStartedSub;
 
   /// Completer for waiting on specific segment synthesis (used with coordinator).
   Completer<void>? _waitingForSegmentCompleter;
@@ -158,6 +171,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Whether the controller has been disposed.
   bool _disposed = false;
+  
+  /// Synthesis start times for RTF calculation.
+  final Map<int, DateTime> _synthesisStartTimes = {};
 
   @override
   Stream<PlaybackState> get stateStream => _stateController.stream;
@@ -169,11 +185,87 @@ class AudiobookPlaybackController implements PlaybackController {
     _audioSub = _audioOutput.events.listen(_handleAudioEvent);
     _coordinatorReadySub = _synthesisCoordinator.onSegmentReady.listen(_handleCoordinatorReady);
     _coordinatorFailedSub = _synthesisCoordinator.onSegmentFailed.listen(_handleCoordinatorFailed);
+    _coordinatorStartedSub = _synthesisCoordinator.onSynthesisStarted.listen(_handleCoordinatorStarted);
+    
+    // Initialize auto-calibration system
+    _initializeAutoCalibration();
+  }
+  
+  /// Initialize the auto-calibration system.
+  void _initializeAutoCalibration() {
+    _logger.info('[AutoCalibration] Creating manager with semaphores: ${_synthesisCoordinator.engineSemaphores.keys.toList()}');
+    
+    _autoCalibration = AutoCalibrationManager(
+      engineSemaphores: _synthesisCoordinator.engineSemaphores,
+      getBufferAheadMs: () {
+        // If we're waiting for a segment to synthesize, buffer is effectively 0
+        if (_waitingForSegmentCompleter != null) {
+          return 0;
+        }
+        return _scheduler.estimateBufferedAheadMs(
+          queue: _state.queue,
+          currentIndex: _state.currentIndex,
+          playbackRate: _state.playbackRate,
+        );
+      },
+      getPlaybackRate: () => _state.playbackRate,
+      isPlaying: () => _state.isPlaying,
+    );
+    
+    // Wire up semaphore creation callback to sync with governor
+    _synthesisCoordinator.onSemaphoreCreated = (engineType, semaphore) {
+      _logger.info('[AutoCalibration] New semaphore created for $engineType');
+      _autoCalibration?.registerSemaphore(engineType, semaphore);
+    };
+    
+    // Initialize asynchronously
+    unawaited(_autoCalibration!.initialize().then((_) {
+      _logger.info('[AutoCalibration] Initialized successfully');
+    }).catchError((e, st) {
+      _logger.warning('[AutoCalibration] Failed to initialize: $e\n$st');
+    }));
+  }
+
+  /// Handle segment synthesis started events from the synthesis coordinator.
+  void _handleCoordinatorStarted(SegmentSynthesisStartedEvent event) {
+    _logger.info('[Coordinator] Segment ${event.segmentIndex} synthesis started');
+    
+    // Track start time for RTF calculation
+    _synthesisStartTimes[event.segmentIndex] = DateTime.now();
+    
+    // Notify UI callbacks
+    final bookId = _state.bookId ?? '';
+    final chapterIndex = _state.currentTrack?.chapterIndex ?? 0;
+    _onSegmentSynthesisStarted?.call(bookId, chapterIndex, event.segmentIndex);
   }
 
   /// Handle segment ready events from the synthesis coordinator.
   void _handleCoordinatorReady(SegmentReadyEvent event) {
     _logger.info('[Coordinator] Segment ${event.segmentIndex} ready (cached: ${event.wasFromCache})');
+    
+    // Update buffer scheduler to track this segment as ready
+    // This is especially important for cached segments after app restart
+    unawaited(_scheduler.markSegmentReady(event.segmentIndex));
+    
+    // Record RTF if this was a real synthesis (not cached)
+    if (!event.wasFromCache && _autoCalibration != null) {
+      final startTime = _synthesisStartTimes.remove(event.segmentIndex);
+      if (startTime != null && event.durationMs > 0) {
+        final synthesisTime = DateTime.now().difference(startTime);
+        final audioDuration = Duration(milliseconds: event.durationMs);
+        
+        // Extract engine type from voice ID
+        final voiceId = voiceIdResolver(_state.bookId);
+        final engineType = voiceId.split('_').firstOrNull ?? 'unknown';
+        
+        _autoCalibration!.recordSynthesis(
+          audioDuration: audioDuration,
+          synthesisTime: synthesisTime,
+          engineType: engineType,
+          voiceId: voiceId,
+        );
+      }
+    }
     
     // Notify UI callbacks
     final bookId = _state.bookId ?? '';
@@ -308,6 +400,9 @@ class AudiobookPlaybackController implements PlaybackController {
     final opId = _newOp();
     _playIntent = true;
     _cancelSeekDebounce();
+    
+    // Start auto-calibration monitoring
+    _autoCalibration?.start();
 
     // Already playing this track
     if (_speakingTrackId == _state.currentTrack?.id && !_audioOutput.isPaused) return;
@@ -329,6 +424,9 @@ class AudiobookPlaybackController implements PlaybackController {
     _newOp();
     _playIntent = false;
     _cancelSeekDebounce();
+    
+    // Stop auto-calibration monitoring
+    _autoCalibration?.stop();
 
     // Pause audio instead of stopping - preserves position for resume
     await _audioOutput.pause();
@@ -438,10 +536,12 @@ class AudiobookPlaybackController implements PlaybackController {
   Future<void> dispose() async {
     _disposed = true;
     _cancelSeekDebounce();
+    _autoCalibration?.dispose();
     _scheduler.dispose();
     _synthesisCoordinator.dispose();
     await _coordinatorReadySub?.cancel();
     await _coordinatorFailedSub?.cancel();
+    await _coordinatorStartedSub?.cancel();
     await _audioSub?.cancel();
     await _stateController.close();
     await _audioOutput.dispose();

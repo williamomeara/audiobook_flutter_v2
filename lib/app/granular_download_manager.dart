@@ -75,12 +75,17 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
 
     // Build voice states from manifest
     for (final voice in _manifestService.allVoices) {
+      // Resolve coreRequirements to platform-specific core IDs
+      final resolvedCoreIds = _manifestService.getRequiredCores(voice.id)
+          .map((c) => c.id)
+          .toList();
+      
       voices[voice.id] = VoiceDownloadState(
         voiceId: voice.id,
         displayName: voice.displayName,
         engineId: voice.engineId,
         language: voice.language,
-        requiredCoreIds: voice.coreRequirements,
+        requiredCoreIds: resolvedCoreIds,
         speakerId: voice.speakerId,
         modelKey: voice.modelKey,
       );

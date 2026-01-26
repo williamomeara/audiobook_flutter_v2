@@ -72,6 +72,7 @@ class ManifestService {
 
   /// Resolve a core ID to the platform-specific version if available.
   /// For example, 'supertonic_core_v1' on iOS becomes 'supertonic_core_ios_v1'
+  /// and 'kokoro_core_v1' on Android becomes 'kokoro_core_android_v1'
   CoreRequirement? _resolvePlatformCore(String coreId) {
     // First, try exact match in platform-filtered cores
     if (_coresById.containsKey(coreId)) {
@@ -81,6 +82,15 @@ class ManifestService {
     // For supertonic on iOS, try the iOS-specific core
     if (coreId == 'supertonic_core_v1' && _currentPlatform == 'ios') {
       return _coresById['supertonic_core_ios_v1'];
+    }
+    
+    // For kokoro, resolve to platform-specific cores
+    if (coreId == 'kokoro_core_v1') {
+      if (_currentPlatform == 'android') {
+        return _coresById['kokoro_core_android_v1'];
+      } else if (_currentPlatform == 'ios') {
+        return _coresById['kokoro_core_ios_v1'];
+      }
     }
     
     return null;
