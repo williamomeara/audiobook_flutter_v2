@@ -373,11 +373,15 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
 
                           return GestureDetector(
                             onTap: () {
-                              ref.read(libraryProvider.notifier).updateProgress(
-                                widget.bookId,
-                                index,
-                                0,
-                              );
+                              // Only update progress if changing chapters
+                              // If clicking the current chapter, preserve segment position
+                              if (!isCurrentChapter) {
+                                ref.read(libraryProvider.notifier).updateProgress(
+                                  widget.bookId,
+                                  index,
+                                  0,
+                                );
+                              }
                               context.push('/playback/${widget.bookId}');
                             },
                             onLongPress: () => _showChapterMenu(
