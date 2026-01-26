@@ -77,11 +77,13 @@ class AudiobookPlaybackController implements PlaybackController {
     StateCallback? onStateChange,
     ResourceMonitor? resourceMonitor,
     SegmentSynthesisCallback? onSegmentSynthesisComplete,
+    SegmentSynthesisCallback? onSegmentSynthesisStarted,
     PlayIntentOverrideCallback? onPlayIntentOverride,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _resourceMonitor = resourceMonitor,
         _onSegmentSynthesisComplete = onSegmentSynthesisComplete,
+        _onSegmentSynthesisStarted = onSegmentSynthesisStarted,
         _onPlayIntentOverride = onPlayIntentOverride,
         _scheduler = BufferScheduler(resourceMonitor: resourceMonitor),
         _synthesisCoordinator = SynthesisCoordinator(
@@ -112,6 +114,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Callback for segment synthesis complete (for UI feedback).
   final SegmentSynthesisCallback? _onSegmentSynthesisComplete;
+
+  /// Callback for segment synthesis started (for UI feedback).
+  final SegmentSynthesisCallback? _onSegmentSynthesisStarted;
   
   /// Callback to set play intent override (prevents play button flicker).
   final PlayIntentOverrideCallback? _onPlayIntentOverride;
@@ -134,6 +139,7 @@ class AudiobookPlaybackController implements PlaybackController {
   /// Synthesis coordinator subscriptions.
   StreamSubscription<SegmentReadyEvent>? _coordinatorReadySub;
   StreamSubscription<SegmentFailedEvent>? _coordinatorFailedSub;
+  StreamSubscription<SegmentSynthesisStartedEvent>? _coordinatorStartedSub;
 
   /// Completer for waiting on specific segment synthesis (used with coordinator).
   Completer<void>? _waitingForSegmentCompleter;
@@ -169,6 +175,17 @@ class AudiobookPlaybackController implements PlaybackController {
     _audioSub = _audioOutput.events.listen(_handleAudioEvent);
     _coordinatorReadySub = _synthesisCoordinator.onSegmentReady.listen(_handleCoordinatorReady);
     _coordinatorFailedSub = _synthesisCoordinator.onSegmentFailed.listen(_handleCoordinatorFailed);
+    _coordinatorStartedSub = _synthesisCoordinator.onSynthesisStarted.listen(_handleCoordinatorStarted);
+  }
+
+  /// Handle segment synthesis started events from the synthesis coordinator.
+  void _handleCoordinatorStarted(SegmentSynthesisStartedEvent event) {
+    _logger.info('[Coordinator] Segment ${event.segmentIndex} synthesis started');
+    
+    // Notify UI callbacks
+    final bookId = _state.bookId ?? '';
+    final chapterIndex = _state.currentTrack?.chapterIndex ?? 0;
+    _onSegmentSynthesisStarted?.call(bookId, chapterIndex, event.segmentIndex);
   }
 
   /// Handle segment ready events from the synthesis coordinator.
@@ -442,6 +459,7 @@ class AudiobookPlaybackController implements PlaybackController {
     _synthesisCoordinator.dispose();
     await _coordinatorReadySub?.cancel();
     await _coordinatorFailedSub?.cancel();
+    await _coordinatorStartedSub?.cancel();
     await _audioSub?.cancel();
     await _stateController.close();
     await _audioOutput.dispose();

@@ -26,6 +26,17 @@ class SegmentReadyEvent {
   final bool wasFromCache;
 }
 
+/// Event emitted when synthesis starts for a segment.
+class SegmentSynthesisStartedEvent {
+  const SegmentSynthesisStartedEvent({
+    required this.segmentIndex,
+    required this.cacheKey,
+  });
+
+  final int segmentIndex;
+  final CacheKey cacheKey;
+}
+
 /// Result of a segment synthesis failure.
 class SegmentFailedEvent {
   const SegmentFailedEvent({
@@ -97,6 +108,7 @@ class SynthesisCoordinator {
 
   final _segmentReadyController = StreamController<SegmentReadyEvent>.broadcast();
   final _segmentFailedController = StreamController<SegmentFailedEvent>.broadcast();
+  final _segmentStartedController = StreamController<SegmentSynthesisStartedEvent>.broadcast();
   final _queueEmptyController = StreamController<void>.broadcast();
 
   /// Stream of segments that are ready (either from cache or newly synthesized).
@@ -104,6 +116,9 @@ class SynthesisCoordinator {
 
   /// Stream of segments that failed to synthesize.
   Stream<SegmentFailedEvent> get onSegmentFailed => _segmentFailedController.stream;
+
+  /// Stream of segments that started synthesis (not cached).
+  Stream<SegmentSynthesisStartedEvent> get onSynthesisStarted => _segmentStartedController.stream;
 
   /// Stream that emits when the queue becomes empty.
   Stream<void> get onQueueEmpty => _queueEmptyController.stream;
@@ -344,6 +359,7 @@ class SynthesisCoordinator {
     _clearQueue();
     _segmentReadyController.close();
     _segmentFailedController.close();
+    _segmentStartedController.close();
     _queueEmptyController.close();
   }
 
@@ -432,6 +448,12 @@ class SynthesisCoordinator {
         );
         return;
       }
+
+      // Emit synthesis started event (not from cache, actually synthesizing)
+      _emitSynthesisStarted(
+        segmentIndex: request.segmentIndex,
+        cacheKey: request.cacheKey,
+      );
 
       // Synthesize with timeout
       final result = await engine
@@ -583,6 +605,17 @@ class SynthesisCoordinator {
       cacheKey: cacheKey,
       durationMs: durationMs,
       wasFromCache: wasFromCache,
+    ));
+  }
+
+  void _emitSynthesisStarted({
+    required int segmentIndex,
+    required CacheKey cacheKey,
+  }) {
+    if (_disposed) return;
+    _segmentStartedController.add(SegmentSynthesisStartedEvent(
+      segmentIndex: segmentIndex,
+      cacheKey: cacheKey,
     ));
   }
 
