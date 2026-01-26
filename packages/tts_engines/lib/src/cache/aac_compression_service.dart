@@ -313,3 +313,82 @@ class AacCompressionService {
     );
   }
 }
+
+/// Comprehensive cache compression statistics.
+class CacheCompressionStats {
+  const CacheCompressionStats({
+    required this.uncompressedFiles,
+    required this.uncompressedBytes,
+    required this.compressedFiles,
+    required this.compressedBytes,
+    required this.estimatedSavings,
+  });
+
+  /// Number of uncompressed (WAV) files.
+  final int uncompressedFiles;
+
+  /// Total size of uncompressed files in bytes.
+  final int uncompressedBytes;
+
+  /// Number of compressed (M4A) files.
+  final int compressedFiles;
+
+  /// Total size of compressed files in bytes.
+  final int compressedBytes;
+
+  /// Estimated bytes that could be saved by compressing remaining WAV files.
+  final int estimatedSavings;
+
+  /// Total number of audio files.
+  int get totalFiles => uncompressedFiles + compressedFiles;
+
+  /// Total cache size in bytes.
+  int get totalBytes => uncompressedBytes + compressedBytes;
+
+  /// Whether there are files that can be compressed.
+  bool get canCompress => uncompressedFiles > 0;
+
+  /// Percentage of files that are compressed.
+  double get compressionPercent =>
+      totalFiles > 0 ? (compressedFiles / totalFiles * 100) : 0.0;
+
+  /// Format estimated savings as human-readable string.
+  String get formattedEstimatedSavings =>
+      AacCompressionResult._formatBytes(estimatedSavings);
+
+  /// Format total cache size as human-readable string.
+  String get formattedTotalSize => AacCompressionResult._formatBytes(totalBytes);
+
+  /// Format uncompressed size as human-readable string.
+  String get formattedUncompressedSize =>
+      AacCompressionResult._formatBytes(uncompressedBytes);
+
+  /// Format compressed size as human-readable string.
+  String get formattedCompressedSize =>
+      AacCompressionResult._formatBytes(compressedBytes);
+
+  /// Create stats from a cache directory.
+  static Future<CacheCompressionStats> fromDirectory(
+    Directory cacheDir,
+    AacCompressionService service,
+  ) async {
+    final stats = await service.getCacheStats(cacheDir);
+    final estimatedSavings = await service.estimatePotentialSavings(cacheDir);
+
+    return CacheCompressionStats(
+      uncompressedFiles: stats.wavCount,
+      uncompressedBytes: stats.wavBytes,
+      compressedFiles: stats.m4aCount,
+      compressedBytes: stats.m4aBytes,
+      estimatedSavings: estimatedSavings,
+    );
+  }
+
+  @override
+  String toString() {
+    return 'CacheCompressionStats('
+        'uncompressed: $uncompressedFiles files ($formattedUncompressedSize), '
+        'compressed: $compressedFiles files ($formattedCompressedSize), '
+        'potential savings: $formattedEstimatedSavings)';
+  }
+}

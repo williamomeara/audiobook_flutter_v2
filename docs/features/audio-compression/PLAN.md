@@ -70,11 +70,11 @@ Users need a way to compress cached audio to reclaim storage space while preserv
 - [x] Add compressed file detection to AudioCache (support .m4a files)
 - [x] Implement playableFileFor() for transparent WAV/M4A playback
 
-### Phase 2: Compression Engine
+### Phase 2: Compression Engine ✅
 - [x] Implement WAV to M4A conversion with progress callbacks
 - [x] Add batch compression with concurrency control
 - [x] Implement abort/cancel support
-- [ ] Add compression statistics tracking (space saved)
+- [x] Add compression statistics tracking (CacheCompressionStats class)
 
 ### Phase 3: Settings UI
 - [ ] Add "Compress Cache" button in Storage section of settings
