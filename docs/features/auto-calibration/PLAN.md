@@ -302,18 +302,24 @@ Key behaviors:
 - User can pause to let buffer catch up (manual choice)
 
 Tasks:
-- [ ] Implement `BufferAwarePlayback` - shows buffer status, warns of low buffer
-- [ ] Add `OptionalBuffering` - user can choose to wait for buffer
+- [x] Implement `BufferAwarePlayback` - shows buffer status, warns of low buffer
+- [x] Add `OptionalBuffering` - user can choose to wait for buffer
 - [ ] Create buffer status UI (progress indicator during playback)
 - [ ] Add "Wait for buffer" option in playback controls
 - [ ] Implement "interruption possible" warning (dismissible)
-- [ ] Create pre-synthesis as OPTIONAL feature (not required)
+- [x] Create pre-synthesis as OPTIONAL feature (not required)
 
-### Phase 6: Performance Learning (Week 3)
-- [ ] Create `PerformanceStore` (SQLite/Hive)
-- [ ] Add synthesis performance recording
-- [ ] Implement profile analysis for optimal concurrency
-- [ ] Add voice/engine-specific learned ceilings
+### Phase 6: Performance Learning (Week 3) - DEFERRED
+
+**Decision: Skip for now.** See GitHub Issue #71.
+
+The auto-calibration works without persistent learning:
+- RTFMonitor tracks rolling window during session
+- DeviceCapabilities estimates baseline from core count
+- Can calibrate from scratch each session
+
+If persistent storage is added app-wide (for books, progress, etc.), 
+performance learning can be added then.
 
 ### Phase 7: Settings & UI Integration (Week 3-4)
 - [ ] Add "Synthesis Mode" setting: Auto / Performance / Efficiency
