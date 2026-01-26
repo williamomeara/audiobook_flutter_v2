@@ -287,11 +287,27 @@ class PerformanceStore {
 - [ ] Implement performance warning dialogs (model switch + incapable device)
 
 ### Phase 5: Graceful Degradation (Week 2-3)
-- [ ] Implement `PreSynthesisMode` for incapable devices
-- [ ] Add `GracefulDegradation` strategy selection
-- [ ] Create pre-synthesis UI (chapter view)
-- [ ] Add "buffered mode" startup delay
-- [ ] Create storage for pre-synthesized chapters
+
+**Philosophy: User Choice, Not Forced Waiting**
+
+Everything is optional. Users are NEVER forced to wait. The system provides:
+1. **Information** - Tell users what to expect (possible interruptions, buffer status)
+2. **Options** - Let users choose their preferred experience
+3. **Seamless fallback** - If they choose to wait/buffer, make it smooth
+
+Key behaviors:
+- Play immediately by default (even if interruptions possible)
+- "Buffer first" is OPT-IN, never forced
+- Real-time buffer progress shown during playback
+- User can pause to let buffer catch up (manual choice)
+
+Tasks:
+- [ ] Implement `BufferAwarePlayback` - shows buffer status, warns of low buffer
+- [ ] Add `OptionalBuffering` - user can choose to wait for buffer
+- [ ] Create buffer status UI (progress indicator during playback)
+- [ ] Add "Wait for buffer" option in playback controls
+- [ ] Implement "interruption possible" warning (dismissible)
+- [ ] Create pre-synthesis as OPTIONAL feature (not required)
 
 ### Phase 6: Performance Learning (Week 3)
 - [ ] Create `PerformanceStore` (SQLite/Hive)
@@ -778,29 +794,44 @@ Show this notification when:
 └────────────────────────────────────────────────────────────────┘
 ```
 
-### Pre-Synthesis Mode
+### Pre-Synthesis Mode (OPTIONAL Feature)
 
-For incapable devices, offer a "pre-synthesis" option:
+Pre-synthesis is an OPTIONAL convenience feature, never required:
+- Available as a choice in chapter list
+- User can run it in background while doing other things
+- Useful for users who want guaranteed smooth playback
+- NEVER blocks immediate playback - user can always tap Play
 
 ```dart
-class PreSynthesisMode {
-  /// Synthesize entire chapter(s) before allowing playback
+class OptionalPreSynthesis {
+  /// User chose to pre-synthesize chapter (runs in background)
+  /// This is OPTIONAL - user can play immediately without this
   Future<void> preSynthesizeChapter(
     String bookId,
     int chapterIndex, {
     ProgressCallback? onProgress,
+    CancellationToken? cancel,
   }) async {
     // 1. Calculate total segments in chapter
-    // 2. Synthesize all segments (no playback pressure)
+    // 2. Synthesize all segments at leisure (low priority)
     // 3. Cache results
-    // 4. Mark chapter as "ready for playback"
-    // 5. User can then play without synthesis delay
+    // 4. Mark chapter as "pre-synthesized"
+    // 5. User can still play during this process!
   }
   
-  /// Estimate time to pre-synthesize
+  /// Check if chapter has been pre-synthesized
+  bool isChapterReady(String bookId, int chapterIndex);
+  
+  /// Cancel pre-synthesis in progress
+  void cancelPreSynthesis(String bookId, int chapterIndex);
+  
+  /// Clear pre-synthesized audio to free storage
+  Future<void> clearChapterCache(String bookId, int chapterIndex);
+  
+  /// Estimate time to pre-synthesize (for UI display)
   Duration estimatePreSynthesisTime(int chapterIndex) {
     final segments = _getSegmentCount(chapterIndex);
-    final avgAudioDuration = Duration(seconds: 15); // typical segment
+    final avgAudioDuration = Duration(seconds: 15);
     final rtf = _currentRTF;
     return avgAudioDuration * segments * rtf;
   }
@@ -831,48 +862,163 @@ Add to chapter/book screen:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Graceful Degradation Modes
+### Graceful Degradation Philosophy
 
-For incapable devices, offer multiple fallback strategies:
+**Core Principle: User Choice, Not Forced Waiting**
+
+The system NEVER blocks playback or forces users to wait. Instead it:
+1. **Informs** - Shows buffer status, warns of potential interruptions
+2. **Empowers** - Gives users options (play now, wait for buffer, pre-synthesize)
+3. **Adapts** - Works at maximum capability even on slow devices
+
+**User Experience Modes:**
+
+```dart
+enum UserPreference {
+  playImmediately,   // Default: Start now, show buffer status
+  waitForBuffer,     // User chose to wait until X minutes buffered
+  preSynthesize,     // User chose to pre-synthesize chapter (optional)
+}
+```
+
+**Default Behavior (playImmediately):**
+- Playback starts immediately when user taps play
+- Buffer status shown in UI (e.g., "Buffer: 15s | Building...")
+- If buffer runs out, playback pauses briefly with "Buffering..." message
+- Auto-calibration works to catch up
+- No forced dialogs or gates
+
+**Optional Buffering (waitForBuffer):**
+- User can tap "Wait for buffer" in playback controls
+- Shows progress: "Buffering: 45s / 2min target"
+- User can cancel anytime and start playing
+- Resume button becomes available once target reached
+
+**Optional Pre-Synthesis (preSynthesize):**
+- Available in chapter list as optional action
+- User can pre-synthesize chapters while doing other things
+- Completely optional - never required or suggested as mandatory
+- Useful for users who want offline-like experience
+
+### Buffer Status UI
+
+During playback, show buffer awareness:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  [▶ Playing]                               Buffer: 23s ahead   │
+│  ──────────●──────────────────────────────────────────────────  │
+│  02:34                                              1:24:56    │
+│                                                                 │
+│  Synthesis: ████████░░ (building buffer...)                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Low buffer warning (dismissible toast):
+```
+┌──────────────────────────────────────┐
+│ ⚠️ Low buffer - brief pause possible │
+│ [Dismiss]  [Wait for buffer]         │
+└──────────────────────────────────────┘
+```
+
+### Optional "Wait for Buffer" Flow
+
+User taps "Wait for buffer" from playback controls:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Building Buffer...                          │
+│                                                                 │
+│            ████████████░░░░░░░░░░░░░░░░░░░░                    │
+│                     45s / 2min                                  │
+│                                                                 │
+│  ┌─────────────────┐     ┌─────────────────┐                   │
+│  │   Cancel        │     │   Play Now      │                   │
+│  └─────────────────┘     └─────────────────┘                   │
+│                                                                 │
+│  (Play Now will start with current buffer)                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Pre-Synthesis as Optional Feature
+
+Available in chapter view but NEVER required:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Chapter 5: The Journey Begins                                   │
+├─────────────────────────────────────────────────────────────────┤
+│ [▶ Play Chapter]                                               │
+│                                                                 │
+│ ── Optional ──────────────────────────────────────────────────  │
+│ Pre-synthesize this chapter for smoother playback              │
+│ Est. time: ~12 min | Storage: ~45 MB                           │
+│ [Pre-synthesize in Background]                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+If chapter is already pre-synthesized:
+```
+│ ✓ Chapter pre-synthesized (ready for offline playback)         │
+│ [Clear cached audio]                                            │
+```
+
+### Graceful Degradation Implementation
+
+**Important: These are RECOMMENDATIONS, not requirements.**
+
+The system recommends modes but NEVER enforces them. Users can always tap "Play" immediately.
 
 ```dart
 enum PlaybackMode {
-  realtime,        // Normal: synthesize on-demand
-  preSynthesized,  // Chapter must be pre-synthesized
-  buffered,        // Start playback only after X minutes buffered
-  interruptible,   // Play with warnings about possible interruptions
+  realtime,        // Default: synthesize on-demand, play immediately
+  buffered,        // USER CHOSE to wait for buffer first
+  preSynthesized,  // USER CHOSE to pre-synthesize chapter
 }
 
+// Note: "interruptible" removed - ALL modes are interruptible by default
+// The user just gets informed about potential interruptions, not blocked
+
 class GracefulDegradation {
-  /// Determine best playback mode for device
-  PlaybackMode recommendedMode(SynthesisCapability capability, double rtf) {
+  /// Suggest (not require) a mode based on device capability
+  /// Returns recommendation + reasoning, user makes final choice
+  PlaybackRecommendation suggestMode(SynthesisCapability capability, double rtf) {
     switch (capability) {
       case SynthesisCapability.capable:
-        return PlaybackMode.realtime;
+        return PlaybackRecommendation(
+          suggested: PlaybackMode.realtime,
+          reason: null, // No warning needed
+          showBufferStatus: false,
+        );
       case SynthesisCapability.marginal:
-        // Can work but might stutter at high speeds
-        return PlaybackMode.buffered;
+        return PlaybackRecommendation(
+          suggested: PlaybackMode.realtime, // Still default to play
+          reason: 'Buffer may run low at high playback speeds',
+          showBufferStatus: true, // Show buffer indicator
+          offerWaitForBuffer: true,
+        );
       case SynthesisCapability.incapable:
-        // Can't keep up - need pre-synthesis
-        // Note: Higher RTF = slower synthesis (RTF 2.0 means synthesis takes 2x playback time)
-        if (rtf < 2.0) {
-          // Slow but not terribly slow - might work with interruptions
-          return PlaybackMode.interruptible;
-        }
-        // Very slow (RTF > 2.0) - must pre-synthesize
-        return PlaybackMode.preSynthesized;
+        return PlaybackRecommendation(
+          suggested: PlaybackMode.realtime, // STILL default to play!
+          reason: 'Brief pauses may occur while synthesizing',
+          showBufferStatus: true,
+          offerWaitForBuffer: true,
+          offerPreSynthesize: true,
+        );
     }
   }
+}
+
+class PlaybackRecommendation {
+  final PlaybackMode suggested;
+  final String? reason;          // Warning text (dismissible)
+  final bool showBufferStatus;   // Show buffer indicator in player
+  final bool offerWaitForBuffer; // Show "Wait for buffer" option
+  final bool offerPreSynthesize; // Show pre-synthesize in chapter view
   
-  /// Minimum buffer before starting playback in buffered mode
-  Duration minimumBufferForMode(PlaybackMode mode, double rtf) {
-    switch (mode) {
-      case PlaybackMode.realtime: return Duration.zero;
-      case PlaybackMode.buffered: return Duration(minutes: 2);
-      case PlaybackMode.interruptible: return Duration(seconds: 30);
-      case PlaybackMode.preSynthesized: return Duration.zero; // Chapter done
-    }
-  }
+  // User can ALWAYS override and play immediately
+  bool get canPlayImmediately => true;  // Always true!
 }
 ```
 
