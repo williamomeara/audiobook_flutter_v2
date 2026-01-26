@@ -11,6 +11,7 @@ export 'src/cache/audio_cache.dart';
 export 'src/cache/cache_entry_metadata.dart';
 export 'src/cache/intelligent_cache_manager.dart';
 export 'src/cache/cache_compression.dart';
+export 'src/cache/aac_compression_service.dart';
 export 'src/adapters/routing_engine.dart';
 export 'src/adapters/kokoro_adapter.dart';
 export 'src/adapters/piper_adapter.dart';

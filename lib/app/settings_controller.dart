@@ -36,6 +36,7 @@ class SettingsState {
     this.hapticFeedbackEnabled = true,
     this.synthesisMode = SynthesisMode.auto,
     this.showBufferIndicator = true,
+    this.compressOnSynthesize = true,
   });
 
   /// Whether dark mode is enabled.
@@ -68,6 +69,9 @@ class SettingsState {
   /// Whether to show buffer indicator in playback screen.
   final bool showBufferIndicator;
 
+  /// Whether to automatically compress audio after synthesis (saves ~90% space).
+  final bool compressOnSynthesize;
+
   SettingsState copyWith({
     bool? darkMode,
     String? selectedVoice,
@@ -79,6 +83,7 @@ class SettingsState {
     bool? hapticFeedbackEnabled,
     SynthesisMode? synthesisMode,
     bool? showBufferIndicator,
+    bool? compressOnSynthesize,
   }) {
     return SettingsState(
       darkMode: darkMode ?? this.darkMode,
@@ -91,6 +96,7 @@ class SettingsState {
       hapticFeedbackEnabled: hapticFeedbackEnabled ?? this.hapticFeedbackEnabled,
       synthesisMode: synthesisMode ?? this.synthesisMode,
       showBufferIndicator: showBufferIndicator ?? this.showBufferIndicator,
+      compressOnSynthesize: compressOnSynthesize ?? this.compressOnSynthesize,
     );
   }
 }
@@ -107,6 +113,7 @@ class SettingsController extends Notifier<SettingsState> {
   static const _keyHapticFeedbackEnabled = 'haptic_feedback_enabled';
   static const _keySynthesisMode = 'synthesis_mode';
   static const _keyShowBufferIndicator = 'show_buffer_indicator';
+  static const _keyCompressOnSynthesize = 'compress_on_synthesize';
 
   @override
   SettingsState build() {
@@ -130,6 +137,7 @@ class SettingsController extends Notifier<SettingsState> {
       hapticFeedbackEnabled: _prefs?.getBool(_keyHapticFeedbackEnabled) ?? true,
       synthesisMode: _parseSynthesisMode(_prefs?.getString(_keySynthesisMode)),
       showBufferIndicator: _prefs?.getBool(_keyShowBufferIndicator) ?? true,
+      compressOnSynthesize: _prefs?.getBool(_keyCompressOnSynthesize) ?? true,
     );
   }
 
@@ -192,6 +200,11 @@ class SettingsController extends Notifier<SettingsState> {
   Future<void> setShowBufferIndicator(bool value) async {
     state = state.copyWith(showBufferIndicator: value);
     await _prefs?.setBool(_keyShowBufferIndicator, value);
+  }
+
+  Future<void> setCompressOnSynthesize(bool value) async {
+    state = state.copyWith(compressOnSynthesize: value);
+    await _prefs?.setBool(_keyCompressOnSynthesize, value);
   }
 }
 

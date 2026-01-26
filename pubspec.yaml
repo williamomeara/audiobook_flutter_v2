@@ -55,6 +55,9 @@ dependencies:
   # Permissions
   permission_handler: ^12.0.1
   
+  # Audio compression (native codec for cache compression)
+  flutter_audio_toolkit: ^1.0.0
+  
   # Local packages
   core_domain:
     path: packages/core_domain

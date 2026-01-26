@@ -607,7 +607,12 @@ class AudiobookPlaybackController implements PlaybackController {
       playbackRate: CacheKeyGenerator.getSynthesisRate(effectiveRate),
     );
     
-    final file = await cache.fileFor(cacheKey);
+    // Use playableFileFor to get either M4A (compressed) or WAV (uncompressed)
+    final file = await cache.playableFileFor(cacheKey);
+    if (file == null) {
+      _logger.severe('[Coordinator] No playable file found for cache key');
+      return;
+    }
     
     _speakingTrackId = track.id;
     _updateState(_state.copyWith(isBuffering: false));

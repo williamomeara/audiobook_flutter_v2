@@ -5,8 +5,11 @@ publish_to: 'none'
 
 environment:
   sdk: ^3.7.0
+  flutter: ">=3.32.0"
 
 dependencies:
+  flutter:
+    sdk: flutter
   core_domain:
     path: ../core_domain
   platform_android_tts:
@@ -18,7 +21,9 @@ dependencies:
   opus_dart: ^3.0.1
   opus_flutter: ^3.0.3
   logging: ^1.2.0
+  flutter_audio_toolkit: ^1.0.0
 
 dev_dependencies:
-  test: ^1.25.0
+  flutter_test:
+    sdk: flutter
   flutter_lints: ^5.0.0
