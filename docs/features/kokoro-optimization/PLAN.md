@@ -12,6 +12,15 @@ This document outlines a plan to upgrade Kokoro TTS implementation to use platfo
   - Added `kokoro_core_ios_v1` for iOS (still using sherpa-onnx)
   - Updated ManifestService for platform-specific core resolution
 - ✅ **Fix**: Resolved platform-specific core IDs in voice state (commit: 341b971)
+- ✅ **Fix**: Updated kokoroAdapterProvider to check by engineType instead of generic core ID
+  - `kokoroAdapterProvider` was checking for non-existent `kokoro_core_v1`
+  - Now checks for any core with `engineType == 'kokoro'`, matching the Piper pattern
+  - Fix in `lib/app/tts_providers.dart`
+- ✅ **Fix**: Updated KokoroAdapter to use platform-specific core paths
+  - `_getCoreDir()` now returns `kokoro_core_android_v1` on Android, `kokoro_core_ios_v1` on iOS
+  - `_coreIdFor()` returns platform-specific IDs
+  - Model loading path now uses `_getCoreDir()` instead of hardcoded path
+  - Fix in `packages/tts_engines/lib/src/adapters/kokoro_adapter.dart`
 
 ### In Progress
 - 🔄 **Phase 2**: iOS MLX/CoreML Integration (detailed below)
