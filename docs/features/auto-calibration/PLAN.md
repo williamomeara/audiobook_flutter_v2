@@ -277,14 +277,23 @@ class PerformanceStore {
 - [ ] Add iOS equivalent (or use reasonable defaults)
 - [ ] Set per-device concurrency ceilings
 
-### Phase 4: Performance Learning (Week 2-3)
+### Phase 4: RTF Monitoring & Recommendations (Week 2)
+- [ ] Create `RTFMonitor` class with rolling window
+- [ ] Create `PerformanceAdvisor` with recommendation logic
+- [ ] Define model speed tiers in `ModelCatalog`
+- [ ] Create `VoiceCompatibilityEstimator` for proactive warnings
+- [ ] Wire RTF recording into synthesis callbacks
+
+### Phase 5: Performance Learning (Week 2-3)
 - [ ] Create `PerformanceStore` (SQLite/Hive)
 - [ ] Add synthesis performance recording
 - [ ] Implement profile analysis for optimal concurrency
 - [ ] Add voice/engine-specific learned ceilings
 
-### Phase 5: Settings Integration (Week 3)
+### Phase 6: Settings & UI Integration (Week 3)
 - [ ] Add "Synthesis Mode" setting: Auto / Performance / Efficiency
+- [ ] Add performance warning dialog UI
+- [ ] Update voice picker with compatibility indicators
 - [ ] Update settings UI
 - [ ] Wire modes to DemandController behavior
 - [ ] Remove old calibration UI (or mark as "Advanced")
@@ -491,6 +500,239 @@ Stalls today: 0
 
 ---
 
+## Feature 5: RTF Monitoring & Model Recommendation
+
+### Description
+Track overall Real-Time Factor (RTF) and warn users when their current engine/voice is too slow for their device, prompting a switch to a faster model.
+
+### RTF Calculation
+
+```dart
+class RTFMonitor {
+  final _samples = <RTFSample>[];
+  final int windowSize = 50; // Last 50 segments
+  
+  void recordSynthesis({
+    required Duration audioDuration,  // How long the audio plays
+    required Duration synthesisTime,  // How long synthesis took
+    required int concurrency,         // Active slots during synthesis
+  }) {
+    // Effective RTF considering parallelism
+    // RTF < 1.0 means faster than realtime
+    final rtf = synthesisTime.inMilliseconds / audioDuration.inMilliseconds;
+    _samples.add(RTFSample(rtf: rtf, concurrency: concurrency, timestamp: DateTime.now()));
+    if (_samples.length > windowSize) _samples.removeAt(0);
+  }
+  
+  // Overall RTF across window
+  double get overallRTF => _samples.isEmpty ? 0 : _samples.map((s) => s.rtf).average;
+  
+  // Effective throughput: RTF adjusted for concurrency
+  // 2 concurrent at RTF 0.8 = effective 0.4 RTF
+  double get effectiveRTF {
+    if (_samples.isEmpty) return 0;
+    final avgConcurrency = _samples.map((s) => s.concurrency).average;
+    return overallRTF / avgConcurrency;
+  }
+  
+  // Can we keep up at current playback speed?
+  bool canMaintainPlayback(double playbackRate) {
+    // Need effective RTF < 1/playbackRate to not fall behind
+    // At 1.5x playback, need RTF < 0.67
+    // Add 20% safety margin
+    return effectiveRTF < (1.0 / playbackRate) * 0.8;
+  }
+  
+  // Estimate max sustainable playback speed
+  double get maxSustainableSpeed {
+    if (effectiveRTF <= 0) return 3.0; // Unknown, assume good
+    return (1.0 / effectiveRTF) * 0.8; // With 20% margin
+  }
+}
+```
+
+### Performance Thresholds
+
+```
+Effective RTF    Status              Action
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+< 0.5           EXCELLENT            Silent, optimal performance
+0.5 - 0.8       GOOD                 Silent, adequate headroom
+0.8 - 1.0       MARGINAL             Internal flag, no user warning yet
+1.0 - 1.2       STRUGGLING           Log warning, prepare recommendation
+> 1.2           UNSUSTAINABLE        Show user recommendation
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Model Speed Tiers
+
+Define engine/voice speed tiers for recommendations:
+
+```dart
+enum ModelSpeedTier {
+  fast,      // Piper: small models, < 0.3 RTF typical
+  medium,    // Piper: medium models, Kokoro small voices
+  slow,      // Kokoro: full quality voices
+  premium,   // Supertonic: highest quality, slowest
+}
+
+class ModelCatalog {
+  static ModelSpeedTier getTier(String engineId, String voiceId) {
+    if (engineId == 'piper') {
+      if (voiceId.contains('-low') || voiceId.contains('-small')) return ModelSpeedTier.fast;
+      return ModelSpeedTier.medium;
+    }
+    if (engineId == 'kokoro') {
+      return ModelSpeedTier.slow;
+    }
+    if (engineId == 'supertonic') {
+      return ModelSpeedTier.premium;
+    }
+    return ModelSpeedTier.medium;
+  }
+  
+  static List<AlternativeVoice> getFasterAlternatives(String engineId, String voiceId) {
+    final currentTier = getTier(engineId, voiceId);
+    // Return voices from faster tiers with similar characteristics
+    // (same language, similar gender/style if possible)
+  }
+}
+```
+
+### Recommendation Logic
+
+```dart
+class PerformanceAdvisor {
+  final RTFMonitor _rtfMonitor;
+  final String currentEngineId;
+  final String currentVoiceId;
+  
+  // Called periodically during playback
+  PerformanceRecommendation? checkPerformance(double playbackRate) {
+    final effectiveRTF = _rtfMonitor.effectiveRTF;
+    
+    // Only recommend if we've collected enough data
+    if (_rtfMonitor.sampleCount < 10) return null;
+    
+    // Check if we can maintain current playback rate
+    if (_rtfMonitor.canMaintainPlayback(playbackRate)) {
+      return null; // All good
+    }
+    
+    // Check if we've already maxed out concurrency
+    if (!_hasHeadroomToScale()) {
+      // Can't scale up anymore - recommend model change
+      return PerformanceRecommendation(
+        type: RecommendationType.switchModel,
+        reason: _buildReason(effectiveRTF, playbackRate),
+        alternatives: ModelCatalog.getFasterAlternatives(currentEngineId, currentVoiceId),
+        maxSustainableSpeed: _rtfMonitor.maxSustainableSpeed,
+      );
+    }
+    
+    // Still have room to scale - let DemandController handle it
+    return null;
+  }
+  
+  String _buildReason(double rtf, double playbackRate) {
+    if (playbackRate > 1.0) {
+      return 'Your device cannot synthesize ${currentVoiceId} fast enough for ${playbackRate}x playback.';
+    }
+    return 'Your device is struggling to keep up with ${currentVoiceId}.';
+  }
+  
+  bool _hasHeadroomToScale() {
+    // Check if we can increase concurrency
+    return currentConcurrency < maxConcurrency;
+  }
+}
+```
+
+### User Warning UI
+
+Only show after:
+1. At least 10 segments synthesized (reliable data)
+2. Already at maximum concurrency (can't scale up more)
+3. Effective RTF > 1.2 (clearly unsustainable)
+4. User hasn't dismissed this warning in current session
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  ⚠️ Performance Notice                                         │
+├────────────────────────────────────────────────────────────────┤
+│  Your device is having trouble keeping up with                 │
+│  the "Kokoro - Sarah" voice at 1.5x speed.                    │
+│                                                                │
+│  Suggestions:                                                  │
+│  • Switch to "Piper - Lessac" (faster)                        │
+│  • Reduce playback speed to 1.0x                              │
+│  • Let the app buffer ahead before playing                    │
+│                                                                │
+│  Current performance: 1.3x realtime (need <1.0x)              │
+│                                                                │
+│  ┌──────────────────┐  ┌───────────────┐                      │
+│  │  Switch Voice    │  │   Dismiss     │                      │
+│  └──────────────────┘  └───────────────┘                      │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### When NOT to Show Warning
+
+1. **Paused playback**: User might be doing other things
+2. **Initial buffering**: Haven't collected enough data yet
+3. **After recent seek**: Temporary spike, wait for recovery
+4. **User already acknowledged**: Don't nag, once per session max
+5. **Already switching to faster model**: In transition
+
+### Proactive Prevention
+
+Before user even starts a book, estimate compatibility:
+
+```dart
+class VoiceCompatibilityEstimator {
+  // Based on learned performance profiles and device capabilities
+  Future<VoiceCompatibility> estimateCompatibility(
+    String engineId, 
+    String voiceId,
+    double intendedPlaybackSpeed,
+  ) async {
+    final profile = await _performanceStore.getProfile(engineId, voiceId);
+    final device = await DeviceCapabilities.detect();
+    
+    if (profile == null) {
+      // No data - return unknown
+      return VoiceCompatibility.unknown;
+    }
+    
+    final estimatedRTF = profile.expectedRTF / device.recommendedMaxConcurrency;
+    final required = 1.0 / intendedPlaybackSpeed;
+    
+    if (estimatedRTF < required * 0.7) return VoiceCompatibility.excellent;
+    if (estimatedRTF < required) return VoiceCompatibility.good;
+    if (estimatedRTF < required * 1.2) return VoiceCompatibility.marginal;
+    return VoiceCompatibility.tooSlow;
+  }
+}
+```
+
+### Settings Voice Picker Enhancement
+
+Show estimated compatibility in voice picker:
+
+```
+┌─────────────────────────────────────────────┐
+│ Select Voice                                │
+├─────────────────────────────────────────────┤
+│ Kokoro - Sarah         ⚡ Great for 2x      │
+│ Kokoro - Adam          ⚡ Great for 2x      │
+│ Piper - Lessac         ⚡⚡ Great for 3x     │
+│ Piper - Alan           ⚡⚡ Great for 3x     │
+│ Supertonic - Premium   ⚠️ Best at 1x        │
+└─────────────────────────────────────────────┘
+```
+
+---
+
 ## Success Criteria
 
 1. **Zero user-visible stalls** during normal playback
@@ -498,6 +740,7 @@ Stalls today: 0
 3. **Battery usage ≤ current** in typical scenarios
 4. **Smooth recovery** from seeks and speed changes
 5. **Device stays cool** during extended listening
+6. **Proactive guidance** when voice is too slow for device
 
 ---
 
@@ -526,10 +769,15 @@ Stalls today: 0
 - `packages/playback/lib/src/synthesis/device_capabilities.dart`
 - `packages/playback/lib/src/synthesis/performance_store.dart`
 - `packages/playback/lib/src/synthesis/dynamic_semaphore.dart`
+- `packages/playback/lib/src/synthesis/rtf_monitor.dart`
+- `packages/playback/lib/src/synthesis/performance_advisor.dart`
+- `packages/playback/lib/src/synthesis/model_catalog.dart`
+- `lib/ui/widgets/performance_warning_dialog.dart`
 
 ### Modified Files
-- `packages/playback/lib/src/synthesis/synthesis_coordinator.dart` - Use DynamicSemaphore
+- `packages/playback/lib/src/synthesis/synthesis_coordinator.dart` - Use DynamicSemaphore, record RTF
 - `packages/playback/lib/src/synthesis/semaphore.dart` - Enhance or replace
 - `packages/playback/lib/playback_config.dart` - Add synthesis mode enum
-- `lib/ui/screens/settings_screen.dart` - Add synthesis mode picker
-- `lib/app/playback_providers.dart` - Wire up DemandController
+- `lib/ui/screens/settings_screen.dart` - Add synthesis mode picker, voice compatibility
+- `lib/ui/widgets/voice_picker.dart` - Add compatibility indicators
+- `lib/app/playback_providers.dart` - Wire up DemandController, RTFMonitor
