@@ -7,16 +7,17 @@ enum ModelSpeedTier {
   /// Typical RTF < 0.3 on modern devices.
   fast,
 
-  /// Medium speed models (Piper medium, Kokoro compact).
+  /// Medium speed models (Piper medium, Supertonic).
   /// Typical RTF 0.3-0.6 on modern devices.
   medium,
 
-  /// Slower models (Kokoro full quality).
+  /// Slower models (higher quality).
   /// Typical RTF 0.5-1.0 on modern devices.
   slow,
 
-  /// Premium quality, slowest (Supertonic).
-  /// Typical RTF 0.8-1.5+ on modern devices.
+  /// Highest quality, slowest (Kokoro).
+  /// Typical RTF 0.8-2.0+ on modern devices.
+  /// Kokoro uses large neural network models.
   premium,
 }
 
@@ -35,7 +36,7 @@ extension ModelSpeedTierProperties on ModelSpeedTier {
         ModelSpeedTier.fast => '< 0.3x',
         ModelSpeedTier.medium => '0.3-0.6x',
         ModelSpeedTier.slow => '0.5-1.0x',
-        ModelSpeedTier.premium => '0.8-1.5x',
+        ModelSpeedTier.premium => '0.8-2.0x',
       };
 
   /// Expected typical RTF (midpoint of range).
@@ -43,7 +44,7 @@ extension ModelSpeedTierProperties on ModelSpeedTier {
         ModelSpeedTier.fast => 0.2,
         ModelSpeedTier.medium => 0.45,
         ModelSpeedTier.slow => 0.75,
-        ModelSpeedTier.premium => 1.1,
+        ModelSpeedTier.premium => 1.4,
       };
 
   /// Maximum recommended playback speed for this tier.
@@ -129,15 +130,14 @@ class ModelCatalog {
       return ModelSpeedTier.medium;
     }
 
-    // Kokoro voices
+    // Kokoro voices - slowest due to large neural network models
     if (engine == 'kokoro') {
-      // All Kokoro voices are considered "slow" (high quality)
-      return ModelSpeedTier.slow;
+      return ModelSpeedTier.premium;
     }
 
-    // Supertonic voices
+    // Supertonic voices - faster than Kokoro
     if (engine == 'supertonic') {
-      return ModelSpeedTier.premium;
+      return ModelSpeedTier.medium;
     }
 
     // Unknown engine - assume medium
@@ -244,12 +244,13 @@ class ModelCatalog {
   ];
 
   // Known Kokoro voices (subset for demonstration)
+  // Kokoro is the slowest engine - premium tier
   static const List<VoiceInfo> _kokoroVoices = [
     VoiceInfo(
       voiceId: 'kokoro_af_bella',
       engineType: 'kokoro',
       displayName: 'Bella',
-      tier: ModelSpeedTier.slow,
+      tier: ModelSpeedTier.premium,
       language: 'en',
       accent: 'US',
       gender: 'female',
@@ -258,7 +259,7 @@ class ModelCatalog {
       voiceId: 'kokoro_af_sarah',
       engineType: 'kokoro',
       displayName: 'Sarah',
-      tier: ModelSpeedTier.slow,
+      tier: ModelSpeedTier.premium,
       language: 'en',
       accent: 'US',
       gender: 'female',
@@ -267,7 +268,7 @@ class ModelCatalog {
       voiceId: 'kokoro_am_adam',
       engineType: 'kokoro',
       displayName: 'Adam',
-      tier: ModelSpeedTier.slow,
+      tier: ModelSpeedTier.premium,
       language: 'en',
       accent: 'US',
       gender: 'male',
@@ -275,12 +276,13 @@ class ModelCatalog {
   ];
 
   // Known Supertonic voices (placeholder)
+  // Supertonic is faster than Kokoro - medium tier
   static const List<VoiceInfo> _supertonicVoices = [
     VoiceInfo(
-      voiceId: 'supertonic_premium',
+      voiceId: 'supertonic_default',
       engineType: 'supertonic',
-      displayName: 'Premium Voice',
-      tier: ModelSpeedTier.premium,
+      displayName: 'Supertonic Voice',
+      tier: ModelSpeedTier.medium,
       language: 'en',
     ),
   ];
