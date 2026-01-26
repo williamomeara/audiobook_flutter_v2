@@ -2,30 +2,39 @@ import 'device_capabilities.dart';
 import 'model_catalog.dart';
 import 'rtf_monitor.dart';
 
-/// Type of performance recommendation.
+/// Type of performance suggestion.
+///
+/// These are SUGGESTIONS shown to the user, never forced requirements.
+/// Users can always ignore suggestions and play immediately.
 enum RecommendationType {
-  /// Switch to a faster voice/model.
+  /// Suggest switching to a faster voice/model.
   switchModel,
 
-  /// Reduce playback speed.
+  /// Suggest reducing playback speed for smoother experience.
   reduceSpeed,
 
-  /// Enable pre-synthesis mode.
-  preSynthesize,
+  /// Offer pre-synthesis as an optional convenience.
+  /// This is NEVER required - user can always play immediately.
+  offerPreSynthesis,
 
-  /// Increase buffer before starting playback.
-  increaseBuffer,
+  /// Offer waiting for buffer to build as an option.
+  /// This is NEVER required - user can always play immediately.
+  offerBuffering,
 
-  /// No recommendation needed - performance is fine.
+  /// No suggestion needed - performance is fine.
   none,
 }
 
-/// A recommendation for improving synthesis performance.
+/// A suggestion for improving synthesis performance.
+///
+/// **Important: These are suggestions, not requirements.**
+/// Users can ALWAYS ignore suggestions and play immediately.
+/// The UI should present these as options, not gates.
 class PerformanceRecommendation {
-  /// Type of recommendation.
+  /// Type of suggestion.
   final RecommendationType type;
 
-  /// Human-readable reason for the recommendation.
+  /// Human-readable reason for the suggestion.
   final String reason;
 
   /// Faster alternative voices (for switchModel).
@@ -37,8 +46,9 @@ class PerformanceRecommendation {
   /// Maximum sustainable playback speed.
   final double maxSustainableSpeed;
 
-  /// Whether this is urgent (about to fail).
-  final bool isUrgent;
+  /// Whether this suggestion is strongly encouraged.
+  /// Even when true, user can still dismiss and play immediately.
+  final bool isStrongSuggestion;
 
   const PerformanceRecommendation({
     required this.type,
@@ -46,10 +56,10 @@ class PerformanceRecommendation {
     this.alternatives = const [],
     required this.currentRTF,
     required this.maxSustainableSpeed,
-    this.isUrgent = false,
+    this.isStrongSuggestion = false,
   });
 
-  /// No recommendation needed.
+  /// No suggestion needed.
   static const none = PerformanceRecommendation(
     type: RecommendationType.none,
     reason: 'Performance is adequate',
@@ -57,13 +67,17 @@ class PerformanceRecommendation {
     maxSustainableSpeed: 3.0,
   );
 
+  /// User can ALWAYS choose to play immediately regardless of suggestion.
+  bool get canPlayImmediately => true;
+
   Map<String, dynamic> toJson() => {
         'type': type.name,
         'reason': reason,
         'alternativeCount': alternatives.length,
         'currentRTF': currentRTF.toStringAsFixed(3),
         'maxSustainableSpeed': maxSustainableSpeed.toStringAsFixed(1),
-        'isUrgent': isUrgent,
+        'isStrongSuggestion': isStrongSuggestion,
+        'canPlayImmediately': canPlayImmediately,
       };
 }
 
@@ -141,7 +155,7 @@ class PerformanceAdvisor {
     }
 
     // We're at max concurrency and still struggling
-    final isUrgent = stats.p95 > 1.2;
+    final isStrongSuggestion = stats.p95 > 1.2;
 
     // Check for faster alternatives
     final alternatives = ModelCatalog.getFasterAlternatives(
@@ -156,7 +170,7 @@ class PerformanceAdvisor {
         alternatives: alternatives,
         currentRTF: stats.p95,
         maxSustainableSpeed: stats.maxSustainableRate,
-        isUrgent: isUrgent,
+        isStrongSuggestion: isStrongSuggestion,
       );
     }
 
@@ -167,38 +181,38 @@ class PerformanceAdvisor {
         reason: _buildReduceSpeedReason(stats, playbackRate),
         currentRTF: stats.p95,
         maxSustainableSpeed: stats.maxSustainableRate,
-        isUrgent: isUrgent,
+        isStrongSuggestion: isStrongSuggestion,
       );
     }
 
-    // Already at 1x and fastest voice - suggest pre-synthesis
+    // Already at 1x and fastest voice - offer pre-synthesis as option
     return PerformanceRecommendation(
-      type: RecommendationType.preSynthesize,
-      reason: _buildPreSynthesizeReason(stats),
+      type: RecommendationType.offerPreSynthesis,
+      reason: _buildOfferPreSynthesisReason(stats),
       currentRTF: stats.p95,
       maxSustainableSpeed: stats.maxSustainableRate,
-      isUrgent: isUrgent,
+      isStrongSuggestion: isStrongSuggestion,
     );
   }
 
   String _buildSwitchModelReason(RTFStatistics stats, double playbackRate) {
     if (playbackRate > 1.0) {
-      return 'Your device cannot synthesize "$currentVoiceId" fast enough '
-          'for ${playbackRate}x playback. Consider switching to a faster voice.';
+      return 'Your device may have trouble synthesizing "$currentVoiceId" fast enough '
+          'for ${playbackRate}x playback. A faster voice could help.';
     }
-    return 'Your device is struggling to keep up with "$currentVoiceId". '
-        'A faster voice will provide smoother playback.';
+    return 'Your device is working hard to keep up with "$currentVoiceId". '
+        'A faster voice might provide smoother playback.';
   }
 
   String _buildReduceSpeedReason(RTFStatistics stats, double playbackRate) {
     final maxSpeed = stats.maxSustainableRate;
-    return 'This voice can sustain up to ${maxSpeed.toStringAsFixed(1)}x playback '
-        'on your device. Consider reducing speed from ${playbackRate}x.';
+    return 'This voice works best up to ${maxSpeed.toStringAsFixed(1)}x on your device. '
+        'Reducing speed from ${playbackRate}x may help.';
   }
 
-  String _buildPreSynthesizeReason(RTFStatistics stats) {
-    return 'Your device needs to pre-synthesize chapters before playback. '
-        'This ensures smooth listening without interruptions.';
+  String _buildOfferPreSynthesisReason(RTFStatistics stats) {
+    return 'Brief pauses may occur during playback. '
+        'You can optionally pre-synthesize chapters for guaranteed smooth listening.';
   }
 }
 
