@@ -94,8 +94,9 @@ Future<void> main() async {
   // This reads dark_mode from SharedPreferences before rendering.
   final initialDarkMode = await QuickSettingsService.initialize();
 
-  // Setup logging
-  Logger.root.level = Level.ALL;
+  // Setup logging - use WARNING level by default to reduce clutter
+  // Change to Level.ALL for verbose debugging when needed
+  Logger.root.level = Level.WARNING;
   Logger.root.onRecord.listen((record) {
     AppLogger.log('${record.level.name}: ${record.time}: ${record.loggerName}: ${record.message}');
     if (record.error != null) {

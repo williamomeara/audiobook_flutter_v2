@@ -219,21 +219,6 @@ final resourceMonitorProvider = Provider<ResourceMonitor>((ref) {
   return monitor;
 });
 
-/// Provider for the engine config manager (Phase 4: Auto-tuning).
-/// Manages per-engine, per-device configurations.
-final engineConfigManagerProvider = Provider<DeviceEngineConfigManager>((ref) {
-  final manager = DeviceEngineConfigManager();
-  // Initialize in background
-  manager.initialize();
-  return manager;
-});
-
-/// Provider for the device profiler (Phase 4: Auto-tuning).
-/// Profiles device performance to determine optimal synthesis settings.
-final deviceProfilerProvider = Provider<DevicePerformanceProfiler>((ref) {
-  return DevicePerformanceProfiler();
-});
-
 /// Provider for adaptive prefetch configuration.
 ///
 /// Bridges the app's RuntimePlaybackConfig to the playback package's

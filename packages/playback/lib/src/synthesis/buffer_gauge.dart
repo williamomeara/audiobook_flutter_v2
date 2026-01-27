@@ -108,8 +108,11 @@ class BufferGauge {
 
     final level = DemandThresholds.calculateLevel(bufferSeconds, playbackRate);
     
-    // Log buffer state for debugging
-    _logger.info('Buffer: ${bufferSeconds.toStringAsFixed(1)}s @ ${playbackRate}x -> ${level.name}');
+    // Log buffer state for debugging - only when level changes to reduce log spam
+    // Use fine level (only shown with verbose logging)
+    if (_lastSignal == null || _lastSignal!.level != level) {
+      _logger.fine('Buffer: ${bufferSeconds.toStringAsFixed(1)}s @ ${playbackRate}x -> ${level.name}');
+    }
 
     final signal = DemandSignal(
       level: level,

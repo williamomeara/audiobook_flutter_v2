@@ -676,25 +676,36 @@ All other settings go to SQLite.
 
 **Note:** Keep `shared_preferences` package for `dark_mode` only. Remove it from playback package.
 
-### Phase 5: Engine Config Migration (Package: playback)
+### Phase 5: Engine Config Migration (Package: playback) - COMPLETED (via removal)
 
-**Files to modify:**
-- `packages/playback/lib/src/engine_config_manager.dart`
+**Decision:** The engine calibration popup feature was removed entirely because Auto Synth now handles
+intelligent pre-synthesis automatically. This eliminated the need for manual engine profiling/calibration.
 
-**Steps:**
-- [ ] **5.1** Create `EngineConfigDao`
-  - `Future<DeviceEngineConfig?> getConfig(String engineId)`
-  - `Future<void> saveConfig(DeviceEngineConfig config)`
-  - `Future<DateTime?> getLastTuned(String engineId)`
-  - `Future<void> setLastTuned(String engineId, DateTime time)`
-- [ ] **5.2** Create `ModelMetricsDao`
-  - Store synthesis performance metrics
-  - `Future<void> recordSynthesis(String modelId, int durationMs, int charCount)`
-  - `Future<ModelMetrics?> getMetrics(String modelId)`
-- [ ] **5.3** Migrate existing engine configs from SharedPreferences
-  - Keys: `engine_config_{engineId}`, `engine_tuned_{engineId}`
-- [ ] **5.4** Update `DeviceEngineConfigManager` to use DAO instead of SharedPreferences
-- [ ] **5.5** Remove SharedPreferences dependency from playback package entirely
+**Files DELETED:**
+- `lib/ui/widgets/optimization_prompt_dialog.dart` - The calibration popup dialog
+- `lib/app/database/daos/engine_config_dao.dart` - Unused DAO
+- `packages/playback/lib/src/engine_config.dart` - Device tier config classes
+- `packages/playback/lib/src/engine_config_manager.dart` - SharedPreferences-based config manager
+- `packages/playback/lib/src/device_profiler.dart` - Device performance profiler
+- `packages/playback/lib/src/calibration/` - Entire calibration folder
+- `packages/playback/test/calibration/` - Calibration tests
+
+**Files MODIFIED:**
+- `lib/ui/screens/playback_screen.dart` - Removed prompt call and import
+- `lib/app/playback_providers.dart` - Removed `engineConfigManagerProvider` and `deviceProfilerProvider`
+- `lib/app/database/database.dart` - Removed engine_config_dao export
+- `packages/playback/lib/playback.dart` - Removed exports for deleted files
+- `packages/playback/pubspec.yaml` - Removed `shared_preferences` dependency
+
+**Steps (completed via removal):**
+- [x] **5.1** ~~Create `EngineConfigDao`~~ → REMOVED (feature deleted)
+- [x] **5.2** ~~Create `ModelMetricsDao`~~ → ModelMetricsDao already exists for synthesis metrics tracking
+- [x] **5.3** ~~Migrate existing engine configs~~ → No migration needed (feature removed)
+- [x] **5.4** ~~Update `DeviceEngineConfigManager`~~ → DELETED
+- [x] **5.5** Remove SharedPreferences dependency from playback package ✓
+
+**Note:** The `engine_configs` table still exists in the database schema (migration_v1.dart) but is unused.
+It can be dropped in a future migration if desired, but leaving it causes no harm.
 
 ### Phase 5.5: Enhanced Reading Progress (Per-Segment Tracking)
 
@@ -798,31 +809,44 @@ ORDER BY s.chapter_index;
 - [ ] **5.5.6** Update Book Details screen to show chapter progress bars
 - [ ] **5.5.7** Add "Mark Chapter Read/Unread" to chapter context menu
 
-### Phase 6: Download/Voice Manifest Migration (Package: downloads)
+### Phase 6: Download/Voice Manifest Migration (Package: downloads) - COMPLETED (kept as-is)
 
-**Files to modify:**
-- `packages/downloads/lib/src/atomic_asset_manager.dart`
+**Decision: Keep .manifest files (Option A)**
 
-**Decision Point:** The `.manifest` files serve a specific purpose - they track which voice assets are fully installed and their checksums. Options:
+The `.manifest` files are intentionally NOT migrated to SQLite. They serve a specific purpose and
+are well-suited to their current implementation:
 
-**Option A: Keep .manifest files (Recommended)**
-- They're already atomic (written after successful install)
-- They live alongside the voice assets they describe
-- Moving to SQLite adds complexity without clear benefit
-- ✅ No migration needed
+**Why .manifest files are kept:**
+1. **Atomic by design** - Written only after successful installation, ensuring consistency
+2. **Collocated with assets** - Live in `voice_assets/{key}/` alongside the files they describe
+3. **Self-contained** - Each voice's installation state is independent
+4. **No cross-voice queries needed** - We only check "is voice X installed?" (filesystem check)
+5. **Decoupled architecture** - Downloads package has no database dependency
+6. **Recovery-friendly** - If manifest exists, voice is installed; simple and reliable
 
-**Option B: Migrate to SQLite**
-- Would centralize all metadata
-- More complex queries possible
-- But adds coupling between downloads package and database
+**What .manifest files contain:**
+```json
+{
+  "key": "piper_en_US_lessac_medium",
+  "files": ["model.onnx", "model.onnx.json", "..."],
+  "installedAt": "2024-01-15T10:30:00Z",
+  "checksum": "sha256:abc123..."
+}
+```
 
-**Steps:**
-- [ ] **6.1** Decide: Keep manifests or migrate (Recommended: Keep)
-- [ ] **6.2** If keeping: Document as "not migrated by design"
-- [ ] **6.3** If migrating: Create `VoiceInstallDao` with:
-  - `Future<bool> isInstalled(String voiceId)`
-  - `Future<void> markInstalled(String voiceId, String checksum)`
-  - `Future<void> markUninstalled(String voiceId)`
+**How they're used:**
+- `AtomicAssetManager.isInstalled(key)` → checks if `.manifest` file exists
+- `AtomicAssetManager.install()` → writes `.manifest` as final step (atomic)
+- `AtomicAssetManager.uninstall()` → deletes entire voice directory including manifest
+
+**Steps (completed):**
+- [x] **6.1** Decision: Keep manifests ✓
+- [x] **6.2** Documented as "not migrated by design" ✓
+- [x] **6.3** ~~Create VoiceInstallDao~~ → Not needed (manifests kept)
+
+**Note:** The `downloaded_voices` table exists in the SQLite schema for fast UI queries
+("show all installed voices"). This is populated by scanning manifest files on app startup
+and provides a cached view for the UI, but the `.manifest` files remain the source of truth.
 
 ### Phase 7: Cleanup & Verification
 

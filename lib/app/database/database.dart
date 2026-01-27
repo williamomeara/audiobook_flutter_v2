@@ -20,7 +20,6 @@ export 'daos/cache_dao.dart';
 export 'daos/chapter_dao.dart';
 export 'daos/completed_chapters_dao.dart';
 export 'daos/downloaded_voices_dao.dart';
-export 'daos/engine_config_dao.dart';
 export 'daos/model_metrics_dao.dart';
 export 'daos/progress_dao.dart';
 export 'daos/segment_dao.dart';

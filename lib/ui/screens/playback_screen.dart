@@ -15,7 +15,6 @@ import '../../app/settings_controller.dart';
 import '../../utils/app_haptics.dart';
 import '../../utils/app_logger.dart';
 import '../theme/app_colors.dart';
-import '../widgets/optimization_prompt_dialog.dart';
 import '../widgets/segment_seek_slider.dart';
 import 'package:core_domain/core_domain.dart';
 
@@ -367,12 +366,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     PlaybackLogger.debug('[PlaybackScreen] Saved progress: chapter $chapterIndex, segment $segmentIndex');
 
     _currentChapterIndex = chapterIndex;
-
-    // Check if current engine needs optimization (first-run prompt)
-    final voiceId = ref.read(settingsProvider).selectedVoice;
-    if (mounted) {
-      await OptimizationPromptDialog.promptIfNeeded(context, ref, voiceId);
-    }
 
     // CRITICAL: Wait for playback controller to be ready before calling loadChapter
     PlaybackLogger.info('[PlaybackScreen] Waiting for playback controller to initialize...');
