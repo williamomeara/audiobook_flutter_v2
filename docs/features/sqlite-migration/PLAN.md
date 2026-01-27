@@ -801,13 +801,13 @@ ORDER BY s.chapter_index;
 - Chapter options menu: "Mark as Read" / "Mark as Unread"
 
 **Steps:**
-- [ ] **5.5.1** Create `migration_v3.dart` with segment_progress table
-- [ ] **5.5.2** Update `app_database.dart` to version 3, add migration
-- [ ] **5.5.3** Create `SegmentProgressDao` with all methods
-- [ ] **5.5.4** Create `ChapterProgress` model class
-- [ ] **5.5.5** Integrate with playback: Mark segment as listened when audio completes
-- [ ] **5.5.6** Update Book Details screen to show chapter progress bars
-- [ ] **5.5.7** Add "Mark Chapter Read/Unread" to chapter context menu
+- [x] **5.5.1** Create `migration_v3.dart` with segment_progress table
+- [x] **5.5.2** Update `app_database.dart` to version 3, add migration
+- [x] **5.5.3** Create `SegmentProgressDao` with all methods
+- [x] **5.5.4** Create `ChapterProgress` model class
+- [x] **5.5.5** Integrate with playback: Mark segment as listened when audio completes
+- [x] **5.5.6** Update Book Details screen to show chapter progress bars
+- [x] **5.5.7** Add "Mark Chapter Read/Unread" to chapter context menu
 
 ### Phase 6: Download/Voice Manifest Migration (Package: downloads) - COMPLETED (kept as-is)
 

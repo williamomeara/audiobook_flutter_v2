@@ -203,6 +203,44 @@ final cacheUsageStatsProvider = FutureProvider<CacheUsageStats>((ref) async {
   return manager.getUsageStats();
 });
 
+/// Provider for the segment progress DAO (Phase 5.5: Per-segment tracking).
+/// Tracks which segments have been listened to for chapter progress.
+final segmentProgressDaoProvider = FutureProvider<SegmentProgressDao>((ref) async {
+  final db = await AppDatabase.instance;
+  return SegmentProgressDao(db);
+});
+
+/// Provider for chapter progress for all chapters in a book.
+/// 
+/// Returns a map of chapterIndex -> ChapterProgress.
+/// Parameter: bookId
+final bookChapterProgressProvider = FutureProvider.family<Map<int, ChapterProgress>, String>((ref, bookId) async {
+  final dao = await ref.watch(segmentProgressDaoProvider.future);
+  return dao.getBookProgress(bookId);
+});
+
+/// Provider for a single chapter's progress.
+/// 
+/// Parameter: "$bookId:$chapterIndex"
+final chapterProgressProvider = FutureProvider.family<ChapterProgress?, String>((ref, key) async {
+  final parts = key.split(':');
+  if (parts.length != 2) return null;
+  final bookId = parts[0];
+  final chapterIndex = int.tryParse(parts[1]);
+  if (chapterIndex == null) return null;
+  
+  final dao = await ref.watch(segmentProgressDaoProvider.future);
+  return dao.getChapterProgress(bookId, chapterIndex);
+});
+
+/// Provider for total book progress summary.
+/// 
+/// Parameter: bookId
+final bookProgressSummaryProvider = FutureProvider.family<BookProgressSummary, String>((ref, bookId) async {
+  final dao = await ref.watch(segmentProgressDaoProvider.future);
+  return dao.getBookProgressSummary(bookId);
+});
+
 /// Provider for the routing engine.
 /// Uses ttsRoutingEngineProvider which has all AI voice engines registered.
 final routingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
@@ -329,6 +367,11 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       final resourceMonitor = ref.read(resourceMonitorProvider);
       PlaybackLogger.info('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
 
+      // Load segment progress DAO for tracking listened segments
+      PlaybackLogger.info('[PlaybackProvider] Loading segment progress DAO...');
+      final segmentProgressDao = await ref.read(segmentProgressDaoProvider.future);
+      PlaybackLogger.info('[PlaybackProvider] Segment progress DAO loaded');
+
       // Create audio output externally so we can access its player
       // for audio service integration (system media controls)
       PlaybackLogger.info('[PlaybackProvider] Creating audio output...');
@@ -358,6 +401,15 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           SegmentReadinessTracker.instance.onSynthesisComplete(key, segmentIndex);
           // Force provider refresh to pick up the new state
           ref.invalidate(segmentReadinessStreamProvider(key));
+        },
+        // Track segment progress when audio finishes playing
+        onSegmentAudioComplete: (bookId, chapterIndex, segmentIndex) {
+          // Mark segment as listened (fire and forget - don't block playback)
+          segmentProgressDao.markListened(bookId, chapterIndex, segmentIndex).then((_) {
+            PlaybackLogger.debug('[PlaybackProvider] Marked segment $segmentIndex as listened');
+          }).catchError((e) {
+            PlaybackLogger.error('[PlaybackProvider] Failed to mark segment listened: $e');
+          });
         },
         // Prevent play button flicker during segment transitions
         onPlayIntentOverride: (override) {

@@ -7,6 +7,7 @@ import 'migrations/cache_migration_service.dart';
 import 'migrations/json_migration_service.dart';
 import 'migrations/migration_v1.dart';
 import 'migrations/migration_v2.dart';
+import 'migrations/migration_v3.dart';
 import 'migrations/settings_migration_service.dart';
 
 /// Singleton database instance for the Eist audiobook app.
@@ -22,7 +23,7 @@ import 'migrations/settings_migration_service.dart';
 class AppDatabase {
   static Database? _database;
   static const String _dbName = 'eist_audiobook.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   // Private constructor to prevent instantiation
   AppDatabase._();
@@ -70,12 +71,13 @@ class AppDatabase {
     // Create all tables
     await MigrationV1.up(db);
     await MigrationV2.up(db);
+    await MigrationV3.up(db);
 
     // Record schema version
     await db.insert('schema_version', {
       'version': version,
       'applied_at': DateTime.now().millisecondsSinceEpoch,
-      'description': 'Initial schema with cache metadata extensions',
+      'description': 'Initial schema with segment progress tracking',
     });
   }
 
@@ -90,8 +92,14 @@ class AppDatabase {
         'description': 'Add cache metadata extensions (access_count, engine_type, voice_id)',
       });
     }
-    // Future migrations:
-    // if (oldVersion < 3) await MigrationV3.up(db);
+    if (oldVersion < 3) {
+      await MigrationV3.up(db);
+      await db.insert('schema_version', {
+        'version': 3,
+        'applied_at': DateTime.now().millisecondsSinceEpoch,
+        'description': 'Add segment progress tracking for per-segment listening history',
+      });
+    }
   }
 
   /// Called each time the database is opened.

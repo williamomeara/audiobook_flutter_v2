@@ -63,6 +63,10 @@ abstract interface class PlaybackController {
 /// Parameters: (bookId, chapterIndex, segmentIndex)
 typedef SegmentSynthesisCallback = void Function(String bookId, int chapterIndex, int segmentIndex);
 
+/// Callback for when a segment's audio finishes playing.
+/// Parameters: (bookId, chapterIndex, segmentIndex)
+typedef SegmentAudioCompleteCallback = void Function(String bookId, int chapterIndex, int segmentIndex);
+
 /// Callback to set play intent override for media controls.
 typedef PlayIntentOverrideCallback = void Function(bool override);
 
@@ -79,12 +83,14 @@ class AudiobookPlaybackController implements PlaybackController {
     ResourceMonitor? resourceMonitor,
     SegmentSynthesisCallback? onSegmentSynthesisComplete,
     SegmentSynthesisCallback? onSegmentSynthesisStarted,
+    SegmentAudioCompleteCallback? onSegmentAudioComplete,
     PlayIntentOverrideCallback? onPlayIntentOverride,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _resourceMonitor = resourceMonitor,
         _onSegmentSynthesisComplete = onSegmentSynthesisComplete,
         _onSegmentSynthesisStarted = onSegmentSynthesisStarted,
+        _onSegmentAudioComplete = onSegmentAudioComplete,
         _onPlayIntentOverride = onPlayIntentOverride,
         _scheduler = BufferScheduler(resourceMonitor: resourceMonitor),
         _synthesisCoordinator = SynthesisCoordinator(
@@ -118,6 +124,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Callback for segment synthesis started (for UI feedback).
   final SegmentSynthesisCallback? _onSegmentSynthesisStarted;
+  
+  /// Callback when a segment's audio finishes playing (for progress tracking).
+  final SegmentAudioCompleteCallback? _onSegmentAudioComplete;
   
   /// Callback to set play intent override (prevents play button flicker).
   final PlayIntentOverrideCallback? _onPlayIntentOverride;
@@ -297,6 +306,17 @@ class AudiobookPlaybackController implements PlaybackController {
       case AudioEvent.completed:
         _logger.info('[AudioEvent] Completed. speakingTrackId: $_speakingTrackId, currentTrack: ${_state.currentTrack?.id}');
         if (_speakingTrackId == _state.currentTrack?.id) {
+          // Notify that this segment's audio finished playing (for progress tracking)
+          final currentTrack = _state.currentTrack;
+          final bookId = _state.bookId;
+          if (currentTrack != null && bookId != null) {
+            _onSegmentAudioComplete?.call(
+              bookId,
+              currentTrack.chapterIndex,
+              currentTrack.segmentIndex,
+            );
+          }
+          
           _speakingTrackId = null;
           // C3: Wrap in error handler to catch unexpected errors
           unawaited(nextTrack().catchError((error, stackTrace) {

@@ -23,6 +23,7 @@ export 'daos/downloaded_voices_dao.dart';
 export 'daos/model_metrics_dao.dart';
 export 'daos/progress_dao.dart';
 export 'daos/segment_dao.dart';
+export 'daos/segment_progress_dao.dart';
 export 'daos/settings_dao.dart';
 export 'migrations/cache_migration_service.dart';
 export 'migrations/json_migration_service.dart';

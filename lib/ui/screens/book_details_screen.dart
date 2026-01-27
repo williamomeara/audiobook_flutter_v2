@@ -6,7 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/chapter_synthesis_provider.dart';
+import '../../app/database/database.dart';
 import '../../app/library_controller.dart';
+import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
 import '../theme/app_colors.dart';
 
@@ -48,6 +50,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
               child: Text('Book not found', style: TextStyle(color: colors.textSecondary)),
             );
           }
+
+          // Watch per-segment listening progress for all chapters
+          final chapterProgressAsync = ref.watch(bookChapterProgressProvider(book.id));
+          final chapterProgressMap = chapterProgressAsync.when(
+            data: (data) => data,
+            loading: () => <int, ChapterProgress?>{},
+            error: (_, __) => <int, ChapterProgress?>{},
+          );
 
           final coverPath = book.coverImagePath;
           final progress = book.progressPercent;
@@ -342,7 +352,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                 Icon(Icons.visibility, size: 16, color: colors.textTertiary),
                                 const SizedBox(width: 4),
                                 Text(
-                                  '${_countReadChapters(book)} read',
+                                  '${_countListenedChapters(chapterProgressMap)} listened',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: colors.textTertiary,
@@ -360,10 +370,15 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                           final chapter = entry.value;
                           final isCurrentChapter = index == book.progress.chapterIndex;
                           final isRead = book.completedChapters.contains(index);
-                          final isInProgress = isCurrentChapter && book.progress.segmentIndex > 0;
-                          final chapterProgress = isInProgress
-                              ? (book.progress.segmentIndex / 10 * 100).clamp(0, 99).round()
-                              : null;
+                          
+                          // Get per-segment listening progress for this chapter
+                          final segmentProgress = chapterProgressMap[index];
+                          final listenedPercent = segmentProgress?.percentComplete ?? 0.0;
+                          final hasListeningProgress = segmentProgress?.hasStarted ?? false;
+                          final isListeningComplete = segmentProgress?.isComplete ?? false;
+                          
+                          // Use segment-level progress for display (0-100 scale)
+                          final chapterProgressPercent = (listenedPercent * 100).round();
 
                           // Watch synthesis state for this chapter
                           final synthKey = (bookId: book.id, chapterIndex: index);
@@ -390,6 +405,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                               index,
                               chapter,
                               synthState,
+                              segmentProgress,
                             ),
                             child: Container(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -407,24 +423,24 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         width: 32,
                                         height: 32,
                                         decoration: BoxDecoration(
-                                          color: isRead
+                                          color: isRead || isListeningComplete
                                               ? colors.primary
                                               : isSynthComplete
                                                   ? colors.accent
-                                                  : isInProgress
+                                                  : hasListeningProgress
                                                       ? colors.primary.withAlpha(128)
                                                       : colors.background,
                                           shape: BoxShape.circle,
                                         ),
                                         child: Center(
-                                          child: isSynthComplete 
+                                          child: (isRead || isListeningComplete)
                                               ? Icon(Icons.check, size: 16, color: colors.primaryForeground)
                                               : Text(
                                                   '${index + 1}',
                                                   style: TextStyle(
                                                     fontSize: 14,
                                                     fontWeight: FontWeight.w500,
-                                                    color: isRead || isInProgress || isSynthComplete
+                                                    color: isRead || hasListeningProgress || isSynthComplete
                                                         ? colors.primaryForeground
                                                         : colors.textTertiary,
                                                   ),
@@ -475,17 +491,17 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                             color: colors.accent,
                                           ),
                                         )
-                                      else if (isRead)
+                                      else if (isRead || isListeningComplete)
                                         Text(
-                                          '✓ Read',
+                                          '✓ Listened',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: colors.primary,
                                           ),
                                         )
-                                      else if (isInProgress)
+                                      else if (hasListeningProgress)
                                         Text(
-                                          'In Progress',
+                                          '$chapterProgressPercent%',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: colors.textTertiary,
@@ -493,8 +509,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         ),
                                     ],
                                   ),
-                                  // Progress bar for current chapter
-                                  if (chapterProgress != null && chapterProgress > 0) ...[
+                                  // Listening progress bar (per-segment)
+                                  if (hasListeningProgress && !isListeningComplete) ...[
                                     const SizedBox(height: 8),
                                     Padding(
                                       padding: const EdgeInsets.only(left: 44),
@@ -506,7 +522,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         ),
                                         child: FractionallySizedBox(
                                           alignment: Alignment.centerLeft,
-                                          widthFactor: chapterProgress / 100,
+                                          widthFactor: listenedPercent,
                                           child: Container(
                                             decoration: BoxDecoration(
                                               color: colors.primary,
@@ -602,8 +618,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
     return 'No description available.';
   }
 
-  int _countReadChapters(book) {
-    return book.completedChapters.length;
+  int _countListenedChapters(Map<int, ChapterProgress?> progressMap) {
+    return progressMap.values.where((p) => p?.isComplete ?? false).length;
   }
 
   /// Check if any chapters for this book are currently being synthesized.
@@ -658,9 +674,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
     int chapterIndex,
     dynamic chapter,
     ChapterSynthesisState? synthState,
+    ChapterProgress? chapterProgress,
   ) {
     final colors = context.appColors;
     final isSynthesizing = synthState?.status == ChapterSynthesisStatus.synthesizing;
+    final isListeningComplete = chapterProgress?.isComplete ?? false;
     
     showModalBottomSheet(
       context: context,
@@ -740,26 +758,36 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                   },
                 ),
               
-              // Mark as read/unread
+              // Mark as listened/unlistened (uses per-segment progress tracking)
               ListTile(
                 leading: Icon(
-                  book.completedChapters.contains(chapterIndex)
+                  isListeningComplete
                       ? Icons.visibility_off_outlined
                       : Icons.visibility_outlined,
                   color: colors.primary,
                 ),
                 title: Text(
-                  book.completedChapters.contains(chapterIndex)
-                      ? 'Mark as Unread'
-                      : 'Mark as Read',
+                  isListeningComplete
+                      ? 'Mark as Unlistened'
+                      : 'Mark as Listened',
                   style: TextStyle(color: colors.text),
                 ),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
-                  ref.read(libraryProvider.notifier).toggleChapterComplete(
-                    widget.bookId,
-                    chapterIndex,
-                  );
+                  final dao = await ref.read(segmentProgressDaoProvider.future);
+                  if (isListeningComplete) {
+                    // Clear progress
+                    await dao.clearChapterProgress(widget.bookId, chapterIndex);
+                  } else {
+                    // Get total segments count for this chapter
+                    final segments = await ref.read(libraryProvider.notifier)
+                        .getSegmentsForChapter(widget.bookId, chapterIndex);
+                    if (segments.isNotEmpty) {
+                      await dao.markChapterListened(widget.bookId, chapterIndex, segments.length);
+                    }
+                  }
+                  // Invalidate the provider to refresh UI
+                  ref.invalidate(bookChapterProgressProvider(widget.bookId));
                 },
               ),
             ],
