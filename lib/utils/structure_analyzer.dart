@@ -6,13 +6,15 @@
 /// - Chapter-spanning patterns (repeated headers/footers)
 class StructureAnalyzer {
   // Patterns that indicate start of preliminary sections
+  // IMPORTANT: Only match sections explicitly marked as notes/preliminary matter
+  // Do NOT match book titles, table of contents, or introductions that are part of the book
   static final _prelimininarySectionMarkers = [
     RegExp(r"transcriber'?s\s+notes?", caseSensitive: false),
+    RegExp(r"original\s+transcriber'?s\s+notes?", caseSensitive: false),
     RegExp(r'explanatory\s+notes?', caseSensitive: false),
     RegExp(r'preliminary\s+matter', caseSensitive: false),
-    RegExp(r"editor'?s?\s+notes?", caseSensitive: false),
-    RegExp(r'foreword', caseSensitive: false),
-    RegExp(r'introduction\s+by', caseSensitive: false),
+    RegExp(r"editor'?s?\s+notes?(?:\s+on\s+the\s+text)?", caseSensitive: false),
+    RegExp(r'production\s+notes?', caseSensitive: false),
   ];
 
   // Patterns that mark end of sections
@@ -29,9 +31,20 @@ class StructureAnalyzer {
   /// of a chapter and are followed by actual content.
   ///
   /// Returns the preliminary section text if found, null otherwise.
+  ///
+  /// IMPORTANT: Only removes sections that are explicitly preliminary notes,
+  /// not table of contents, introductions, or other book matter.
   static String? extractPreliminarySection(String content) {
     final lines = content.split('\n');
     if (lines.isEmpty) return null;
+
+    // Safety check: Don't process if content looks like it has book metadata/TOC
+    // (table of contents indicators suggest this is structural metadata, not a real preliminary section)
+    if (content.contains('CONTENTS') &&
+        content.contains('CHAPTER') &&
+        content.contains('| Project Gutenberg')) {
+      return null;
+    }
 
     // Find first line that matches preliminary markers
     int startIdx = -1;
@@ -63,21 +76,37 @@ class StructureAnalyzer {
       }
 
       // Stop at substantial content (multi-paragraph real text)
-      if (line.length > 100 && !line.contains('note') && !line.contains('[')) {
+      // If we've moved past a few lines of notes and hit real content, stop
+      if (i > startIdx + 10 && line.length > 150) {
         endIdx = i;
         return lines.sublist(startIdx, endIdx).join('\n');
       }
     }
 
-    // If no natural end found, take up to first empty line
+    // If no natural end found, take only up to first significant empty line
+    // (preliminary sections should be brief, not consume the whole chapter)
+    var emptyLineCount = 0;
     for (int i = startIdx + 1; i < lines.length; i++) {
       if (lines[i].trim().isEmpty) {
-        endIdx = i;
-        break;
+        emptyLineCount++;
+        if (emptyLineCount >= 2) {
+          endIdx = i;
+          break;
+        }
+      } else {
+        emptyLineCount = 0;
       }
     }
 
-    return lines.sublist(startIdx, endIdx).join('\n');
+    final result = lines.sublist(startIdx, endIdx).join('\n');
+
+    // Safety: don't return sections that are suspiciously large
+    // Real preliminary sections should be <5000 words
+    if (result.split(RegExp(r'\s+')).length > 5000) {
+      return null;
+    }
+
+    return result;
   }
 
   /// Checks if a paragraph looks like a list (glossary, credits, etc).

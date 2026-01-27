@@ -71,6 +71,10 @@ class BoilerplateRemover {
     RegExp(r'html\s+version', caseSensitive: false),
     RegExp(r'transcribed?\s+by', caseSensitive: false),
 
+    // NEW: Project Gutenberg running headers
+    // Catches patterns like "Book Title | Project Gutenberg CHAPTER X..."
+    RegExp(r'\|\s*project\s+gutenberg.*?chapter\s+\d+', caseSensitive: false),
+
     // NEW: License/copyright markers
     RegExp(r'distributed\s+under', caseSensitive: false),
     RegExp(r'creative\s+commons', caseSensitive: false),
