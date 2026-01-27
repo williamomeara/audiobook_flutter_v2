@@ -11,6 +11,8 @@ import 'app_paths.dart';
 import 'audio_service_handler.dart';
 import 'config/config_providers.dart';
 import 'config/runtime_playback_config.dart' as app_config show PrefetchMode;
+import 'database/database.dart';
+import 'library_controller.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
 import '../main.dart' show initAudioService;
@@ -171,18 +173,25 @@ final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
 
 /// Provider for the intelligent cache manager (Phase 3: Cache management).
 /// Provides quota control, eviction scoring, and usage stats.
+/// Uses SQLite for cache metadata storage (migrated from JSON).
 final intelligentCacheManagerProvider = FutureProvider<IntelligentCacheManager>((ref) async {
   final paths = await ref.watch(appPathsProvider.future);
   final settings = ref.watch(settingsProvider);
-  
+
+  // Get database instance and create SQLite storage
+  final db = await AppDatabase.instance;
+  final cacheDao = CacheDao(db);
+  final settingsDao = SettingsDao(db);
+  final storage = SqliteCacheMetadataStorage(cacheDao, settingsDao);
+
   final manager = IntelligentCacheManager(
     cacheDir: paths.audioCacheDir,
-    metadataFile: File('${paths.audioCacheDir.path}/.cache_metadata.json'),
+    storage: storage,
     quotaSettings: CacheQuotaSettings.fromGB(settings.cacheQuotaGB),
   );
-  
+
   await manager.initialize();
-  
+
   ref.onDispose(() => manager.dispose());
   return manager;
 });
@@ -477,12 +486,14 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     PlaybackLogger.info('[PlaybackProvider] Start segment: $startSegmentIndex, autoPlay: $autoPlay');
 
     final chapter = book.chapters[chapterIndex];
-    PlaybackLogger.info('[PlaybackProvider] Chapter: "${chapter.title}", content length: ${chapter.content.length} chars');
-    
+    PlaybackLogger.info('[PlaybackProvider] Chapter: "${chapter.title}"');
+
+    // Load pre-segmented content from SQLite (no runtime segmentation)
     final segmentStart = DateTime.now();
-    final segments = segmentText(chapter.content);
+    final libraryController = ref.read(libraryProvider.notifier);
+    final segments = await libraryController.getSegmentsForChapter(book.id, chapterIndex);
     final segmentDuration = DateTime.now().difference(segmentStart);
-    PlaybackLogger.info('[PlaybackProvider] Segmented into ${segments.length} segments in ${segmentDuration.inMilliseconds}ms');
+    PlaybackLogger.info('[PlaybackProvider] Loaded ${segments.length} segments from SQLite in ${segmentDuration.inMilliseconds}ms');
 
     // Handle empty chapter - create a single "empty" track to show in UI
     if (segments.isEmpty) {
@@ -589,14 +600,16 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     Future(() async {
       try {
         PlaybackLogger.info('[NextChapterPresynth] Pre-synthesizing first segment of chapter $nextChapterIndex');
-        
-        // Get the next chapter's content and segment it
-        final nextChapter = book.chapters[nextChapterIndex];
-        final segments = segmentText(nextChapter.content);
+
+        // Load pre-segmented content from SQLite (no runtime segmentation)
+        final libraryController = ref.read(libraryProvider.notifier);
+        final segments = await libraryController.getSegmentsForChapter(book.id, nextChapterIndex);
         if (segments.isEmpty) {
           PlaybackLogger.debug('[NextChapterPresynth] Next chapter has no segments');
           return;
         }
+
+        final nextChapter = book.chapters[nextChapterIndex];
         
         // Get current voice and engine
         final settings = ref.read(settingsProvider);
