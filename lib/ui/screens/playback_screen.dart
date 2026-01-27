@@ -17,6 +17,7 @@ import '../../utils/app_logger.dart';
 import '../theme/app_colors.dart';
 import '../widgets/segment_seek_slider.dart';
 import 'package:core_domain/core_domain.dart';
+import 'playback/dialogs/dialogs.dart';
 
 class PlaybackScreen extends ConsumerStatefulWidget {
   const PlaybackScreen({super.key, required this.bookId});
@@ -451,45 +452,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
       final voiceId = ref.read(settingsProvider).selectedVoice;
       if (voiceId == VoiceIds.none) {
         if (mounted) {
-          _showNoVoiceDialog();
+          NoVoiceDialog.show(context);
         }
         return;
       }
       AppHaptics.light(); // Playing feels "lighter"
       await notifier.play();
     }
-  }
-  
-  void _showNoVoiceDialog() {
-    final colors = Theme.of(context).extension<AppThemeColors>()!;
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: colors.card,
-        title: Text(
-          'No Voice Selected',
-          style: TextStyle(color: colors.text),
-        ),
-        content: Text(
-          'Please download a voice from the settings menu before playing audiobooks.',
-          style: TextStyle(color: colors.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: TextStyle(color: colors.textSecondary)),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.push('/settings/downloads');
-            },
-            child: const Text('Download Voices'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _nextSegment() async {
@@ -648,91 +617,15 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     return '$minutes:${secs.toString().padLeft(2, '0')}';
   }
 
-  void _showSleepTimerPicker(BuildContext context, AppThemeColors colors) {
-    final options = <int?>[null, 5, 10, 15, 30, 60];
-    final labels = ['Off', '5 min', '10 min', '15 min', '30 min', '1 hour'];
-    
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        child: Container(
-          decoration: BoxDecoration(
-            color: colors.card,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.6,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Drag handle
-                Container(
-                  margin: const EdgeInsets.only(top: 12),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.textTertiary,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Sleep Timer',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: colors.text,
-                    ),
-                  ),
-                ),
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(options.length, (i) {
-                        final value = options[i];
-                        final isSelected = _sleepTimerMinutes == value;
-                        return InkWell(
-                          onTap: () {
-                            _setSleepTimer(value);
-                            Navigator.pop(context);
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    labels[i],
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      color: isSelected ? colors.primary : colors.text,
-                                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                                    ),
-                                  ),
-                                ),
-                                if (isSelected)
-                                  Icon(Icons.check_circle, color: colors.primary, size: 20),
-                              ],
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ),
-      ),
+  Future<void> _showSleepTimerPicker(BuildContext context, AppThemeColors colors) async {
+    final selected = await SleepTimerPicker.show(
+      context,
+      currentMinutes: _sleepTimerMinutes,
     );
+    // Only update if user made a selection (not dismissed)
+    if (selected != _sleepTimerMinutes) {
+      _setSleepTimer(selected);
+    }
   }
 
   void _saveProgressAndPop() {
