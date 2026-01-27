@@ -1,22 +1,4 @@
 // ignore_for_file: avoid_print
-/// PDF Parser Integration Test
-///
-/// Tests the full PDF parsing pipeline including:
-/// - Text extraction
-/// - Outline-based chapter detection
-/// - Smart text processing
-/// - Cover image extraction
-///
-/// Run on desktop:
-///   flutter test integration_test/pdf_parser_test.dart -d linux
-///   flutter test integration_test/pdf_parser_test.dart -d macos
-///
-/// Run on Android device (PDFs must be in /sdcard/Download/):
-///   flutter test integration_test/pdf_parser_test.dart -d <device_id>
-///
-/// This test outputs JSON results for inspection.
-/// Output is written to test/pdf_analysis_output/analysis_results.json on desktop,
-/// or printed to console on Android (since device can't write to host filesystem).
 
 import 'dart:convert';
 import 'dart:io';

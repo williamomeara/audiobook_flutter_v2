@@ -770,9 +770,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   }
 
   void _startChapterSynthesis(dynamic book, int chapterIndex, dynamic chapter) async {
-    // Capture scaffold messenger before async gaps
+    // Capture context and scaffold messenger before async gaps
+    final ctx = context;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    
+
     // Get the voice ID from settings
     final settings = ref.read(settingsProvider);
     final voiceId = settings.selectedVoice.isNotEmpty
@@ -796,9 +797,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
     );
 
     final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final colors = context.appColors;
+      // ignore: use_build_context_synchronously
+      context: ctx,
+      builder: (dialogCtx) {
+        final colors = dialogCtx.appColors;
         return AlertDialog(
           backgroundColor: colors.card,
           title: Text(
@@ -839,11 +841,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
+              onPressed: () => Navigator.pop(dialogCtx, false),
               child: Text('Cancel', style: TextStyle(color: colors.textTertiary)),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
+              onPressed: () => Navigator.pop(dialogCtx, true),
               child: Text('Prepare', style: TextStyle(color: colors.primary)),
             ),
           ],
