@@ -33,7 +33,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   // Layout constants for landscape mode
   static const double _landscapeControlsWidth = 100.0;
   static const double _landscapeBottomBarHeight = 52.0;
-  static const double _playIconSize = 28.0;
   
   bool _initialized = false;
   int _currentChapterIndex = 0;
@@ -610,12 +609,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
       });
     }
   }
-  
-  String _formatSleepTime(int seconds) {
-    final minutes = seconds ~/ 60;
-    final secs = seconds % 60;
-    return '$minutes:${secs.toString().padLeft(2, '0')}';
-  }
 
   Future<void> _showSleepTimerPicker(BuildContext context, AppThemeColors colors) async {
     final selected = await SleepTimerPicker.show(
@@ -1149,80 +1142,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 // Speed control
-                Row(
-                  children: [
-                    Icon(Icons.speed, size: 16, color: colors.textSecondary),
-                    const SizedBox(width: 8),
-                    InkWell(
-                      onTap: _decreaseSpeed,
-                      borderRadius: BorderRadius.circular(4),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Icon(Icons.chevron_left, size: 18, color: colors.textSecondary),
-                      ),
-                    ),
-                    Container(
-                      width: 48,
-                      alignment: Alignment.center,
-                      child: Text(
-                        '${playbackState.playbackRate}x',
-                        style: TextStyle(fontSize: 13, color: colors.text, fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                    InkWell(
-                      onTap: _increaseSpeed,
-                      borderRadius: BorderRadius.circular(4),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Icon(Icons.chevron_right, size: 18, color: colors.textSecondary),
-                      ),
-                    ),
-                  ],
+                SpeedControl(
+                  playbackRate: playbackState.playbackRate,
+                  onDecrease: _decreaseSpeed,
+                  onIncrease: _increaseSpeed,
                 ),
                 
                 // Sleep timer
-                Row(
-                  children: [
-                    Icon(Icons.timer_outlined, size: 16, color: colors.textSecondary),
-                    const SizedBox(width: 8),
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => _showSleepTimerPicker(context, colors),
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: colors.controlBackground,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: colors.border),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _sleepTimerMinutes == null 
-                                    ? 'Off' 
-                                    : _sleepTimerMinutes == 60 
-                                        ? '1 hour'
-                                        : '$_sleepTimerMinutes min',
-                                style: TextStyle(fontSize: 13, color: colors.text),
-                              ),
-                              const SizedBox(width: 4),
-                              Icon(Icons.arrow_drop_down, size: 16, color: colors.textSecondary),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (_sleepTimeRemainingSeconds != null) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        _formatSleepTime(_sleepTimeRemainingSeconds!),
-                        style: TextStyle(fontSize: 12, color: colors.textHighlight, fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ],
+                SleepTimerControl(
+                  timerMinutes: _sleepTimerMinutes,
+                  remainingSeconds: _sleepTimeRemainingSeconds,
+                  onTap: () => _showSleepTimerPicker(context, colors),
                 ),
               ],
             ),
@@ -1235,37 +1165,15 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 // Previous chapter
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: chapterIdx > 0 ? _previousChapter : null,
-                    borderRadius: BorderRadius.circular(24),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.skip_previous,
-                        size: 24,
-                        color: chapterIdx > 0 ? colors.text : colors.textTertiary,
-                      ),
-                    ),
-                  ),
+                PreviousChapterButton(
+                  enabled: chapterIdx > 0,
+                  onTap: _previousChapter,
                 ),
                 
                 // Previous segment
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: currentIndex > 0 ? _previousSegment : null,
-                    borderRadius: BorderRadius.circular(24),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.fast_rewind,
-                        size: 28,
-                        color: currentIndex > 0 ? colors.text : colors.textTertiary,
-                      ),
-                    ),
-                  ),
+                PreviousSegmentButton(
+                  enabled: currentIndex > 0,
+                  onTap: _previousSegment,
                 ),
                 
                 const SizedBox(width: 12),
@@ -1280,37 +1188,14 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                 const SizedBox(width: 12),
                 
                 // Next segment
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: currentIndex < queueLength - 1 ? _nextSegment : null,
-                    borderRadius: BorderRadius.circular(24),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.fast_forward,
-                        size: 28,
-                        color: currentIndex < queueLength - 1 ? colors.text : colors.textTertiary,
-                      ),
-                    ),
-                  ),
+                NextSegmentButton(
+                  enabled: currentIndex < queueLength - 1,
+                  onTap: _nextSegment,
                 ),
                 
                 // Next chapter
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _nextChapter,
-                    borderRadius: BorderRadius.circular(24),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.skip_next,
-                        size: 24,
-                        color: colors.text,
-                      ),
-                    ),
-                  ),
+                NextChapterButton(
+                  onTap: _nextChapter,
                 ),
               ],
             ),
@@ -1336,52 +1221,20 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 // Speed control
-                Icon(Icons.speed, size: 18, color: colors.textSecondary),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    InkWell(
-                      onTap: _decreaseSpeed,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: Icon(Icons.remove, size: 18, color: colors.textSecondary),
-                      ),
-                    ),
-                    Text(
-                      '${playbackState.playbackRate}x',
-                      style: TextStyle(fontSize: 13, color: colors.text, fontWeight: FontWeight.w500),
-                    ),
-                    InkWell(
-                      onTap: _increaseSpeed,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: Icon(Icons.add, size: 18, color: colors.textSecondary),
-                      ),
-                    ),
-                  ],
+                SpeedControl(
+                  playbackRate: playbackState.playbackRate,
+                  onDecrease: _decreaseSpeed,
+                  onIncrease: _increaseSpeed,
+                  isVertical: true,
                 ),
                 
                 const SizedBox(height: 16),
                 
                 // Previous segment (up arrow)
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: currentIndex > 0 ? _previousSegment : null,
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Icon(
-                        Icons.keyboard_arrow_up,
-                        size: _playIconSize,
-                        color: currentIndex > 0 ? colors.text : colors.textTertiary,
-                      ),
-                    ),
-                  ),
+                PreviousSegmentButton(
+                  enabled: currentIndex > 0,
+                  onTap: _previousSegment,
+                  isVertical: true,
                 ),
                 
                 const SizedBox(height: 6),
@@ -1404,62 +1257,21 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                 const SizedBox(height: 6),
                 
                 // Next segment (down arrow)
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: currentIndex < queueLength - 1 ? _nextSegment : null,
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Icon(
-                        Icons.keyboard_arrow_down,
-                        size: _playIconSize,
-                        color: currentIndex < queueLength - 1 ? colors.text : colors.textTertiary,
-                      ),
-                    ),
-                  ),
+                NextSegmentButton(
+                  enabled: currentIndex < queueLength - 1,
+                  onTap: _nextSegment,
+                  isVertical: true,
                 ),
                 
                 const SizedBox(height: 16),
                 
                 // Sleep timer
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => _showSleepTimerPicker(context, colors),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: colors.controlBackground,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: colors.border),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.timer_outlined, size: 14, color: colors.textSecondary),
-                          const SizedBox(width: 4),
-                          Text(
-                            _sleepTimerMinutes == null 
-                                ? 'Off' 
-                                : _sleepTimerMinutes == 60 
-                                    ? '1hr'
-                                    : '${_sleepTimerMinutes}m',
-                            style: TextStyle(fontSize: 11, color: colors.text),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                SleepTimerControl(
+                  timerMinutes: _sleepTimerMinutes,
+                  remainingSeconds: _sleepTimeRemainingSeconds,
+                  onTap: () => _showSleepTimerPicker(context, colors),
+                  isCompact: true,
                 ),
-                if (_sleepTimeRemainingSeconds != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatSleepTime(_sleepTimeRemainingSeconds!),
-                    style: TextStyle(fontSize: 10, color: colors.textHighlight, fontWeight: FontWeight.w500),
-                  ),
-                ],
               ],
             ),
           ),
