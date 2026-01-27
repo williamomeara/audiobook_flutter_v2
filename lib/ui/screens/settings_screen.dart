@@ -149,6 +149,8 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         ),
                         const Divider(height: 1),
+                        _ContentQualityPicker(colors: colors),
+                        const Divider(height: 1),
                         Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
@@ -886,6 +888,91 @@ class _SettingsRow extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _ContentQualityPicker extends ConsumerWidget {
+  const _ContentQualityPicker({required this.colors});
+
+  final AppThemeColors colors;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
+    final currentLevel = settings.contentQualityLevel;
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Content Quality',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: colors.text,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Filter segments by confidence score',
+            style: TextStyle(
+              fontSize: 13,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<ContentQualityLevel>(
+            segments: const [
+              ButtonSegment(
+                value: ContentQualityLevel.all,
+                label: Text('All'),
+                icon: Icon(Icons.all_inclusive, size: 18),
+              ),
+              ButtonSegment(
+                value: ContentQualityLevel.medium,
+                label: Text('Medium'),
+                icon: Icon(Icons.tune, size: 18),
+              ),
+              ButtonSegment(
+                value: ContentQualityLevel.high,
+                label: Text('High'),
+                icon: Icon(Icons.star, size: 18),
+              ),
+            ],
+            selected: {currentLevel},
+            onSelectionChanged: (selected) {
+              ref.read(settingsProvider.notifier).setContentQualityLevel(selected.first);
+            },
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: colors.primary.withOpacity(0.2),
+              selectedForegroundColor: colors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _getQualityDescription(currentLevel),
+            style: TextStyle(
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+              color: colors.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getQualityDescription(ContentQualityLevel level) {
+    switch (level) {
+      case ContentQualityLevel.all:
+        return 'Play all text including potential boilerplate (complete)';
+      case ContentQualityLevel.medium:
+        return 'Skip likely front matter and notices (balanced)';
+      case ContentQualityLevel.high:
+        return 'Only high-confidence story content (cleanest)';
+    }
   }
 }
 

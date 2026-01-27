@@ -7,6 +7,7 @@ import 'package:core_domain/core_domain.dart';
 
 import '../infra/epub_parser.dart';
 import '../infra/pdf_parser.dart';
+import '../utils/segment_confidence_scorer.dart';
 import 'app_paths.dart';
 import 'database/app_database.dart';
 import 'database/repositories/library_repository.dart';
@@ -143,18 +144,25 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         chapters = parsed.chapters;
       }
 
-      // Pre-segment all chapters at import time
+      // Pre-segment all chapters at import time with confidence scoring
       final chapterSegments = <List<Segment>>[];
       for (final chapter in chapters) {
         final segments = segmentText(chapter.content);
-        // Add duration estimates
-        final segmentsWithDuration = segments.map((s) => Segment(
+        // Add duration estimates and confidence scores
+        final segmentsWithMetadata = segments.map((s) => Segment(
           text: s.text,
           index: s.index,
           estimatedDurationMs: estimateDurationMs(s.text),
+          contentConfidence: SegmentConfidenceScorer.scoreSegment(s.text),
         )).toList();
-        chapterSegments.add(segmentsWithDuration);
+        chapterSegments.add(segmentsWithMetadata);
       }
+
+      // Find the first chapter that appears to be actual content
+      final firstContentChapter = SegmentConfidenceScorer.findFirstContentChapter(
+        chapterSegments,
+        threshold: 0.5,
+      );
 
       final book = Book(
         id: bookId,
@@ -166,6 +174,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         chapters: chapters,
         gutenbergId: gutenbergId,
         progress: BookProgress.zero,
+        firstContentChapter: firstContentChapter,
       );
 
       // Insert into SQLite with all segments
@@ -306,10 +315,16 @@ class LibraryController extends AsyncNotifier<LibraryState> {
 
   /// Get segments for a chapter (for playback).
   /// This is the new way to get segment data - from SQLite, not runtime segmentation.
+  /// 
+  /// If [minConfidence] is provided, filters out low-confidence segments.
   Future<List<Segment>> getSegmentsForChapter(
-      String bookId, int chapterIndex) async {
+      String bookId, int chapterIndex, {double? minConfidence}) async {
     final repo = await _getRepository();
-    return await repo.getSegmentsForChapter(bookId, chapterIndex);
+    return await repo.getSegmentsForChapter(
+      bookId, 
+      chapterIndex,
+      minConfidence: minConfidence,
+    );
   }
 
   /// Get segment count for a chapter.

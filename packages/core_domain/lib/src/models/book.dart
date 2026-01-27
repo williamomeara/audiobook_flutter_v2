@@ -68,6 +68,7 @@ class Book {
     this.coverImagePath,
     this.voiceId,
     this.isFavorite = false,
+    this.firstContentChapter,
   });
 
   /// Unique identifier for this book.
@@ -106,6 +107,10 @@ class Book {
   /// Whether this book is marked as a favorite.
   final bool isFavorite;
 
+  /// Index of the first chapter detected as actual content (not front matter).
+  /// Used to offer "skip to content" functionality.
+  final int? firstContentChapter;
+
   /// Calculate overall progress percentage (0-100).
   int get progressPercent {
     if (chapters.isEmpty) return 0;
@@ -139,6 +144,7 @@ class Book {
     BookProgress? progress,
     Set<int>? completedChapters,
     bool? isFavorite,
+    int? firstContentChapter,
   }) {
     return Book(
       id: id ?? this.id,
@@ -153,6 +159,7 @@ class Book {
       progress: progress ?? this.progress,
       completedChapters: completedChapters ?? this.completedChapters,
       isFavorite: isFavorite ?? this.isFavorite,
+      firstContentChapter: firstContentChapter ?? this.firstContentChapter,
     );
   }
 
@@ -169,6 +176,7 @@ class Book {
         'progress': progress.toJson(),
         'completedChapters': completedChapters.toList(growable: false),
         'isFavorite': isFavorite,
+        'firstContentChapter': firstContentChapter,
       };
 
   factory Book.fromJson(Map<String, dynamic> json) {
@@ -201,6 +209,7 @@ class Book {
       progress: progress,
       completedChapters: completedChapters,
       isFavorite: (json['isFavorite'] as bool?) ?? false,
+      firstContentChapter: (json['firstContentChapter'] as num?)?.toInt(),
     );
   }
 

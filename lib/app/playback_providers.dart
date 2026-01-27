@@ -541,12 +541,20 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     final chapter = book.chapters[chapterIndex];
     PlaybackLogger.info('[PlaybackProvider] Chapter: "${chapter.title}"');
 
+    // Get content quality setting for filtering
+    final settings = ref.read(settingsProvider);
+    final minConfidence = settings.minConfidenceThreshold;
+
     // Load pre-segmented content from SQLite (no runtime segmentation)
     final segmentStart = DateTime.now();
     final libraryController = ref.read(libraryProvider.notifier);
-    final segments = await libraryController.getSegmentsForChapter(book.id, chapterIndex);
+    final segments = await libraryController.getSegmentsForChapter(
+      book.id, 
+      chapterIndex,
+      minConfidence: minConfidence > 0 ? minConfidence : null,
+    );
     final segmentDuration = DateTime.now().difference(segmentStart);
-    PlaybackLogger.info('[PlaybackProvider] Loaded ${segments.length} segments from SQLite in ${segmentDuration.inMilliseconds}ms');
+    PlaybackLogger.info('[PlaybackProvider] Loaded ${segments.length} segments from SQLite in ${segmentDuration.inMilliseconds}ms (minConfidence: $minConfidence)');
 
     // Handle empty chapter - create a single "empty" track to show in UI
     if (segments.isEmpty) {
@@ -654,9 +662,17 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       try {
         PlaybackLogger.info('[NextChapterPresynth] Pre-synthesizing first segment of chapter $nextChapterIndex');
 
+        // Get content quality setting for filtering
+        final settings = ref.read(settingsProvider);
+        final minConfidence = settings.minConfidenceThreshold;
+
         // Load pre-segmented content from SQLite (no runtime segmentation)
         final libraryController = ref.read(libraryProvider.notifier);
-        final segments = await libraryController.getSegmentsForChapter(book.id, nextChapterIndex);
+        final segments = await libraryController.getSegmentsForChapter(
+          book.id, 
+          nextChapterIndex,
+          minConfidence: minConfidence > 0 ? minConfidence : null,
+        );
         if (segments.isEmpty) {
           PlaybackLogger.debug('[NextChapterPresynth] Next chapter has no segments');
           return;
@@ -665,7 +681,6 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         final nextChapter = book.chapters[nextChapterIndex];
         
         // Get current voice and engine
-        final settings = ref.read(settingsProvider);
         final voiceId = settings.selectedVoice;
         
         // Use default playback rate (1.0) for pre-synthesis

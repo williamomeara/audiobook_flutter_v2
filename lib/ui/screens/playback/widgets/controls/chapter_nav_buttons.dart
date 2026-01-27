@@ -36,28 +36,30 @@ class PreviousChapterButton extends StatelessWidget {
 
 /// Next chapter button.
 class NextChapterButton extends StatelessWidget {
+  final bool enabled;
   final VoidCallback? onTap;
-  
+
   const NextChapterButton({
     super.key,
+    this.enabled = true,
     required this.onTap,
   });
-  
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
-    
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         borderRadius: BorderRadius.circular(24),
         child: Padding(
           padding: const EdgeInsets.all(8),
           child: Icon(
             Icons.skip_next,
             size: 24,
-            color: colors.text,
+            color: enabled ? colors.text : colors.textTertiary,
           ),
         ),
       ),

@@ -70,6 +70,7 @@ class LibraryRepository {
         chapters: chapters,
         progress: progress,
         completedChapters: completedChapters,
+        firstContentChapter: row['first_content_chapter'] as int?,
       ));
     }
 
@@ -113,17 +114,25 @@ class LibraryRepository {
       chapters: chapters,
       progress: progress,
       completedChapters: completedChapters,
+      firstContentChapter: row['first_content_chapter'] as int?,
     );
   }
 
   /// Get segments for a chapter (for playback).
+  /// 
+  /// If [minConfidence] is provided, filters out low-confidence segments.
   Future<List<Segment>> getSegmentsForChapter(
-      String bookId, int chapterIndex) async {
-    final rows = await _segmentDao.getSegmentsForChapter(bookId, chapterIndex);
+      String bookId, int chapterIndex, {double? minConfidence}) async {
+    final rows = await _segmentDao.getSegmentsForChapter(
+      bookId, 
+      chapterIndex,
+      minConfidence: minConfidence,
+    );
     return rows.map((row) => Segment(
       text: row['text'] as String,
       index: row['segment_index'] as int,
       estimatedDurationMs: row['estimated_duration_ms'] as int?,
+      contentConfidence: row['content_confidence'] as double?,
     )).toList();
   }
 
@@ -156,6 +165,7 @@ class LibraryRepository {
         'is_favorite': book.isFavorite ? 1 : 0,
         'added_at': book.addedAt,
         'updated_at': now,
+        'first_content_chapter': book.firstContentChapter,
       });
 
       // Insert chapters and segments
@@ -171,6 +181,14 @@ class LibraryRepository {
         final wordCount = (charCount / 5).round();
         final durationMs = segments.fold<int>(
             0, (sum, s) => sum + (s.estimatedDurationMs ?? 0));
+        
+        // Calculate average chapter confidence from segment confidences
+        final avgConfidence = segments.isEmpty
+            ? null
+            : segments
+                .where((s) => s.contentConfidence != null)
+                .fold<double>(0.0, (sum, s) => sum + s.contentConfidence!) /
+              segments.where((s) => s.contentConfidence != null).length;
 
         // Insert chapter metadata
         await txn.insert('chapters', {
@@ -181,6 +199,7 @@ class LibraryRepository {
           'word_count': wordCount,
           'char_count': charCount,
           'estimated_duration_ms': durationMs,
+          'content_confidence': avgConfidence,
         });
 
         // Batch insert segments
@@ -194,6 +213,7 @@ class LibraryRepository {
             'char_count': segment.text.length,
             'estimated_duration_ms':
                 segment.estimatedDurationMs ?? estimateDurationMs(segment.text),
+            'content_confidence': segment.contentConfidence,
           });
         }
         await batch.commit(noResult: true);

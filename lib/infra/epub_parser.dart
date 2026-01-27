@@ -102,11 +102,32 @@ class EpubParser {
 
     addChapters(epubBook.Chapters);
 
+    // Group chapters by their content file to handle anchor-based splitting
+    final chaptersByFile = <String, List<EpubChapter>>{};
+    for (final ch in flattened) {
+      final fileName = ch.ContentFileName ?? '';
+      if (fileName.isEmpty) continue;
+      chaptersByFile.putIfAbsent(fileName, () => []).add(ch);
+    }
+
     var chapterNumber = 0;
     for (final ch in flattened) {
       final html = (ch.HtmlContent ?? '').trim();
       if (html.isEmpty) continue;
-      final text = _stripHtmlToText(html);
+      
+      // Extract only the content for this chapter's anchor if file is shared
+      final fileName = ch.ContentFileName ?? '';
+      final chaptersInFile = chaptersByFile[fileName] ?? [];
+      String text;
+      
+      if (chaptersInFile.length > 1 && ch.Anchor != null && ch.Anchor!.isNotEmpty) {
+        // Multiple chapters share this file - extract content between anchors
+        text = _extractAnchorContent(html, ch.Anchor!, chaptersInFile, ch);
+      } else {
+        // Single chapter per file - use entire content
+        text = _stripHtmlToText(html);
+      }
+      
       if (text.isEmpty) continue;
 
       chapterNumber += 1;
@@ -393,6 +414,65 @@ class EpubParser {
         .replaceAll('&apos;', "'")
         .replaceAll('&#39;', "'")
         .replaceAll('&#x27;', "'");
+  }
+
+  /// Extract content between anchor boundaries when multiple chapters share one file.
+  /// 
+  /// This handles EPUBs where the TOC uses anchor fragments (e.g., file.xhtml#chapter1)
+  /// to point to different sections within a single HTML file.
+  String _extractAnchorContent(
+    String html, 
+    String currentAnchor, 
+    List<EpubChapter> chaptersInFile,
+    EpubChapter currentChapter,
+  ) {
+    // Find all anchor positions in the HTML for chapters in this file
+    final anchorPositions = <String, int>{};
+    
+    for (final ch in chaptersInFile) {
+      final anchor = ch.Anchor;
+      if (anchor == null || anchor.isEmpty) continue;
+      
+      // Look for id="anchor" or name="anchor" in the HTML
+      final patterns = [
+        RegExp('id=["\']${RegExp.escape(anchor)}["\']', caseSensitive: false),
+        RegExp('name=["\']${RegExp.escape(anchor)}["\']', caseSensitive: false),
+      ];
+      
+      for (final pattern in patterns) {
+        final match = pattern.firstMatch(html);
+        if (match != null) {
+          anchorPositions[anchor] = match.start;
+          break;
+        }
+      }
+    }
+    
+    // If we couldn't find the current anchor, fall back to full content
+    if (!anchorPositions.containsKey(currentAnchor)) {
+      return _stripHtmlToText(html);
+    }
+    
+    // Sort anchors by position in HTML
+    final sortedAnchors = anchorPositions.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+    
+    // Find the current anchor's position in the sorted list
+    final currentIndex = sortedAnchors.indexWhere((e) => e.key == currentAnchor);
+    if (currentIndex == -1) {
+      return _stripHtmlToText(html);
+    }
+    
+    // Extract content from current anchor to next anchor (or end of file)
+    final startPos = anchorPositions[currentAnchor]!;
+    final endPos = currentIndex + 1 < sortedAnchors.length
+        ? sortedAnchors[currentIndex + 1].value
+        : html.length;
+    
+    // Extract the HTML segment
+    final segment = html.substring(startPos, endPos);
+    
+    return _stripHtmlToText(segment);
   }
 }
 

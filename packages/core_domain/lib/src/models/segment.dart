@@ -7,6 +7,7 @@ class Segment {
     required this.text,
     required this.index,
     this.estimatedDurationMs,
+    this.contentConfidence,
   });
 
   /// The text content of this segment.
@@ -17,6 +18,12 @@ class Segment {
 
   /// Estimated playback duration in milliseconds (at 1.0x speed).
   final int? estimatedDurationMs;
+
+  /// Confidence score for actual content (0.0 = likely boilerplate, 1.0 = confident content).
+  /// 
+  /// Used to identify front matter, scanner notes, and other non-story content
+  /// that users may want to skip.
+  final double? contentConfidence;
 
   /// Estimated duration in Duration format.
   Duration get estimatedDuration =>
@@ -29,11 +36,13 @@ class Segment {
     String? text,
     int? index,
     int? estimatedDurationMs,
+    double? contentConfidence,
   }) {
     return Segment(
       text: text ?? this.text,
       index: index ?? this.index,
       estimatedDurationMs: estimatedDurationMs ?? this.estimatedDurationMs,
+      contentConfidence: contentConfidence ?? this.contentConfidence,
     );
   }
 

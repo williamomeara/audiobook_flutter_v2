@@ -51,9 +51,6 @@ class TextDisplayView extends ConsumerStatefulWidget {
 }
 
 class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
-  // Track programmatic scroll to avoid disabling auto-scroll
-  bool _isProgrammaticScroll = false;
-  
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
@@ -100,8 +97,9 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
           ),
         NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            // Disable auto-scroll when user finishes scrolling manually (not programmatic)
-            if (notification is ScrollEndNotification && widget.autoScrollEnabled && !_isProgrammaticScroll) {
+            // Disable auto-scroll when user scrolls manually
+            // UserScrollNotification is only sent for user-initiated scrolls, not programmatic ones
+            if (notification is UserScrollNotification && widget.autoScrollEnabled) {
               widget.onAutoScrollDisabled();
             }
             return false;

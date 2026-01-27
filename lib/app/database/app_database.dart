@@ -8,6 +8,7 @@ import 'migrations/json_migration_service.dart';
 import 'migrations/migration_v1.dart';
 import 'migrations/migration_v2.dart';
 import 'migrations/migration_v3.dart';
+import 'migrations/migration_v4.dart';
 import 'migrations/settings_migration_service.dart';
 
 /// Singleton database instance for the Eist audiobook app.
@@ -23,7 +24,7 @@ import 'migrations/settings_migration_service.dart';
 class AppDatabase {
   static Database? _database;
   static const String _dbName = 'eist_audiobook.db';
-  static const int _dbVersion = 3;
+  static const int _dbVersion = 4;
 
   // Private constructor to prevent instantiation
   AppDatabase._();
@@ -72,12 +73,13 @@ class AppDatabase {
     await MigrationV1.up(db);
     await MigrationV2.up(db);
     await MigrationV3.up(db);
+    await MigrationV4.up(db);
 
     // Record schema version
     await db.insert('schema_version', {
       'version': version,
       'applied_at': DateTime.now().millisecondsSinceEpoch,
-      'description': 'Initial schema with segment progress tracking',
+      'description': 'Initial schema with segment confidence scoring',
     });
   }
 
@@ -98,6 +100,14 @@ class AppDatabase {
         'version': 3,
         'applied_at': DateTime.now().millisecondsSinceEpoch,
         'description': 'Add segment progress tracking for per-segment listening history',
+      });
+    }
+    if (oldVersion < 4) {
+      await MigrationV4.up(db);
+      await db.insert('schema_version', {
+        'version': 4,
+        'applied_at': DateTime.now().millisecondsSinceEpoch,
+        'description': 'Add content confidence scoring for smart chapter detection',
       });
     }
   }

@@ -16,6 +16,7 @@ import '../theme/app_colors.dart';
 import '../widgets/segment_seek_slider.dart';
 import 'package:core_domain/core_domain.dart';
 import 'playback/dialogs/dialogs.dart';
+import 'playback/layouts/layouts.dart';
 import 'playback/widgets/widgets.dart';
 
 class PlaybackScreen extends ConsumerStatefulWidget {
@@ -28,17 +29,12 @@ class PlaybackScreen extends ConsumerStatefulWidget {
 }
 
 class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  // Layout constants for landscape mode
-  static const double _landscapeControlsWidth = 100.0;
-  static const double _landscapeBottomBarHeight = 52.0;
-  
   bool _initialized = false;
   int _currentChapterIndex = 0;
   
   // Scroll controller for text view
   final ScrollController _scrollController = ScrollController();
   bool _autoScrollEnabled = true;
-  bool _isProgrammaticScroll = false; // Prevents disabling auto-scroll during programmatic scroll
   int _lastAutoScrolledIndex = -1;
   
   // GlobalKey for the currently active segment (for precise scrolling)
@@ -334,17 +330,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   
   void _scrollToActiveSegment() {
     if (_activeSegmentKey?.currentContext == null) return;
-    
-    _isProgrammaticScroll = true;
-    
+
     Scrollable.ensureVisible(
       _activeSegmentKey!.currentContext!,
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
       alignment: 0.15, // Position at 15% from top
-    ).then((_) {
-      _isProgrammaticScroll = false;
-    });
+    );
   }
   
   @override
@@ -672,7 +664,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
 
             final chapterIdx = currentChapterIndex.clamp(0, book.chapters.length - 1);
             final chapter = book.chapters[chapterIdx];
-            final currentTrack = playbackState.currentTrack;
             final queue = playbackState.queue;
             final queueLength = queue.length;
             
@@ -691,29 +682,59 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
             });
             
             final layout = isLandscape
-                ? _buildLandscapeLayout(
-                    colors: colors,
+                ? LandscapeLayout(
                     book: book,
-                    chapter: chapter,
                     playbackState: playbackState,
                     queue: queue,
-                    currentTrack: currentTrack,
                     currentIndex: currentIndex,
                     queueLength: queueLength,
                     chapterIdx: chapterIdx,
                     isLoading: isLoading,
+                    showCover: _showCover,
+                    bookId: widget.bookId,
+                    chapterIndex: _currentChapterIndex,
+                    autoScrollEnabled: _autoScrollEnabled,
+                    scrollController: _scrollController,
+                    activeSegmentKey: _activeSegmentKey ??= GlobalKey(),
+                    sleepTimerMinutes: _sleepTimerMinutes,
+                    sleepTimeRemainingSeconds: _sleepTimeRemainingSeconds,
+                    onBack: _saveProgressAndPop,
+                    onSegmentTap: _seekToSegment,
+                    onAutoScrollDisabled: () => setState(() => _autoScrollEnabled = false),
+                    onJumpToCurrent: _jumpToCurrent,
+                    onDecreaseSpeed: _decreaseSpeed,
+                    onIncreaseSpeed: _increaseSpeed,
+                    onPreviousSegment: _previousSegment,
+                    onNextSegment: _nextSegment,
+                    onTogglePlay: _togglePlay,
+                    onShowSleepTimerPicker: () => _showSleepTimerPicker(context, colors),
+                    onPreviousChapter: _previousChapter,
+                    onNextChapter: _nextChapter,
+                    errorBannerBuilder: (error) => _buildErrorBanner(colors, error),
                   )
-                : _buildPortraitLayout(
-                    colors: colors,
+                : PortraitLayout(
                     book: book,
                     chapter: chapter,
                     playbackState: playbackState,
                     queue: queue,
-                    currentTrack: currentTrack,
                     currentIndex: currentIndex,
                     queueLength: queueLength,
                     chapterIdx: chapterIdx,
                     isLoading: isLoading,
+                    showCover: _showCover,
+                    bookId: widget.bookId,
+                    chapterIndex: _currentChapterIndex,
+                    autoScrollEnabled: _autoScrollEnabled,
+                    scrollController: _scrollController,
+                    activeSegmentKey: _activeSegmentKey ??= GlobalKey(),
+                    onBack: _saveProgressAndPop,
+                    onToggleView: () => setState(() => _showCover = !_showCover),
+                    onSegmentTap: _seekToSegment,
+                    onAutoScrollDisabled: () => setState(() => _autoScrollEnabled = false),
+                    onJumpToCurrent: _jumpToCurrent,
+                    playbackControlsBuilder: () => _buildPlaybackControls(
+                      colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
+                    errorBannerBuilder: (error) => _buildErrorBanner(colors, error),
                   );
             
             // Use overlay that fades out after orientation change
@@ -757,163 +778,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     );
   }
 
-  /// Landscape layout for playback screen
-  Widget _buildLandscapeLayout({
-    required AppThemeColors colors,
-    required Book book,
-    required Chapter chapter,
-    required PlaybackState playbackState,
-    required List<AudioTrack> queue,
-    required AudioTrack? currentTrack,
-    required int currentIndex,
-    required int queueLength,
-    required int chapterIdx,
-    required bool isLoading,
-  }) {
-    return SafeArea(
-      child: Stack(
-        children: [
-          // Main content area (padded for controls)
-          Positioned.fill(
-            right: _landscapeControlsWidth,
-            bottom: _landscapeBottomBarHeight,
-            child: Column(
-              children: [
-                if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
-                if (isLoading)
-                  Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(color: colors.primary),
-                          const SizedBox(height: 16),
-                          Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: _showCover
-                        ? CoverView(book: book)
-                        : TextDisplayView(
-                            bookId: widget.bookId,
-                            chapterIndex: _currentChapterIndex,
-                            queue: queue,
-                            currentIndex: currentIndex,
-                            book: book,
-                            onSegmentTap: _seekToSegment,
-                            scrollController: _scrollController,
-                            autoScrollEnabled: _autoScrollEnabled,
-                            onAutoScrollDisabled: () => setState(() => _autoScrollEnabled = false),
-                            onJumpToCurrent: _jumpToCurrent,
-                            activeSegmentKey: _activeSegmentKey ??= GlobalKey(),
-                          ),
-                  ),
-              ],
-            ),
-          ),
-          // Back button (top left corner)
-          Positioned(
-            left: 8,
-            top: 8,
-            child: Material(
-              color: colors.controlBackground.withValues(alpha: 0.8),
-              borderRadius: BorderRadius.circular(20),
-              child: InkWell(
-                onTap: _saveProgressAndPop,
-                borderRadius: BorderRadius.circular(20),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Icon(Icons.arrow_back, size: 20, color: colors.text),
-                ),
-              ),
-            ),
-          ),
-          // Right side vertical controls (full height)
-          if (!isLoading)
-            Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              child: _buildLandscapeControls(colors, playbackState, currentIndex, queueLength),
-            ),
-          // Bottom bar with chapter controls + progress
-          if (!isLoading)
-            Positioned(
-              left: 0,
-              right: _landscapeControlsWidth,
-              bottom: 0,
-              child: _buildLandscapeBottomBar(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// Portrait layout for playback screen
-  Widget _buildPortraitLayout({
-    required AppThemeColors colors,
-    required Book book,
-    required Chapter chapter,
-    required PlaybackState playbackState,
-    required List<AudioTrack> queue,
-    required AudioTrack? currentTrack,
-    required int currentIndex,
-    required int queueLength,
-    required int chapterIdx,
-    required bool isLoading,
-  }) {
-    return SafeArea(
-      child: Column(
-        children: [
-          PlaybackHeader(
-            book: book,
-            chapter: chapter,
-            showCover: _showCover,
-            onBack: _saveProgressAndPop,
-            onToggleView: () => setState(() => _showCover = !_showCover),
-          ),
-          if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
-          if (isLoading)
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(color: colors.primary),
-                    const SizedBox(height: 16),
-                    Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
-                  ],
-                ),
-              ),
-            )
-          else ...[
-            Expanded(
-              child: _showCover
-                  ? CoverView(book: book)
-                  : TextDisplayView(
-                      bookId: widget.bookId,
-                      chapterIndex: _currentChapterIndex,
-                      queue: queue,
-                      currentIndex: currentIndex,
-                      book: book,
-                      onSegmentTap: _seekToSegment,
-                      scrollController: _scrollController,
-                      autoScrollEnabled: _autoScrollEnabled,
-                      onAutoScrollDisabled: () => setState(() => _autoScrollEnabled = false),
-                      onJumpToCurrent: _jumpToCurrent,
-                      activeSegmentKey: _activeSegmentKey ??= GlobalKey(),
-                    ),
-            ),
-            _buildPlaybackControls(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
-          ],
-        ],
-      ),
-    );
-  }
-  
   void _jumpToCurrent() {
     final playbackState = ref.read(playbackStateProvider);
     if (playbackState.queue.isEmpty) return;
@@ -1065,6 +929,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                 
                 // Next chapter
                 NextChapterButton(
+                  enabled: chapterIdx < chapterCount - 1,
                   onTap: _nextChapter,
                 ),
               ],
@@ -1075,169 +940,4 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     );
   }
 
-  /// Vertical playback controls for landscape mode (right side)
-  Widget _buildLandscapeControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength) {
-    return Container(
-      width: _landscapeControlsWidth,
-      decoration: BoxDecoration(
-        color: colors.background.withValues(alpha: 0.95),
-        border: Border(left: BorderSide(color: colors.border, width: 1)),
-      ),
-      child: Column(
-        children: [
-          // Top section (expandable) - Speed controls + up arrow
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                // Speed control
-                SpeedControl(
-                  playbackRate: playbackState.playbackRate,
-                  onDecrease: _decreaseSpeed,
-                  onIncrease: _increaseSpeed,
-                  isVertical: true,
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // Previous segment (up arrow)
-                PreviousSegmentButton(
-                  enabled: currentIndex > 0,
-                  onTap: _previousSegment,
-                  isVertical: true,
-                ),
-                
-                const SizedBox(height: 6),
-              ],
-            ),
-          ),
-          
-          // Center section (fixed) - Play button
-          PlayButton(
-            isPlaying: playbackState.isPlaying,
-            isBuffering: playbackState.isBuffering,
-            onToggle: _togglePlay,
-          ),
-          
-          // Bottom section (expandable) - down arrow + sleep timer
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: [
-                const SizedBox(height: 6),
-                
-                // Next segment (down arrow)
-                NextSegmentButton(
-                  enabled: currentIndex < queueLength - 1,
-                  onTap: _nextSegment,
-                  isVertical: true,
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // Sleep timer
-                SleepTimerControl(
-                  timerMinutes: _sleepTimerMinutes,
-                  remainingSeconds: _sleepTimeRemainingSeconds,
-                  onTap: () => _showSleepTimerPicker(context, colors),
-                  isCompact: true,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Bottom bar for landscape mode (chapter controls + progress bar)
-  Widget _buildLandscapeBottomBar(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
-    // Get segment readiness for synthesis status display
-    final readinessKey = '${widget.bookId}:$_currentChapterIndex';
-    final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
-    final segmentReadiness = segmentReadinessAsync.value ?? {};
-    
-    return Container(
-      height: _landscapeBottomBarHeight + 16, // Extra height for slider thumb
-      decoration: BoxDecoration(
-        color: colors.background.withValues(alpha: 0.95),
-        border: Border(top: BorderSide(color: colors.border, width: 1)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        child: Row(
-          children: [
-            // Previous chapter (left side)
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: chapterIdx > 0 ? _previousChapter : null,
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Icon(
-                    Icons.skip_previous,
-                    size: 24,
-                    color: chapterIdx > 0 ? colors.text : colors.textTertiary,
-                  ),
-                ),
-              ),
-            ),
-            
-            const SizedBox(width: 8),
-            
-            // Segment seek slider (center, expanded)
-            Expanded(
-              child: Row(
-                children: [
-                  Text(
-                    '${currentIndex + 1}',
-                    style: TextStyle(fontSize: 12, color: colors.textSecondary),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: SegmentSeekSlider(
-                      // Key forces rebuild when readiness state changes
-                      key: ValueKey('slider_landscape_${segmentReadiness.hashCode}'),
-                      currentIndex: currentIndex,
-                      totalSegments: queueLength,
-                      colors: colors,
-                      height: 4,
-                      showPreview: false, // No preview in landscape (limited space)
-                      segmentReadiness: segmentReadiness,
-                      onSeek: _seekToSegment,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '$queueLength',
-                    style: TextStyle(fontSize: 12, color: colors.textSecondary),
-                  ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(width: 8),
-            
-            // Next chapter (right side)
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: chapterIdx < chapterCount - 1 ? _nextChapter : null,
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Icon(
-                    Icons.skip_next,
-                    size: 24,
-                    color: chapterIdx < chapterCount - 1 ? colors.text : colors.textTertiary,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

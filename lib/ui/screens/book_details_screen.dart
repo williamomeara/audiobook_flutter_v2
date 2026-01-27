@@ -357,39 +357,6 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                           const SizedBox(height: 24),
                         ],
 
-                        // About section in a card
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: colors.card,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'About',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: colors.textSecondary,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                _getBookDescription(book),
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: colors.text,
-                                  height: 1.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-
                         // Action button with shadow
                         Container(
                           decoration: BoxDecoration(
@@ -435,6 +402,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                             ),
                           ),
                         ),
+                        
+                        // Skip to content option for books with front matter
+                        if (bookProgressState == BookProgressState.notStarted &&
+                            book.firstContentChapter != null &&
+                            book.firstContentChapter! > 0) ...[
+                          const SizedBox(height: 12),
+                          _buildSkipToContentButton(book, colors),
+                        ],
                         // Last played timestamp
                         _buildLastPlayedTimestamp(book.id, colors),
                         const SizedBox(height: 32),
@@ -855,6 +830,66 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
     }
   }
 
+  /// Build the "Skip to first chapter" button for books with detected front matter.
+  Widget _buildSkipToContentButton(Book book, AppThemeColors colors) {
+    final firstChapter = book.firstContentChapter!;
+    final chapterTitle = firstChapter < book.chapters.length
+        ? book.chapters[firstChapter].title
+        : 'Chapter ${firstChapter + 1}';
+    final skippedCount = firstChapter;
+    
+    return OutlinedButton(
+      onPressed: () async {
+        // Update book progress to skip to the first content chapter
+        await ref.read(libraryProvider.notifier).updateProgress(
+          book.id,
+          firstChapter,
+          0,
+        );
+        if (!mounted) return;
+        // Then navigate to playback
+        context.push('/playback/${book.id}');
+      },
+      style: OutlinedButton.styleFrom(
+        foregroundColor: colors.primary,
+        side: BorderSide(color: colors.primary.withOpacity(0.3)),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.skip_next_rounded, size: 20, color: colors.primary),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              children: [
+                Text(
+                  'Skip to "$chapterTitle"',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: colors.primary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  'Skip $skippedCount front matter ${skippedCount == 1 ? 'chapter' : 'chapters'}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Build the "Last played X ago" widget.
   Widget _buildLastPlayedTimestamp(String bookId, AppThemeColors colors) {
     final lastPlayedAsync = ref.watch(lastPlayedAtProvider(bookId));
@@ -1008,18 +1043,6 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
         },
       ),
     );
-  }
-
-  String _getBookDescription(book) {
-    // Generate a brief description from the first chapter content
-    if (book.chapters.isNotEmpty) {
-      final content = book.chapters.first.content;
-      if (content.length > 150) {
-        return '${content.substring(0, 150).trim()}...';
-      }
-      return content;
-    }
-    return 'No description available.';
   }
 
   int _countListenedChapters(Map<int, ChapterProgress?> progressMap) {

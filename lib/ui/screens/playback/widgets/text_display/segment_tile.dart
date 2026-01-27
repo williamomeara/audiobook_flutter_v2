@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:playback/playback.dart';
@@ -11,7 +10,7 @@ class SegmentDisplayState {
   final bool isPast;
   final bool isReady;
   final bool isSynthesizing;
-  
+
   const SegmentDisplayState({
     required this.isActive,
     required this.isPast,
@@ -20,24 +19,24 @@ class SegmentDisplayState {
   });
 }
 
-/// A widget span for an active segment, enabling precise scrolling.
-/// 
-/// Active segments use a GestureDetector with a GlobalKey for 
-/// Scrollable.ensureVisible to work.
-class ActiveSegmentSpan extends StatelessWidget {
+/// A tappable segment span widget.
+///
+/// Uses GestureDetector instead of TapGestureRecognizer to avoid memory leaks.
+/// For active segments, accepts a GlobalKey for Scrollable.ensureVisible.
+class SegmentSpanWidget extends StatelessWidget {
   final String text;
   final TextStyle style;
-  final GlobalKey segmentKey;
   final VoidCallback onTap;
-  
-  const ActiveSegmentSpan({
+  final GlobalKey? segmentKey;
+
+  const SegmentSpanWidget({
     super.key,
     required this.text,
     required this.style,
-    required this.segmentKey,
     required this.onTap,
+    this.segmentKey,
   });
-  
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -85,9 +84,11 @@ InlineSpan buildSynthesizingIndicator(AppThemeColors colors) {
 }
 
 /// Build spans for all segments in the queue.
-/// 
+///
 /// Returns a list of InlineSpans to be used in a RichText widget.
-/// The [activeSegmentKey] is set when building the active segment.
+/// Uses WidgetSpan with GestureDetector for all segments to avoid
+/// TapGestureRecognizer memory leaks.
+/// The [activeSegmentKey] is set on the active segment for scrolling.
 List<InlineSpan> buildSegmentSpans({
   required List<AudioTrack> queue,
   required int currentIndex,
@@ -97,52 +98,44 @@ List<InlineSpan> buildSegmentSpans({
   required void Function(int) onSegmentTap,
 }) {
   final List<InlineSpan> spans = [];
-  
+
   for (int index = 0; index < queue.length; index++) {
     final item = queue[index];
     final isActive = index == currentIndex;
     final isPast = index < currentIndex;
-    
+
     // Get segment readiness (1.0 = ready, lower = not ready)
     final readiness = segmentReadiness[index];
     final isReady = readiness?.opacity == 1.0;
     final isSynthesizing = readiness?.state == SegmentState.synthesizing && !isPast && !isActive;
-    
+
     final state = SegmentDisplayState(
       isActive: isActive,
       isPast: isPast,
       isReady: isReady,
       isSynthesizing: isSynthesizing,
     );
-    
+
     final textStyle = buildSegmentTextStyle(colors: colors, state: state);
-    
-    // Use WidgetSpan for active segment to enable precise scrolling
-    if (isActive) {
-      spans.add(WidgetSpan(
-        alignment: PlaceholderAlignment.baseline,
-        baseline: TextBaseline.alphabetic,
-        child: ActiveSegmentSpan(
-          text: item.text,
-          style: textStyle,
-          segmentKey: activeSegmentKey,
-          onTap: () => onSegmentTap(index),
-        ),
-      ));
-    } else {
-      // Use regular TextSpan for non-active segments
-      spans.add(TextSpan(
-        text: '${item.text} ',
+
+    // Use WidgetSpan for all segments to avoid TapGestureRecognizer memory leaks
+    // Active segment gets the GlobalKey for precise scrolling
+    spans.add(WidgetSpan(
+      alignment: PlaceholderAlignment.baseline,
+      baseline: TextBaseline.alphabetic,
+      child: SegmentSpanWidget(
+        text: item.text,
         style: textStyle,
-        recognizer: TapGestureRecognizer()..onTap = () => onSegmentTap(index),
-      ));
-    }
-    
+        onTap: () => onSegmentTap(index),
+        segmentKey: isActive ? activeSegmentKey : null,
+      ),
+    ));
+
     // Add synthesizing indicator ONLY for segments currently being synthesized
     if (isSynthesizing) {
       spans.add(buildSynthesizingIndicator(colors));
     }
   }
-  
+
   return spans;
 }
