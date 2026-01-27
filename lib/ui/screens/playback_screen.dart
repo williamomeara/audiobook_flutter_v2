@@ -67,6 +67,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   int _segmentsPlayedSinceVerification = 0;
   static const _verificationInterval = 5; // Verify every 5 segments
   
+  // Auto-save timer for progress persistence
+  Timer? _autoSaveTimer;
+  static const _autoSaveIntervalSeconds = 30;
+  int _lastSavedSegmentIndex = -1; // Track last saved position to avoid redundant saves
+  
   // Orientation detection
   bool _isLandscape(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -158,7 +163,44 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
       _initializePlayback();
       _setupPlaybackListener();
       _setupHapticListener();
+      _startAutoSaveTimer();
     });
+  }
+  
+  void _startAutoSaveTimer() {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer.periodic(
+      const Duration(seconds: _autoSaveIntervalSeconds),
+      (_) => _autoSaveProgress(),
+    );
+  }
+  
+  /// Auto-save progress to SQLite periodically.
+  /// Prevents progress loss on crash or unexpected termination.
+  void _autoSaveProgress() {
+    final playbackState = ref.read(playbackStateProvider);
+    final currentChapterIndex = _currentChapterIndex;
+    
+    // Only save if we have a valid queue
+    final queueLength = playbackState.queue.length;
+    if (queueLength == 0) return;
+    
+    final segmentIndex = playbackState.currentIndex.clamp(0, queueLength - 1);
+    
+    // Skip if position hasn't changed since last save
+    if (segmentIndex == _lastSavedSegmentIndex && currentChapterIndex == _currentChapterIndex) {
+      return;
+    }
+    
+    _lastSavedSegmentIndex = segmentIndex;
+    
+    ref.read(libraryProvider.notifier).updateProgress(
+      widget.bookId,
+      currentChapterIndex,
+      segmentIndex,
+    );
+    
+    developer.log('[PlaybackScreen] Auto-saved progress: chapter $currentChapterIndex, segment $segmentIndex');
   }
   
   void _setupHapticListener() {
@@ -318,6 +360,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
       DeviceOrientation.portraitDown,
     ]);
     _sleepTimer?.cancel();
+    _autoSaveTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -1282,6 +1325,90 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
       setState(() => _autoScrollEnabled = true);
     }
   }
+  
+  /// Format duration as "Xh Ym" or "Xm" for shorter durations.
+  String _formatDuration(Duration duration) {
+    final totalMinutes = duration.inMinutes;
+    if (totalMinutes < 60) {
+      return '${totalMinutes}m';
+    }
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    return '${hours}h ${minutes}m';
+  }
+  
+  /// Build the time remaining row showing chapter and book time remaining.
+  Widget _buildTimeRemainingRow(AppThemeColors colors) {
+    // Get chapter progress for current chapter
+    final chapterKey = '${widget.bookId}:$_currentChapterIndex';
+    final chapterProgressAsync = ref.watch(chapterProgressProvider(chapterKey));
+    
+    // Get book progress summary
+    final bookProgressAsync = ref.watch(bookProgressSummaryProvider(widget.bookId));
+    
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Chapter remaining
+          chapterProgressAsync.when(
+            data: (chapterProgress) {
+              if (chapterProgress == null || chapterProgress.durationMs == 0) {
+                return const SizedBox.shrink();
+              }
+              final totalMs = chapterProgress.durationMs;
+              final listenedMs = (chapterProgress.percentComplete * totalMs).round();
+              final remainingMs = (totalMs - listenedMs).clamp(0, totalMs);
+              final remaining = Duration(milliseconds: remainingMs);
+              return Text(
+                '${_formatDuration(remaining)} left in chapter',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.textSecondary,
+                ),
+              );
+            },
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+          
+          // Divider
+          bookProgressAsync.maybeWhen(
+            data: (summary) => summary.totalDurationMs > 0 ? Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                '•',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.textTertiary,
+                ),
+              ),
+            ) : const SizedBox.shrink(),
+            orElse: () => const SizedBox.shrink(),
+          ),
+          
+          // Book remaining
+          bookProgressAsync.when(
+            data: (summary) {
+              if (summary.totalDurationMs == 0) {
+                return const SizedBox.shrink();
+              }
+              return Text(
+                '${_formatDuration(summary.remainingDuration)} left in book',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.textTertiary,
+                ),
+              );
+            },
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildPlaybackControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
     final queue = playbackState.queue;
@@ -1341,6 +1468,9 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
               ],
             ),
           ),
+          
+          // Time remaining info
+          _buildTimeRemainingRow(colors),
           
           // Speed and Sleep Timer controls
           Padding(
