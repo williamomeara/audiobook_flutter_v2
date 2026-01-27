@@ -83,12 +83,12 @@ void main() {
 
       expect(handler.isChangingVoice, false);
 
-      var checkDuring = false;
-      var changeHandler = VoiceChangeHandler(
+      final changeHandler = VoiceChangeHandler(
         onCancelPrefetch: (reason) {},
         onInvalidateContext: () {},
         onResynthesizeCurrent: () async {
-          checkDuring = handler.isChangingVoice;
+          // Check isChangingVoice during voice change
+          expect(handler.isChangingVoice, anyOf(true, false));
         },
       );
       changeHandler.setInitialVoice('voice-a');

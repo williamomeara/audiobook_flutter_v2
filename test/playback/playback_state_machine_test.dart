@@ -9,8 +9,11 @@ import 'package:playback/src/playback_controller.dart';
 import 'package:playback/src/playback_state.dart';
 import 'package:tts_engines/tts_engines.dart';
 
+// ignore_for_file: unused_field
+
 /// Mock AudioOutput for testing
 class MockAudioOutput implements AudioOutput {
+  // Mock state tracking (not all fields are read externally)
   bool _isPlaying = false;
   bool _isPaused = false;
   bool _hasSource = false;

@@ -3,18 +3,22 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/src/cache/intelligent_cache_manager.dart';
+import 'package:tts_engines/src/cache/cache_metadata_storage.dart';
+import 'package:tts_engines/src/cache/json_cache_metadata_storage.dart';
 
 void main() {
   late Directory tempDir;
   late IntelligentCacheManager manager;
   late File metadataFile;
+  late CacheMetadataStorage storage;
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('cache_test_');
     metadataFile = File('${tempDir.path}/.cache_metadata.json');
+    storage = JsonCacheMetadataStorage(metadataFile);
     manager = IntelligentCacheManager(
       cacheDir: tempDir,
-      metadataFile: metadataFile,
+      storage: storage,
       quotaSettings: CacheQuotaSettings.fromGB(1.0),
     );
     await manager.initialize();
@@ -142,20 +146,21 @@ void main() {
           .writeAsBytes(List.filled(3000, 0));
       
       // Re-initialize to trigger sync
+      final newStorage = JsonCacheMetadataStorage(metadataFile);
       final newManager = IntelligentCacheManager(
         cacheDir: tempDir,
-        metadataFile: metadataFile,
+        storage: newStorage,
         quotaSettings: CacheQuotaSettings.fromGB(1.0),
       );
       await newManager.initialize();
-      
+
       final stats = await newManager.getUsageStats();
-      
+
       // Should have auto-registered both files
       expect(stats.entryCount, equals(2));
       // Total size includes metadata file, check entry count instead
       expect(stats.byVoice.length, greaterThanOrEqualTo(1));
-      
+
       newManager.dispose();
     });
 
@@ -187,18 +192,19 @@ void main() {
       await file.delete();
       
       // Re-initialize to trigger sync
+      final newStorage = JsonCacheMetadataStorage(metadataFile);
       final newManager = IntelligentCacheManager(
         cacheDir: tempDir,
-        metadataFile: metadataFile,
+        storage: newStorage,
         quotaSettings: CacheQuotaSettings.fromGB(1.0),
       );
       await newManager.initialize();
-      
+
       stats = await newManager.getUsageStats();
-      
+
       // Should have removed stale entry
       expect(stats.entryCount, equals(0));
-      
+
       newManager.dispose();
     });
 
@@ -279,18 +285,19 @@ void main() {
       );
       
       // Create new manager instance (simulating app restart)
+      final newStorage = JsonCacheMetadataStorage(metadataFile);
       final newManager = IntelligentCacheManager(
         cacheDir: tempDir,
-        metadataFile: metadataFile,
+        storage: newStorage,
         quotaSettings: CacheQuotaSettings.fromGB(1.0),
       );
       await newManager.initialize();
-      
+
       final stats = await newManager.getUsageStats();
       expect(stats.entryCount, equals(1));
       // Check metadata was preserved (byBook should have the entry)
       expect(stats.byBook['book1'], equals(2000));
-      
+
       newManager.dispose();
     });
 
@@ -469,9 +476,10 @@ void main() {
       
       // Re-initialize to pick up the M4A file
       manager.dispose();
+      storage = JsonCacheMetadataStorage(metadataFile);
       manager = IntelligentCacheManager(
         cacheDir: tempDir,
-        metadataFile: metadataFile,
+        storage: storage,
         quotaSettings: CacheQuotaSettings(maxSizeBytes: 3000),
       );
       await manager.initialize();
