@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
-import 'dart:io' as java;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -799,7 +797,19 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                   Expanded(
                     child: _showCover
                         ? CoverView(book: book)
-                        : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
+                        : TextDisplayView(
+                            bookId: widget.bookId,
+                            chapterIndex: _currentChapterIndex,
+                            queue: queue,
+                            currentIndex: currentIndex,
+                            book: book,
+                            onSegmentTap: _seekToSegment,
+                            scrollController: _scrollController,
+                            autoScrollEnabled: _autoScrollEnabled,
+                            onAutoScrollDisabled: () => setState(() => _autoScrollEnabled = false),
+                            onJumpToCurrent: _jumpToCurrent,
+                            activeSegmentKey: _activeSegmentKey ??= GlobalKey(),
+                          ),
                   ),
               ],
             ),
@@ -883,164 +893,24 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
             Expanded(
               child: _showCover
                   ? CoverView(book: book)
-                  : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
+                  : TextDisplayView(
+                      bookId: widget.bookId,
+                      chapterIndex: _currentChapterIndex,
+                      queue: queue,
+                      currentIndex: currentIndex,
+                      book: book,
+                      onSegmentTap: _seekToSegment,
+                      scrollController: _scrollController,
+                      autoScrollEnabled: _autoScrollEnabled,
+                      onAutoScrollDisabled: () => setState(() => _autoScrollEnabled = false),
+                      onJumpToCurrent: _jumpToCurrent,
+                      activeSegmentKey: _activeSegmentKey ??= GlobalKey(),
+                    ),
             ),
             _buildPlaybackControls(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
           ],
         ],
       ),
-    );
-  }
-
-  Widget _buildTextDisplay(AppThemeColors colors, List<AudioTrack> queue, AudioTrack? currentTrack, int currentIndex, Book book) {
-    if (queue.isEmpty) {
-      return Center(
-        child: Text('No content', style: TextStyle(color: colors.textTertiary)),
-      );
-    }
-    
-    // Get setting for book cover background
-    final settings = ref.watch(settingsProvider);
-    final showCoverBackground = settings.showBookCoverBackground && book.coverImagePath != null;
-    
-    // Watch segment readiness stream for opacity-based visualization
-    final readinessKey = '${widget.bookId}:$_currentChapterIndex';
-    final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
-    final segmentReadiness = segmentReadinessAsync.value ?? {};
-    
-    // Build text spans for continuous text flow
-    final List<InlineSpan> spans = [];
-    for (int index = 0; index < queue.length; index++) {
-      final item = queue[index];
-      final isActive = index == currentIndex;
-      final isPast = index < currentIndex;
-      
-      // Get segment readiness (1.0 = ready, lower = not ready)
-      final readiness = segmentReadiness[index];
-      final isReady = readiness?.opacity == 1.0;
-      
-      // Text styling based on state (matching Figma design)
-      Color textColor;
-      if (isActive) {
-        textColor = colors.textHighlight; // amber-400 for current
-      } else if (isPast) {
-        textColor = colors.textPast; // slate-500 for past
-      } else if (isReady) {
-        textColor = colors.textSecondary; // slate-300 for ready future
-      } else {
-        textColor = colors.textTertiary.withValues(alpha: 0.5); // slate-700 for not downloaded
-      }
-      
-      final segmentIndex = index; // Capture for closure
-      final textStyle = TextStyle(
-        fontSize: 17,
-        height: 1.7,
-        color: textColor,
-        fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
-      );
-      
-      // Use WidgetSpan for active segment to enable precise scrolling
-      if (isActive) {
-        _activeSegmentKey = GlobalKey();
-        spans.add(WidgetSpan(
-          alignment: PlaceholderAlignment.baseline,
-          baseline: TextBaseline.alphabetic,
-          child: GestureDetector(
-            key: _activeSegmentKey,
-            onTap: () => _seekToSegment(segmentIndex),
-            child: Text('${item.text} ', style: textStyle),
-          ),
-        ));
-      } else {
-        // Use regular TextSpan for non-active segments
-        spans.add(TextSpan(
-          text: '${item.text} ',
-          style: textStyle,
-          recognizer: TapGestureRecognizer()..onTap = () => _seekToSegment(segmentIndex),
-        ));
-      }
-      
-      // Add synthesizing indicator ONLY for segments currently being synthesized
-      if (readiness?.state == SegmentState.synthesizing && !isPast && !isActive) {
-        spans.add(TextSpan(
-          text: '(synthesizing...) ',
-          style: TextStyle(
-            fontSize: 11,
-            color: colors.textTertiary.withValues(alpha: 0.7),
-            fontStyle: FontStyle.italic,
-          ),
-        ));
-      }
-    }
-    
-    return Stack(
-      children: [
-        // Faded book cover background
-        if (showCoverBackground)
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.04, // Very subtle, barely visible
-              child: Image.file(
-                java.File(book.coverImagePath!),
-                fit: BoxFit.cover,
-                colorBlendMode: BlendMode.saturation,
-                color: Colors.grey, // Desaturate the image
-              ),
-            ),
-          ),
-        NotificationListener<ScrollNotification>(
-          onNotification: (notification) {
-            // Disable auto-scroll when user finishes scrolling manually (not programmatic)
-            if (notification is ScrollEndNotification && _autoScrollEnabled && !_isProgrammaticScroll) {
-              setState(() => _autoScrollEnabled = false);
-            }
-            return false;
-          },
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
-            child: RichText(
-              // Key forces rebuild when readiness state changes
-              key: ValueKey('richtext_${segmentReadiness.hashCode}_$currentIndex'),
-              text: TextSpan(children: spans),
-            ),
-          ),
-        ),
-        
-        // Jump to current button (bottom right) - shown when auto-scroll is disabled
-        if (!_autoScrollEnabled)
-          Positioned(
-            bottom: 16,
-            right: 16,
-            child: Material(
-              color: colors.primary,
-              borderRadius: BorderRadius.circular(24),
-              elevation: 4,
-              child: InkWell(
-                onTap: _jumpToCurrent,
-                borderRadius: BorderRadius.circular(24),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.my_location, size: 18, color: colors.primaryForeground),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Resume auto-scroll',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: colors.primaryForeground,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
   
