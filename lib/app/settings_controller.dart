@@ -1,7 +1,12 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:core_domain/core_domain.dart';
+
+import 'database/app_database.dart';
+import 'database/daos/settings_dao.dart';
+import 'quick_settings_service.dart';
 
 /// Synthesis speed mode - how aggressively to synthesize ahead.
 ///
@@ -101,44 +106,85 @@ class SettingsState {
   }
 }
 
-/// Settings controller.
+/// Settings controller using SQLite for persistence.
+///
+/// Only dark_mode uses SharedPreferences (via QuickSettingsService) for
+/// instant theme loading at startup. All other settings use SQLite.
 class SettingsController extends Notifier<SettingsState> {
-  static const _keyDarkMode = 'dark_mode';
-  static const _keySelectedVoice = 'selected_voice';
-  static const _keyAutoAdvance = 'auto_advance_chapters';
-  static const _keyPlaybackRate = 'default_playback_rate';
-  static const _keySmartSynthesis = 'smart_synthesis_enabled';
-  static const _keyCacheQuotaGB = 'cache_quota_gb';
-  static const _keyShowBookCoverBackground = 'show_book_cover_background';
-  static const _keyHapticFeedbackEnabled = 'haptic_feedback_enabled';
-  static const _keySynthesisMode = 'synthesis_mode';
-  static const _keyShowBufferIndicator = 'show_buffer_indicator';
-  static const _keyCompressOnSynthesize = 'compress_on_synthesize';
+  SettingsDao? _settingsDao;
 
   @override
   SettingsState build() {
-    _loadFromPrefs();
-    return const SettingsState();
+    _loadFromSqlite();
+    // Return default state immediately; actual values loaded async
+    // Use QuickSettingsService for initial dark mode if available
+    final initialDarkMode = QuickSettingsService.isInitialized
+        ? QuickSettingsService.instance.darkMode
+        : false;
+    return SettingsState(darkMode: initialDarkMode);
   }
 
-  SharedPreferences? _prefs;
+  Future<void> _loadFromSqlite() async {
+    try {
+      final db = await AppDatabase.instance;
+      _settingsDao = SettingsDao(db);
 
-  Future<void> _loadFromPrefs() async {
-    _prefs = await SharedPreferences.getInstance();
-    
-    state = SettingsState(
-      darkMode: _prefs?.getBool(_keyDarkMode) ?? false,
-      selectedVoice: _prefs?.getString(_keySelectedVoice) ?? VoiceIds.none,
-      autoAdvanceChapters: _prefs?.getBool(_keyAutoAdvance) ?? true,
-      defaultPlaybackRate: _prefs?.getDouble(_keyPlaybackRate) ?? 1.0,
-      smartSynthesisEnabled: _prefs?.getBool(_keySmartSynthesis) ?? true,
-      cacheQuotaGB: (_prefs?.getDouble(_keyCacheQuotaGB) ?? 2.0).clamp(0.5, 4.0),
-      showBookCoverBackground: _prefs?.getBool(_keyShowBookCoverBackground) ?? true,
-      hapticFeedbackEnabled: _prefs?.getBool(_keyHapticFeedbackEnabled) ?? true,
-      synthesisMode: _parseSynthesisMode(_prefs?.getString(_keySynthesisMode)),
-      showBufferIndicator: _prefs?.getBool(_keyShowBufferIndicator) ?? true,
-      compressOnSynthesize: _prefs?.getBool(_keyCompressOnSynthesize) ?? true,
-    );
+      // Load all settings from SQLite
+      final darkMode = await _settingsDao!.getBool(SettingsKeys.darkMode) ??
+          (QuickSettingsService.isInitialized
+              ? QuickSettingsService.instance.darkMode
+              : false);
+      final selectedVoice =
+          await _settingsDao!.getString(SettingsKeys.selectedVoice) ??
+              VoiceIds.none;
+      final autoAdvanceChapters =
+          await _settingsDao!.getBool(SettingsKeys.autoAdvanceChapters) ?? true;
+      final defaultPlaybackRate =
+          await _settingsDao!.getSetting<num>(SettingsKeys.defaultPlaybackRate);
+      final smartSynthesisEnabled =
+          await _settingsDao!.getBool(SettingsKeys.smartSynthesisEnabled) ??
+              true;
+      final cacheQuotaGB =
+          await _settingsDao!.getSetting<num>(SettingsKeys.cacheQuotaGb);
+      final showBookCoverBackground =
+          await _settingsDao!.getBool(SettingsKeys.showBookCoverBackground) ??
+              true;
+      final hapticFeedbackEnabled =
+          await _settingsDao!.getBool(SettingsKeys.hapticFeedbackEnabled) ??
+              true;
+      final synthesisModeStr =
+          await _settingsDao!.getString(SettingsKeys.synthesisMode);
+      final showBufferIndicator =
+          await _settingsDao!.getBool(SettingsKeys.showBufferIndicator) ?? true;
+      final compressOnSynthesize =
+          await _settingsDao!.getBool(SettingsKeys.compressOnSynthesize) ?? true;
+
+      state = SettingsState(
+        darkMode: darkMode,
+        selectedVoice: selectedVoice,
+        autoAdvanceChapters: autoAdvanceChapters,
+        defaultPlaybackRate: defaultPlaybackRate?.toDouble() ?? 1.0,
+        smartSynthesisEnabled: smartSynthesisEnabled,
+        cacheQuotaGB: (cacheQuotaGB?.toDouble() ?? 2.0).clamp(0.5, 4.0),
+        showBookCoverBackground: showBookCoverBackground,
+        hapticFeedbackEnabled: hapticFeedbackEnabled,
+        synthesisMode: _parseSynthesisMode(synthesisModeStr),
+        showBufferIndicator: showBufferIndicator,
+        compressOnSynthesize: compressOnSynthesize,
+      );
+
+      developer.log(
+        '📦 Settings loaded from SQLite',
+        name: 'SettingsController',
+      );
+    } catch (e, st) {
+      developer.log(
+        '⚠️ Failed to load settings from SQLite: $e',
+        name: 'SettingsController',
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   SynthesisMode _parseSynthesisMode(String? value) {
@@ -154,57 +200,61 @@ class SettingsController extends Notifier<SettingsState> {
 
   Future<void> setDarkMode(bool value) async {
     state = state.copyWith(darkMode: value);
-    await _prefs?.setBool(_keyDarkMode, value);
+    // Write to both SharedPreferences (for instant startup) and SQLite
+    if (QuickSettingsService.isInitialized) {
+      await QuickSettingsService.instance.setDarkMode(value);
+    }
+    await _settingsDao?.setBool(SettingsKeys.darkMode, value);
   }
 
   Future<void> setSelectedVoice(String voiceId) async {
     state = state.copyWith(selectedVoice: voiceId);
-    await _prefs?.setString(_keySelectedVoice, voiceId);
+    await _settingsDao?.setString(SettingsKeys.selectedVoice, voiceId);
   }
 
   Future<void> setAutoAdvanceChapters(bool value) async {
     state = state.copyWith(autoAdvanceChapters: value);
-    await _prefs?.setBool(_keyAutoAdvance, value);
+    await _settingsDao?.setBool(SettingsKeys.autoAdvanceChapters, value);
   }
 
   Future<void> setDefaultPlaybackRate(double rate) async {
     state = state.copyWith(defaultPlaybackRate: rate);
-    await _prefs?.setDouble(_keyPlaybackRate, rate);
+    await _settingsDao?.setSetting(SettingsKeys.defaultPlaybackRate, rate);
   }
 
   Future<void> setSmartSynthesisEnabled(bool value) async {
     state = state.copyWith(smartSynthesisEnabled: value);
-    await _prefs?.setBool(_keySmartSynthesis, value);
+    await _settingsDao?.setBool(SettingsKeys.smartSynthesisEnabled, value);
   }
 
   Future<void> setCacheQuotaGB(double quotaGB) async {
     state = state.copyWith(cacheQuotaGB: quotaGB);
-    await _prefs?.setDouble(_keyCacheQuotaGB, quotaGB);
+    await _settingsDao?.setSetting(SettingsKeys.cacheQuotaGb, quotaGB);
   }
 
   Future<void> setShowBookCoverBackground(bool value) async {
     state = state.copyWith(showBookCoverBackground: value);
-    await _prefs?.setBool(_keyShowBookCoverBackground, value);
+    await _settingsDao?.setBool(SettingsKeys.showBookCoverBackground, value);
   }
 
   Future<void> setHapticFeedbackEnabled(bool value) async {
     state = state.copyWith(hapticFeedbackEnabled: value);
-    await _prefs?.setBool(_keyHapticFeedbackEnabled, value);
+    await _settingsDao?.setBool(SettingsKeys.hapticFeedbackEnabled, value);
   }
 
   Future<void> setSynthesisMode(SynthesisMode mode) async {
     state = state.copyWith(synthesisMode: mode);
-    await _prefs?.setString(_keySynthesisMode, mode.name);
+    await _settingsDao?.setString(SettingsKeys.synthesisMode, mode.name);
   }
 
   Future<void> setShowBufferIndicator(bool value) async {
     state = state.copyWith(showBufferIndicator: value);
-    await _prefs?.setBool(_keyShowBufferIndicator, value);
+    await _settingsDao?.setBool(SettingsKeys.showBufferIndicator, value);
   }
 
   Future<void> setCompressOnSynthesize(bool value) async {
     state = state.copyWith(compressOnSynthesize: value);
-    await _prefs?.setBool(_keyCompressOnSynthesize, value);
+    await _settingsDao?.setBool(SettingsKeys.compressOnSynthesize, value);
   }
 }
 
