@@ -251,23 +251,30 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
   }
   
   /// Invalidate the appropriate TTS adapter provider for a downloaded core.
+  /// Uses scheduleMicrotask to defer invalidation and avoid circular dependency
+  /// when called from within the download callback chain.
   void _invalidateAdapterForCore(String coreId) {
-    if (coreId.contains('supertonic')) {
-      ref.invalidate(supertonicAdapterProvider);
-      ref.invalidate(ttsRoutingEngineProvider);
-      ref.invalidate(routingEngineProvider);
-      debugPrint('[GranularDownloadManager] Invalidated Supertonic adapter and routing');
-    } else if (coreId.contains('piper')) {
-      ref.invalidate(piperAdapterProvider);
-      ref.invalidate(ttsRoutingEngineProvider);
-      ref.invalidate(routingEngineProvider);
-      debugPrint('[GranularDownloadManager] Invalidated Piper adapter and routing');
-    } else if (coreId.contains('kokoro')) {
-      ref.invalidate(kokoroAdapterProvider);
-      ref.invalidate(ttsRoutingEngineProvider);
-      ref.invalidate(routingEngineProvider);
-      debugPrint('[GranularDownloadManager] Invalidated Kokoro adapter and routing');
-    }
+    // Defer invalidation to break the synchronous call chain and avoid
+    // CircularDependencyError. The adapter providers watch our state,
+    // so invalidating them synchronously during state update causes issues.
+    scheduleMicrotask(() {
+      if (coreId.contains('supertonic')) {
+        ref.invalidate(supertonicAdapterProvider);
+        ref.invalidate(ttsRoutingEngineProvider);
+        ref.invalidate(routingEngineProvider);
+        debugPrint('[GranularDownloadManager] Invalidated Supertonic adapter and routing');
+      } else if (coreId.contains('piper')) {
+        ref.invalidate(piperAdapterProvider);
+        ref.invalidate(ttsRoutingEngineProvider);
+        ref.invalidate(routingEngineProvider);
+        debugPrint('[GranularDownloadManager] Invalidated Piper adapter and routing');
+      } else if (coreId.contains('kokoro')) {
+        ref.invalidate(kokoroAdapterProvider);
+        ref.invalidate(ttsRoutingEngineProvider);
+        ref.invalidate(routingEngineProvider);
+        debugPrint('[GranularDownloadManager] Invalidated Kokoro adapter and routing');
+      }
+    });
   }
 
   /// Delete a core (marks dependent voices as unavailable).

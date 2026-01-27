@@ -91,7 +91,6 @@ class PdfParser {
       document.dispose();
     }
   }
-
   /// Process chapters through the smart text pipeline.
   ///
   /// Pipeline steps:

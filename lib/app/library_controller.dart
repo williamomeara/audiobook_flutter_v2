@@ -7,7 +7,7 @@ import 'package:core_domain/core_domain.dart';
 
 import '../infra/epub_parser.dart';
 import '../infra/pdf_parser.dart';
-import '../utils/segment_confidence_scorer.dart';
+import '../utils/background_import.dart';
 import 'app_paths.dart';
 import 'database/app_database.dart';
 import 'database/repositories/library_repository.dart';
@@ -144,25 +144,14 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         chapters = parsed.chapters;
       }
 
-      // Pre-segment all chapters at import time with confidence scoring
-      final chapterSegments = <List<Segment>>[];
-      for (final chapter in chapters) {
-        final segments = segmentText(chapter.content);
-        // Add duration estimates and confidence scores
-        final segmentsWithMetadata = segments.map((s) => Segment(
-          text: s.text,
-          index: s.index,
-          estimatedDurationMs: estimateDurationMs(s.text),
-          contentConfidence: SegmentConfidenceScorer.scoreSegment(s.text),
-        )).toList();
-        chapterSegments.add(segmentsWithMetadata);
-      }
-
-      // Find the first chapter that appears to be actual content
-      final firstContentChapter = SegmentConfidenceScorer.findFirstContentChapter(
-        chapterSegments,
-        threshold: 0.5,
-      );
+      // Pre-segment all chapters in background isolate to avoid UI jank
+      // This moves CPU-intensive segmentation and scoring off main thread
+      final segmentationResult = await runSegmentationInBackground(chapters);
+      
+      // Convert SegmentData back to Segment models
+      final chapterSegments = segmentationResult.chapterSegments.map(
+        (chapterSegs) => chapterSegs.map((s) => s.toSegment()).toList()
+      ).toList();
 
       final book = Book(
         id: bookId,
@@ -174,7 +163,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         chapters: chapters,
         gutenbergId: gutenbergId,
         progress: BookProgress.zero,
-        firstContentChapter: firstContentChapter,
+        firstContentChapter: segmentationResult.firstContentChapter,
       );
 
       // Insert into SQLite with all segments
@@ -312,7 +301,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
   Book? getBook(String bookId) {
     return state.value?.books.where((b) => b.id == bookId).firstOrNull;
   }
-
+  
   /// Get segments for a chapter (for playback).
   /// This is the new way to get segment data - from SQLite, not runtime segmentation.
   /// 
