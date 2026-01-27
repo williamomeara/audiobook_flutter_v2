@@ -203,6 +203,22 @@ final cacheUsageStatsProvider = FutureProvider<CacheUsageStats>((ref) async {
   return manager.getUsageStats();
 });
 
+/// Provider for the progress DAO (reading position, last played).
+final progressDaoProvider = FutureProvider<ProgressDao>((ref) async {
+  final db = await AppDatabase.instance;
+  return ProgressDao(db);
+});
+
+/// Provider for last played timestamp of a book.
+/// Returns DateTime or null if never played.
+/// Parameter: bookId
+final lastPlayedAtProvider = FutureProvider.family<DateTime?, String>((ref, bookId) async {
+  final dao = await ref.watch(progressDaoProvider.future);
+  final timestamp = await dao.getLastPlayedAt(bookId);
+  if (timestamp == null) return null;
+  return DateTime.fromMillisecondsSinceEpoch(timestamp);
+});
+
 /// Provider for the segment progress DAO (Phase 5.5: Per-segment tracking).
 /// Tracks which segments have been listened to for chapter progress.
 final segmentProgressDaoProvider = FutureProvider<SegmentProgressDao>((ref) async {

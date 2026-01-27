@@ -178,6 +178,9 @@ class AudiobookPlaybackController implements PlaybackController {
   /// Debounce timer for seeks.
   Timer? _seekDebounceTimer;
 
+  /// Currently pinned cache key (to prevent eviction during playback).
+  CacheKey? _pinnedCacheKey;
+
   /// Whether the controller has been disposed.
   bool _disposed = false;
   
@@ -559,6 +562,13 @@ class AudiobookPlaybackController implements PlaybackController {
     _autoCalibration?.dispose();
     _scheduler.dispose();
     _synthesisCoordinator.dispose();
+    
+    // Unpin any pinned file on dispose
+    if (_pinnedCacheKey != null) {
+      cache.unpin(_pinnedCacheKey!);
+      _pinnedCacheKey = null;
+    }
+    
     await _coordinatorReadySub?.cancel();
     await _coordinatorFailedSub?.cancel();
     await _coordinatorStartedSub?.cancel();
@@ -575,6 +585,12 @@ class AudiobookPlaybackController implements PlaybackController {
   Future<void> _stopPlayback() async {
     await _audioOutput.stop();
     _speakingTrackId = null;
+    
+    // Unpin the current file when stopping playback
+    if (_pinnedCacheKey != null) {
+      cache.unpin(_pinnedCacheKey!);
+      _pinnedCacheKey = null;
+    }
   }
 
   /// Wait for a segment to become ready (used with unified synthesis coordinator).
@@ -627,10 +643,20 @@ class AudiobookPlaybackController implements PlaybackController {
       playbackRate: CacheKeyGenerator.getSynthesisRate(effectiveRate),
     );
     
+    // Pin this file to prevent eviction/compression during playback.
+    // Unpin the previous file first.
+    if (_pinnedCacheKey != null) {
+      cache.unpin(_pinnedCacheKey!);
+    }
+    cache.pin(cacheKey);
+    _pinnedCacheKey = cacheKey;
+    
     // Use playableFileFor to get either M4A (compressed) or WAV (uncompressed)
     final file = await cache.playableFileFor(cacheKey);
     if (file == null) {
       _logger.severe('[Coordinator] No playable file found for cache key');
+      cache.unpin(cacheKey);
+      _pinnedCacheKey = null;
       return;
     }
     

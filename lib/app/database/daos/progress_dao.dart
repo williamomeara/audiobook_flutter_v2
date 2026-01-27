@@ -73,6 +73,17 @@ class ProgressDao {
     return result.first['total_listen_time_ms'] as int? ?? 0;
   }
 
+  /// Get last played timestamp for a book.
+  /// Returns milliseconds since epoch, or null if never played.
+  Future<int?> getLastPlayedAt(String bookId) async {
+    final result = await _db.rawQuery('''
+      SELECT last_played_at FROM reading_progress
+      WHERE book_id = ?
+    ''', [bookId]);
+    if (result.isEmpty) return null;
+    return result.first['last_played_at'] as int?;
+  }
+
   /// Get all books with progress, ordered by last played.
   Future<List<Map<String, dynamic>>> getRecentlyPlayed({int limit = 10}) async {
     return await _db.rawQuery('''

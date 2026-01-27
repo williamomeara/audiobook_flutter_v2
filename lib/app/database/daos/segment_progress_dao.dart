@@ -166,12 +166,13 @@ class SegmentProgressDao {
   /// Returns a map of chapterIndex -> ChapterProgress.
   /// Only includes chapters that have at least one segment.
   Future<Map<int, ChapterProgress>> getBookProgress(String bookId) async {
-    // Join segments with segment_progress to get totals and listened counts
+    // Join segments with segment_progress to get totals, listened counts, and duration
     final results = await _db.rawQuery('''
       SELECT 
         s.chapter_index,
         COUNT(DISTINCT s.segment_index) as total_segments,
-        COUNT(DISTINCT sp.segment_index) as listened_segments
+        COUNT(DISTINCT sp.segment_index) as listened_segments,
+        COALESCE(SUM(s.estimated_duration_ms), 0) as total_duration_ms
       FROM segments s
       LEFT JOIN segment_progress sp 
         ON s.book_id = sp.book_id 
@@ -189,17 +190,20 @@ class SegmentProgressDao {
         chapterIndex: chapterIndex,
         totalSegments: row['total_segments'] as int,
         listenedSegments: row['listened_segments'] as int,
+        durationMs: row['total_duration_ms'] as int,
       );
     }
     return progressMap;
   }
 
-  /// Get total book progress summary.
+  /// Get total book progress summary with duration information.
   Future<BookProgressSummary> getBookProgressSummary(String bookId) async {
     final result = await _db.rawQuery('''
       SELECT 
         COUNT(DISTINCT s.segment_index || '-' || s.chapter_index) as total_segments,
-        COUNT(DISTINCT sp.segment_index || '-' || sp.chapter_index) as listened_segments
+        COUNT(DISTINCT sp.segment_index || '-' || sp.chapter_index) as listened_segments,
+        COALESCE(SUM(s.estimated_duration_ms), 0) as total_duration_ms,
+        COALESCE(SUM(CASE WHEN sp.segment_index IS NOT NULL THEN s.estimated_duration_ms ELSE 0 END), 0) as listened_duration_ms
       FROM segments s
       LEFT JOIN segment_progress sp 
         ON s.book_id = sp.book_id 
@@ -218,6 +222,8 @@ class SegmentProgressDao {
     return BookProgressSummary(
       totalSegments: result.first['total_segments'] as int,
       listenedSegments: result.first['listened_segments'] as int,
+      totalDurationMs: result.first['total_duration_ms'] as int,
+      listenedDurationMs: result.first['listened_duration_ms'] as int,
     );
   }
 
@@ -246,11 +252,13 @@ class ChapterProgress {
   final int chapterIndex;
   final int totalSegments;
   final int listenedSegments;
+  final int durationMs;
 
   const ChapterProgress({
     required this.chapterIndex,
     required this.totalSegments,
     required this.listenedSegments,
+    this.durationMs = 0,
   });
 
   /// Percentage complete (0.0 - 1.0).
@@ -263,19 +271,26 @@ class ChapterProgress {
   /// Whether any progress has been made.
   bool get hasStarted => listenedSegments > 0;
 
+  /// Chapter duration as Duration.
+  Duration get duration => Duration(milliseconds: durationMs);
+
   @override
   String toString() =>
       'ChapterProgress(ch$chapterIndex: $listenedSegments/$totalSegments = ${(percentComplete * 100).toStringAsFixed(1)}%)';
 }
 
-/// Summary of total book progress.
+/// Summary of total book progress including duration information.
 class BookProgressSummary {
   final int totalSegments;
   final int listenedSegments;
+  final int totalDurationMs;
+  final int listenedDurationMs;
 
   const BookProgressSummary({
     required this.totalSegments,
     required this.listenedSegments,
+    this.totalDurationMs = 0,
+    this.listenedDurationMs = 0,
   });
 
   /// Percentage complete (0.0 - 1.0).
@@ -285,6 +300,16 @@ class BookProgressSummary {
   /// Whether the book is completely listened to.
   bool get isComplete =>
       listenedSegments >= totalSegments && totalSegments > 0;
+
+  /// Total duration as Duration.
+  Duration get totalDuration => Duration(milliseconds: totalDurationMs);
+
+  /// Listened duration as Duration.
+  Duration get listenedDuration => Duration(milliseconds: listenedDurationMs);
+
+  /// Remaining duration as Duration.
+  Duration get remainingDuration => 
+      Duration(milliseconds: (totalDurationMs - listenedDurationMs).clamp(0, totalDurationMs));
 
   @override
   String toString() =>

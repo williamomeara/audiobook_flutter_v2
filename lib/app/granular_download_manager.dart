@@ -8,7 +8,9 @@ import 'package:downloads/downloads.dart';
 import 'package:core_domain/core_domain.dart';
 
 import 'app_paths.dart';
+import 'playback_providers.dart';
 import 'settings_controller.dart';
+import 'tts_providers.dart';
 
 /// Provider for the granular download manager.
 final granularDownloadManagerProvider =
@@ -234,12 +236,37 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
 
       _updateCoreState(core.id, DownloadStatus.ready, 1.0);
       debugPrint('[Download] ${core.id}: Complete!');
+      
+      // Invalidate TTS adapter providers so they pick up the newly downloaded core.
+      // This is needed because adapters use ref.read() (not watch) to avoid cascading
+      // rebuilds during initialization, so they won't auto-update when state changes.
+      _invalidateAdapterForCore(core.id);
     } catch (e) {
       debugPrint('[Download] ${core.id} failed: $e');
       _updateCoreState(core.id, DownloadStatus.failed, 0.0, error: e.toString());
       rethrow;
     } finally {
       await subscription?.cancel();
+    }
+  }
+  
+  /// Invalidate the appropriate TTS adapter provider for a downloaded core.
+  void _invalidateAdapterForCore(String coreId) {
+    if (coreId.contains('supertonic')) {
+      ref.invalidate(supertonicAdapterProvider);
+      ref.invalidate(ttsRoutingEngineProvider);
+      ref.invalidate(routingEngineProvider);
+      debugPrint('[GranularDownloadManager] Invalidated Supertonic adapter and routing');
+    } else if (coreId.contains('piper')) {
+      ref.invalidate(piperAdapterProvider);
+      ref.invalidate(ttsRoutingEngineProvider);
+      ref.invalidate(routingEngineProvider);
+      debugPrint('[GranularDownloadManager] Invalidated Piper adapter and routing');
+    } else if (coreId.contains('kokoro')) {
+      ref.invalidate(kokoroAdapterProvider);
+      ref.invalidate(ttsRoutingEngineProvider);
+      ref.invalidate(routingEngineProvider);
+      debugPrint('[GranularDownloadManager] Invalidated Kokoro adapter and routing');
     }
   }
 
