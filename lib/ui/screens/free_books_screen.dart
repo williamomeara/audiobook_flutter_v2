@@ -288,70 +288,73 @@ class _FreeBooksScreenState extends ConsumerState<FreeBooksScreen> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  Column(
-                                    children: [
-                                      if (entry.phase == GutenbergImportPhase.downloading)
-                                        SizedBox(
-                                          width: 60,
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(4),
-                                            child: LinearProgressIndicator(
-                                              value: entry.progress,
-                                              minHeight: 4,
-                                              backgroundColor: colors.border,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(colors.primary),
+                                  SizedBox(
+                                    width: 100,
+                                    child: Column(
+                                      children: [
+                                        if (entry.phase == GutenbergImportPhase.downloading)
+                                          SizedBox(
+                                            width: 60,
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(4),
+                                              child: LinearProgressIndicator(
+                                                value: entry.progress,
+                                                minHeight: 4,
+                                                backgroundColor: colors.border,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<Color>(colors.primary),
+                                              ),
                                             ),
-                                          ),
-                                        )
-                                      else
-                                        TextButton(
-                                          onPressed: entry.isBusy
-                                              ? null
-                                              : () async {
-                                                  if (isImported && importedBookId != null) {
-                                                    if (!context.mounted) return;
-                                                    context.push('/book/$importedBookId');
-                                                    return;
-                                                  }
+                                          )
+                                        else
+                                          TextButton(
+                                            onPressed: entry.isBusy
+                                                ? null
+                                                : () async {
+                                                    if (isImported && importedBookId != null) {
+                                                      if (!context.mounted) return;
+                                                      context.push('/book/$importedBookId');
+                                                      return;
+                                                    }
 
-                                                  final result = await ref
-                                                      .read(gutenbergImportProvider.notifier)
-                                                      .importBook(book);
-                                                  if (!context.mounted) return;
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(content: Text(result.message)),
-                                                  );
-                                                },
-                                          child: Text(
-                                            entry.isBusy
-                                                ? (entry.phase == GutenbergImportPhase.importing
-                                                    ? 'Importing…'
-                                                    : 'Downloading…')
-                                                : (isImported ? 'Open' : 'Import'),
-                                            style: TextStyle(
-                                              color: entry.isBusy
-                                                  ? colors.textTertiary
-                                                  : colors.primary,
-                                              fontWeight: FontWeight.w600,
+                                                    final result = await ref
+                                                        .read(gutenbergImportProvider.notifier)
+                                                        .importBook(book);
+                                                    if (!context.mounted) return;
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      SnackBar(content: Text(result.message)),
+                                                    );
+                                                  },
+                                            child: Text(
+                                              entry.isBusy
+                                                  ? (entry.phase == GutenbergImportPhase.importing
+                                                      ? 'Importing…'
+                                                      : 'Downloading…')
+                                                  : (isImported ? 'Open' : 'Import'),
+                                              style: TextStyle(
+                                                color: entry.isBusy
+                                                    ? colors.textTertiary
+                                                    : colors.primary,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                      if (entry.phase == GutenbergImportPhase.failed &&
-                                          entry.message != null &&
-                                          entry.message!.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(top: 4),
-                                          child: Text(
-                                            entry.message!,
-                                            style: TextStyle(
-                                              color: colors.danger,
-                                              fontSize: 10,
+                                        if (entry.phase == GutenbergImportPhase.failed &&
+                                            entry.message != null &&
+                                            entry.message!.isNotEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 4),
+                                            child: Text(
+                                              entry.message!,
+                                              style: TextStyle(
+                                                color: colors.danger,
+                                                fontSize: 10,
+                                              ),
+                                              textAlign: TextAlign.center,
                                             ),
-                                            textAlign: TextAlign.center,
                                           ),
-                                        ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),

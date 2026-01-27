@@ -25,7 +25,13 @@ class SettingsDao {
     );
     if (results.isEmpty) return null;
     final value = results.first['value'] as String;
-    return jsonDecode(value) as T?;
+    try {
+      final decoded = jsonDecode(value);
+      return decoded as T?;
+    } catch (e) {
+      // If decoding fails, return null
+      return null;
+    }
   }
 
   /// Get a setting with a default value if not found.
@@ -98,8 +104,29 @@ class SettingsDao {
   }
 
   /// Get a bool setting.
+  /// Handles both native bool and string representations.
   Future<bool?> getBool(String key) async {
-    return await getSetting<bool>(key);
+    final results = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (results.isEmpty) return null;
+
+    final value = results.first['value'] as String;
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is bool) return decoded;
+      if (decoded is String) {
+        // Handle string representations like "true", "false"
+        return decoded.toLowerCase() == 'true';
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 
   /// Set a bool setting.
