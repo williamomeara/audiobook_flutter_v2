@@ -809,6 +809,29 @@ ORDER BY s.chapter_index;
 - [x] **5.5.6** Update Book Details screen to show chapter progress bars
 - [x] **5.5.7** Add "Mark Chapter Read/Unread" to chapter context menu
 
+### Phase 5.6: Playback UX Improvements (Using SQLite Data) - COMPLETED
+
+**Goal:** Leverage the new segment_progress tracking to improve playback UX.
+
+**Related:** See `docs/design/playback_screen_audit.md` for full audit.
+
+**Files modified:**
+- `lib/ui/screens/playback_screen.dart`
+
+**Steps (completed, commit 7f1958e):**
+- [x] **5.6.1** Periodic progress auto-save (30-second timer)
+  - Timer saves current chapter/segment position to SQLite
+  - Prevents progress loss on crash or unexpected termination
+- [x] **5.6.2** Time remaining display
+  - Shows "Xh Ym left in chapter • Xh Ym left in book" below progress slider
+  - Uses existing `ChapterProgress` and `BookProgressSummary` providers
+  - Real-time updates as playback progresses
+
+**Remaining from playback audit:**
+- [ ] Chapter jump dialog from playback screen
+- [ ] Bookmarks system (requires new `bookmarks` table - see Phase 8)
+- [ ] Listening stats dashboard (requires new `listening_stats` table - see Phase 8)
+
 ### Phase 6: Download/Voice Manifest Migration (Package: downloads) - COMPLETED (kept as-is)
 
 **Decision: Keep .manifest files (Option A)**
@@ -866,6 +889,23 @@ and provides a cached view for the UI, but the `.manifest` files remain the sour
   - [ ] Downloaded voices remain installed
 - [ ] **7.6** Remove migration scripts (or keep for edge cases)
 - [ ] **7.7** Update ARCHITECTURE.md to reflect SQLite storage
+
+### Phase 8: Future SQLite Features (Planned)
+
+These features require new SQLite tables and are planned for future implementation:
+
+**8.1 Bookmarks System**
+- New table: `bookmarks(book_id, chapter_index, segment_index, created_at, note)`
+- DAO: `BookmarkDao`
+- UI: Tap timestamp to create bookmark, bookmark list in playback menu
+- Priority: MEDIUM
+
+**8.2 Listening Stats Dashboard**
+- New table: `listening_stats(date, total_ms, books_completed, chapters_completed)`
+- Alternative: Compute from segment_progress table (no new table needed)
+- DAO: `ListeningStatsDao` or extend `SegmentProgressDao`
+- UI: Stats screen showing daily/weekly/total listening time
+- Priority: LOW
 
 ---
 

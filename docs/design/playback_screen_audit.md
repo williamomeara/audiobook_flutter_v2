@@ -166,15 +166,17 @@ PlaybackLogger.info('[PlaybackProvider] Loaded ${segments.length} segments from 
    - Similar to Book Details chapter list but inline
    - SQLite query already available: `getSegmentsForChapter()`
 
-2. **Show Time Remaining**
-   - Add "Xh Ym remaining in chapter | Xh Ym remaining in book"
-   - Use existing `BookProgressSummary.remainingDuration`
-   - Display below progress slider
+2. ~~**Show Time Remaining**~~ ✅ **COMPLETED** (commit 7f1958e)
+   - ~~Add "Xh Ym remaining in chapter | Xh Ym remaining in book"~~
+   - ~~Use existing `BookProgressSummary.remainingDuration`~~
+   - ~~Display below progress slider~~
+   - **Implemented**: Shows "Xh Ym left in chapter • Xh Ym left in book" below progress slider
 
-3. **Periodic Progress Auto-Save**
-   - Timer every 30 seconds OR on segment completion
-   - Use existing `updateProgress()` method
-   - Prevents crash-related progress loss
+3. ~~**Periodic Progress Auto-Save**~~ ✅ **COMPLETED** (commit 7f1958e)
+   - ~~Timer every 30 seconds OR on segment completion~~
+   - ~~Use existing `updateProgress()` method~~
+   - ~~Prevents crash-related progress loss~~
+   - **Implemented**: 30-second periodic timer saves progress to SQLite
 
 ### Phase 2: Medium Effort (Half day each)
 
@@ -236,13 +238,13 @@ lib/ui/screens/playback/
 The playback screen has a solid foundation with good SQLite usage patterns and essential features. The main gaps compared to industry leaders are:
 
 1. **Missing**: Chapter jump UI from playback screen (HIGH priority)
-2. **Missing**: Time remaining display (HIGH priority)
-3. **Risk**: Progress only saved on exit (MEDIUM priority)
+2. ~~**Missing**: Time remaining display (HIGH priority)~~ ✅ **COMPLETED**
+3. ~~**Risk**: Progress only saved on exit (MEDIUM priority)~~ ✅ **COMPLETED** (auto-save every 30s)
 4. **UX**: Text display customization missing (MEDIUM priority)
 
-The SQLite layer is well-optimized with indexed queries and pre-segmented text. The main opportunity is periodic progress auto-save to prevent data loss.
+The SQLite layer is well-optimized with indexed queries and pre-segmented text. ~~The main opportunity is periodic progress auto-save to prevent data loss.~~ Auto-save is now implemented.
 
 **Recommended Next Steps**:
-1. Implement Phase 1 Quick Wins (chapter jump, time remaining, auto-save)
+1. ~~Implement Phase 1 Quick Wins (chapter jump, time remaining, auto-save)~~ ✅ 2/3 Complete
 2. Consider file refactoring to improve maintainability (1786 lines is large)
 3. Add bookmarks system for power users

@@ -236,29 +236,35 @@ final buttonIcon = switch (bookState) {
 
 ## Summary of Gaps
 
-| # | Gap | Severity | Fix Complexity |
-|---|-----|----------|----------------|
-| 1 | Missing COMPLETE book state | Medium | Low |
-| 2 | Dual completion data sources | High | Medium |
-| 3 | CACHED hides COMPLETE indicator | Low | Low |
-| 4 | Inconsistent progress calculation | Medium | Low |
-| 5 | Missing "Listen Again" button | Low | Low |
-| 6 | Current chapter badge priority | Low | Low |
+| # | Gap | Severity | Fix Complexity | Status |
+|---|-----|----------|----------------|--------|
+| 1 | Missing COMPLETE book state | Medium | Low | ✅ FIXED (commit 57e0910) |
+| 2 | Dual completion data sources | High | Medium | ✅ FIXED (commit 57e0910) |
+| 3 | CACHED hides COMPLETE indicator | Low | Low | Open |
+| 4 | Inconsistent progress calculation | Medium | Low | ✅ FIXED (commit 57e0910) |
+| 5 | Missing "Listen Again" button | Low | Low | ✅ FIXED (commit 57e0910) |
+| 6 | Current chapter badge priority | Low | Low | Open |
 
 ---
 
 ## Recommended Fixes (Priority Order)
 
 ### High Priority
-1. **Unify completion sources**: Remove usage of `book.completedChapters`, use only `chapterProgressMap`
+1. ~~**Unify completion sources**: Remove usage of `book.completedChapters`, use only `chapterProgressMap`~~ ✅ **COMPLETED**
+   - Now uses `chapterProgressMap` for all chapter completion checks
+   - Progress bar counts COMPLETED chapters from this map
 
 ### Medium Priority  
-2. **Add COMPLETE book state**: Track when all chapters are 100% listened
-3. **Consistent progress**: Use same calculation for badge and progress bar
+2. ~~**Add COMPLETE book state**: Track when all chapters are 100% listened~~ ✅ **COMPLETED**
+   - Implemented `BookProgressState` enum: `notStarted`, `inProgress`, `complete`
+   - Added `deriveBookProgressState()` function
+3. ~~**Consistent progress**: Use same calculation for badge and progress bar~~ ✅ **COMPLETED**
+   - Progress bar now counts completed chapters from `chapterProgressMap`
+   - Implemented segmented progress bar showing per-chapter fill
 
 ### Low Priority
 4. **Combined CACHED+COMPLETE indicator**: Show both states visually
-5. **"Listen Again" button**: Add for completed books
+5. ~~**"Listen Again" button**: Add for completed books~~ ✅ **COMPLETED**
 6. **Badge priority fix**: Current chapter always shows play icon
 
 ---

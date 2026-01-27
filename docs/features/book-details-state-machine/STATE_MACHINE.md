@@ -1,5 +1,21 @@
 # Book Details Page - State Machine Architecture
 
+## Implementation Status: ✅ PARTIALLY IMPLEMENTED (commit 57e0910)
+
+**Completed:**
+- `BookProgressState` enum: `notStarted`, `inProgress`, `complete`
+- `deriveBookProgressState()` function
+- Segmented progress bar showing per-chapter completion
+- Unified completion source (uses `chapterProgressMap` only)
+- "Listen Again" button for completed books
+
+**Remaining:**
+- Full unified state model (BookDetailsState)
+- Combined CACHED+COMPLETE indicator
+- Current chapter badge priority fix
+
+---
+
 ## Overview
 
 This document defines an ideal state machine architecture for the Book Details page, ensuring consistent UI states, clear transitions, and proper data flow.
@@ -310,8 +326,10 @@ Widget _buildBookDetails(BookDetailsState state) {
 
 ## Migration Path
 
-1. Create `BookDetailsState` and `ChapterDisplayState` models
-2. Create `BookDetailsNotifier` with state derivation logic
-3. Gradually migrate UI components to use derived state
-4. Remove inline state calculation from build method
+> **Note**: Steps 1-3 partially completed in commit 57e0910
+
+1. ~~Create `BookDetailsState` and `ChapterDisplayState` models~~ ✅ Created `BookProgressState` enum
+2. ~~Create `BookDetailsNotifier` with state derivation logic~~ ✅ Created `deriveBookProgressState()`
+3. ~~Gradually migrate UI components to use derived state~~ ✅ Progress bar and button use state
+4. Remove inline state calculation from build method (ongoing)
 5. Add state transition logging for debugging
