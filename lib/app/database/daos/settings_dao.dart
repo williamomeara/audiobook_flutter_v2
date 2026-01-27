@@ -134,6 +134,37 @@ class SettingsDao {
     await setSetting(key, value);
   }
 
+  /// Get a double setting.
+  /// Handles both native double and int values.
+  Future<double?> getDouble(String key) async {
+    final results = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (results.isEmpty) return null;
+
+    final value = results.first['value'] as String;
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is double) return decoded;
+      if (decoded is int) return decoded.toDouble();
+      if (decoded is String) {
+        return double.tryParse(decoded);
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Set a double setting.
+  Future<void> setDouble(String key, double value) async {
+    await setSetting(key, value);
+  }
+
   /// Batch set multiple settings.
   Future<void> setSettings(Map<String, dynamic> settings) async {
     final batch = _db.batch();

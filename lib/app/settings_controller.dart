@@ -140,12 +140,12 @@ class SettingsController extends Notifier<SettingsState> {
       final autoAdvanceChapters =
           await _settingsDao!.getBool(SettingsKeys.autoAdvanceChapters) ?? true;
       final defaultPlaybackRate =
-          await _settingsDao!.getSetting<num>(SettingsKeys.defaultPlaybackRate);
+          await _settingsDao!.getDouble(SettingsKeys.defaultPlaybackRate);
       final smartSynthesisEnabled =
           await _settingsDao!.getBool(SettingsKeys.smartSynthesisEnabled) ??
               true;
       final cacheQuotaGB =
-          await _settingsDao!.getSetting<num>(SettingsKeys.cacheQuotaGb);
+          await _settingsDao!.getDouble(SettingsKeys.cacheQuotaGb);
       final showBookCoverBackground =
           await _settingsDao!.getBool(SettingsKeys.showBookCoverBackground) ??
               true;
@@ -163,9 +163,9 @@ class SettingsController extends Notifier<SettingsState> {
         darkMode: darkMode,
         selectedVoice: selectedVoice,
         autoAdvanceChapters: autoAdvanceChapters,
-        defaultPlaybackRate: defaultPlaybackRate?.toDouble() ?? 1.0,
+        defaultPlaybackRate: defaultPlaybackRate ?? 1.0,
         smartSynthesisEnabled: smartSynthesisEnabled,
-        cacheQuotaGB: (cacheQuotaGB?.toDouble() ?? 2.0).clamp(0.5, 4.0),
+        cacheQuotaGB: (cacheQuotaGB ?? 2.0).clamp(0.5, 4.0),
         showBookCoverBackground: showBookCoverBackground,
         hapticFeedbackEnabled: hapticFeedbackEnabled,
         synthesisMode: _parseSynthesisMode(synthesisModeStr),
