@@ -488,6 +488,205 @@ Story content.
         final result = BoilerplateRemover.cleanChapter(input);
         expect(result, startsWith('Chapter 1'));
       });
+
+      test('removes e-text prepared by notice', () {
+        const input = '''
+e-text prepared by John Doe
+
+Chapter 1
+
+The story.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes HTML version notice', () {
+        const input = '''
+HTML version created 2024
+
+Chapter 1
+
+Content begins.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes transcribed by notice', () {
+        const input = '''
+Transcribed by volunteers
+
+Chapter 1
+
+The narrative.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes distributed under license', () {
+        const input = '''
+Distributed under Creative Commons License
+
+Chapter 1
+
+Story content.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes creative commons notice', () {
+        const input = '''
+This work is licensed under Creative Commons Attribution
+
+Chapter 1
+
+The book.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes public domain notice variation', () {
+        const input = '''
+This work is in the public domain in the United States.
+
+Chapter 1
+
+Content.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes UTF-8 encoding notice', () {
+        const input = '''
+UTF-8 encoded text version
+
+Chapter 1
+
+Story here.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes chapter divisions notice', () {
+        const input = '''
+Chapter divisions have been added for readability
+
+Chapter 1
+
+Content.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes editor modification notice', () {
+        const input = '''
+The following was added by the editor for clarity
+
+Chapter 1
+
+Story.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes illegible character notice', () {
+        const input = '''
+Several illegible characters could not be recovered
+
+Chapter 1
+
+Text content.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes character representation notice', () {
+        const input = '''
+Special characters represented as [X]
+
+Chapter 1
+
+Content here.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes editor note markers', () {
+        const input = '''
+[Note by editor]
+
+Chapter 1
+
+Story.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes footnote markers', () {
+        const input = '''
+[Footnote: This explains the text above]
+
+Chapter 1
+
+Content.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes illustration markers', () {
+        const input = '''
+[Illustration: A decorative image]
+
+Chapter 1
+
+Story here.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes paragraph break marker', () {
+        const input = '''
+Paragraph marker added here
+
+Chapter 1
+
+The story.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes original pagination notice', () {
+        const input = '''
+Original pagination preserved from source
+
+Chapter 1
+
+Content.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('removes line breaks preservation notice', () {
+        const input = '''
+Line breaks have been preserved from source
+
+Chapter 1
+
+Story text.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, startsWith('Chapter 1'));
+      });
+
+      test('preserves legitimate content with similar words', () {
+        const input = '''
+Chapter 1
+
+The notes about special characters and text representation.
+
+We discussed the pagination system used in books.''';
+        final result = BoilerplateRemover.cleanChapter(input);
+        expect(result, contains('special characters'));
+        expect(result, contains('pagination system'));
+      });
     });
   });
 }

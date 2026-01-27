@@ -65,6 +65,33 @@ class BoilerplateRemover {
     RegExp(r'^\s*\d+\s*$'),
     RegExp(r'^\s*-\s*\d+\s*-\s*$'),
     RegExp(r'^\s*\[\s*\d+\s*\]\s*$'),
+
+    // NEW: Production credits variations
+    RegExp(r'e-?text\s+(prepared|produced)\s+by', caseSensitive: false),
+    RegExp(r'html\s+version', caseSensitive: false),
+    RegExp(r'transcribed?\s+by', caseSensitive: false),
+
+    // NEW: License/copyright markers
+    RegExp(r'distributed\s+under', caseSensitive: false),
+    RegExp(r'creative\s+commons', caseSensitive: false),
+    RegExp(r'this work is in the public domain', caseSensitive: false),
+
+    // NEW: Formatting/encoding notices
+    RegExp(r'utf-?8.*encoded', caseSensitive: false),
+    RegExp(r'chapter\s+divisions?.*?added', caseSensitive: false),
+    RegExp(r'the\s+following.*?was\s+(added|removed)', caseSensitive: false),
+
+    // NEW: Special character/editor notes
+    RegExp(r'(unknown|illegible|indecipherable).*?character', caseSensitive: false),
+    RegExp(r'character.*?represented\s+as', caseSensitive: false),
+    RegExp(r'\[note.*?editor\]', caseSensitive: false),
+    RegExp(r'\[footnote', caseSensitive: false),
+    RegExp(r'\[illustration', caseSensitive: false),
+
+    // NEW: Conversion artifacts
+    RegExp(r'paragraph\s+(break|marker)', caseSensitive: false),
+    RegExp(r'original\s+(pagination|formatting)', caseSensitive: false),
+    RegExp(r'line\s+breaks?.*?(preserved|added)', caseSensitive: false),
   ];
 
   /// Removes Project Gutenberg (and similar) boilerplate from full book text.
