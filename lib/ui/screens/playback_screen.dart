@@ -18,6 +18,7 @@ import '../theme/app_colors.dart';
 import '../widgets/segment_seek_slider.dart';
 import 'package:core_domain/core_domain.dart';
 import 'playback/dialogs/dialogs.dart';
+import 'playback/widgets/widgets.dart';
 
 class PlaybackScreen extends ConsumerStatefulWidget {
   const PlaybackScreen({super.key, required this.bookId});
@@ -32,7 +33,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   // Layout constants for landscape mode
   static const double _landscapeControlsWidth = 100.0;
   static const double _landscapeBottomBarHeight = 52.0;
-  static const double _playButtonSize = 56.0;
   static const double _playIconSize = 28.0;
   
   bool _initialized = false;
@@ -752,60 +752,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     );
   }
 
-  Widget _buildHeader(AppThemeColors colors, Book book, Chapter chapter) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: colors.border, width: 1)),
-      ),
-      child: Row(
-        children: [
-          InkWell(
-            onTap: _saveProgressAndPop,
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Icon(Icons.chevron_left, color: colors.text),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  book.title,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: colors.text),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  chapter.title,
-                  style: TextStyle(fontSize: 13, color: colors.textSecondary),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          // Toggle view button
-          InkWell(
-            onTap: () => setState(() => _showCover = !_showCover),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Icon(
-                _showCover ? Icons.menu_book : Icons.image,
-                color: colors.text,
-                size: 20,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildErrorBanner(AppThemeColors colors, String error) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -859,7 +805,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                 else
                   Expanded(
                     child: _showCover
-                        ? _buildCoverView(colors, book)
+                        ? CoverView(book: book)
                         : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
                   ),
               ],
@@ -919,7 +865,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
     return SafeArea(
       child: Column(
         children: [
-          _buildHeader(colors, book, chapter),
+          PlaybackHeader(
+            book: book,
+            chapter: chapter,
+            showCover: _showCover,
+            onBack: _saveProgressAndPop,
+            onToggleView: () => setState(() => _showCover = !_showCover),
+          ),
           if (playbackState.error != null) _buildErrorBanner(colors, playbackState.error!),
           if (isLoading)
             Expanded(
@@ -937,103 +889,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
           else ...[
             Expanded(
               child: _showCover
-                  ? _buildCoverView(colors, book)
+                  ? CoverView(book: book)
                   : _buildTextDisplay(colors, queue, currentTrack, currentIndex, book),
             ),
             _buildPlaybackControls(colors, playbackState, currentIndex, queueLength, chapterIdx, book.chapters.length),
           ],
         ],
-      ),
-    );
-  }
-
-  Widget _buildCoverView(AppThemeColors colors, Book book) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Book cover
-              ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 240,
-                  maxHeight: 360,
-                ),
-                child: AspectRatio(
-                  aspectRatio: 2 / 3,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: colors.card,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: book.coverImagePath != null
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.file(
-                              java.File(book.coverImagePath!),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _buildCoverPlaceholder(colors, book),
-                            ),
-                          )
-                        : _buildCoverPlaceholder(colors, book),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                book.title,
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: colors.text),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'By ${book.author}',
-                style: TextStyle(fontSize: 14, color: colors.textSecondary),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildCoverPlaceholder(AppThemeColors colors, Book book) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [colors.primary.withValues(alpha: 0.3), colors.primary.withValues(alpha: 0.1)],
-        ),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.book, size: 64, color: colors.primary),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                book.title,
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colors.text),
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1218,90 +1079,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
       setState(() => _autoScrollEnabled = true);
     }
   }
-  
-  /// Format duration as "Xh Ym" or "Xm" for shorter durations.
-  String _formatDuration(Duration duration) {
-    final totalMinutes = duration.inMinutes;
-    if (totalMinutes < 60) {
-      return '${totalMinutes}m';
-    }
-    final hours = totalMinutes ~/ 60;
-    final minutes = totalMinutes % 60;
-    return '${hours}h ${minutes}m';
-  }
-  
-  /// Build the time remaining row showing chapter and book time remaining.
-  Widget _buildTimeRemainingRow(AppThemeColors colors) {
-    // Get chapter progress for current chapter
-    final chapterKey = '${widget.bookId}:$_currentChapterIndex';
-    final chapterProgressAsync = ref.watch(chapterProgressProvider(chapterKey));
-    
-    // Get book progress summary
-    final bookProgressAsync = ref.watch(bookProgressSummaryProvider(widget.bookId));
-    
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Chapter remaining
-          chapterProgressAsync.when(
-            data: (chapterProgress) {
-              if (chapterProgress == null || chapterProgress.durationMs == 0) {
-                return const SizedBox.shrink();
-              }
-              final totalMs = chapterProgress.durationMs;
-              final listenedMs = (chapterProgress.percentComplete * totalMs).round();
-              final remainingMs = (totalMs - listenedMs).clamp(0, totalMs);
-              final remaining = Duration(milliseconds: remainingMs);
-              return Text(
-                '${_formatDuration(remaining)} left in chapter',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colors.textSecondary,
-                ),
-              );
-            },
-            loading: () => const SizedBox.shrink(),
-            error: (_, __) => const SizedBox.shrink(),
-          ),
-          
-          // Divider
-          bookProgressAsync.maybeWhen(
-            data: (summary) => summary.totalDurationMs > 0 ? Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                '•',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colors.textTertiary,
-                ),
-              ),
-            ) : const SizedBox.shrink(),
-            orElse: () => const SizedBox.shrink(),
-          ),
-          
-          // Book remaining
-          bookProgressAsync.when(
-            data: (summary) {
-              if (summary.totalDurationMs == 0) {
-                return const SizedBox.shrink();
-              }
-              return Text(
-                '${_formatDuration(summary.remainingDuration)} left in book',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colors.textTertiary,
-                ),
-              );
-            },
-            loading: () => const SizedBox.shrink(),
-            error: (_, __) => const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildPlaybackControls(AppThemeColors colors, PlaybackState playbackState, int currentIndex, int queueLength, int chapterIdx, int chapterCount) {
     final queue = playbackState.queue;
@@ -1363,7 +1140,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
           ),
           
           // Time remaining info
-          _buildTimeRemainingRow(colors),
+          TimeRemainingRow(bookId: widget.bookId, chapterIndex: _currentChapterIndex),
           
           // Speed and Sleep Timer controls
           Padding(
@@ -1494,7 +1271,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
                 const SizedBox(width: 12),
                 
                 // Play/Pause button
-                _buildPlayButton(colors, playbackState),
+                PlayButton(
+                  isPlaying: playbackState.isPlaying,
+                  isBuffering: playbackState.isBuffering,
+                  onToggle: _togglePlay,
+                ),
                 
                 const SizedBox(width: 12),
                 
@@ -1535,38 +1316,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  /// Reusable play/pause button widget
-  Widget _buildPlayButton(AppThemeColors colors, PlaybackState playbackState) {
-    return Material(
-      color: colors.primary,
-      shape: const CircleBorder(),
-      elevation: 2,
-      child: InkWell(
-        onTap: _togglePlay,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: _playButtonSize,
-          height: _playButtonSize,
-          alignment: Alignment.center,
-          child: playbackState.isBuffering
-              ? SizedBox(
-                  width: _playButtonSize * 0.4,
-                  height: _playButtonSize * 0.4,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: colors.primaryForeground,
-                  ),
-                )
-              : Icon(
-                  playbackState.isPlaying ? Icons.pause : Icons.play_arrow,
-                  size: _playIconSize,
-                  color: colors.primaryForeground,
-                ),
-        ),
       ),
     );
   }
@@ -1641,7 +1390,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
           ),
           
           // Center section (fixed) - Play button
-          _buildPlayButton(colors, playbackState),
+          PlayButton(
+            isPlaying: playbackState.isPlaying,
+            isBuffering: playbackState.isBuffering,
+            onToggle: _togglePlay,
+          ),
           
           // Bottom section (expandable) - down arrow + sleep timer
           Expanded(
