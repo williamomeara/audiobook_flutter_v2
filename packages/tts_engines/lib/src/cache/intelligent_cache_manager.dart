@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:developer' as developer;
 
@@ -8,6 +7,7 @@ import 'package:core_domain/core_domain.dart';
 import 'aac_compression_service.dart';
 import 'audio_cache.dart';
 import 'cache_entry_metadata.dart';
+import 'cache_metadata_storage.dart';
 
 /// User-configurable cache quota settings.
 class CacheQuotaSettings {
@@ -106,16 +106,18 @@ class CacheUsageStats {
 /// - Multi-factor eviction scoring (recency, frequency, position, progress, voice)
 /// - Proactive cache management
 /// - Cache analytics
+/// - Pluggable storage backend (JSON or SQLite)
 class IntelligentCacheManager implements AudioCache {
   IntelligentCacheManager({
     required Directory cacheDir,
-    required this.metadataFile,
+    required CacheMetadataStorage storage,
     CacheQuotaSettings? quotaSettings,
   })  : _cacheDir = cacheDir,
+        _storage = storage,
         _quotaSettings = quotaSettings ?? const CacheQuotaSettings();
 
   final Directory _cacheDir;
-  final File metadataFile;
+  final CacheMetadataStorage _storage;
   CacheQuotaSettings _quotaSettings;
 
   /// Metadata for all cache entries.
@@ -140,7 +142,7 @@ class IntelligentCacheManager implements AudioCache {
   /// Update quota settings.
   Future<void> setQuotaSettings(CacheQuotaSettings settings) async {
     _quotaSettings = settings;
-    await _saveMetadata();
+    await _storage.saveQuotaSettings(settings);
 
     // Evict if new quota is smaller
     await evictIfNeeded();
@@ -149,23 +151,31 @@ class IntelligentCacheManager implements AudioCache {
   /// Initialize the cache manager by loading persisted metadata.
   Future<void> initialize() async {
     await _cacheDir.create(recursive: true);
-    await _loadMetadata();
+
+    // Load from storage backend
+    final entries = await _storage.loadEntries();
+    _metadata.clear();
+    _metadata.addAll(entries);
+
+    final quota = await _storage.loadQuotaSettings();
+    if (quota != null) {
+      _quotaSettings = quota;
+    }
+
+    developer.log(
+      '📦 Loaded ${_metadata.length} cache entries',
+      name: 'IntelligentCacheManager',
+    );
+
     await _syncWithFileSystem();
   }
 
   /// Get cache usage statistics.
   Future<CacheUsageStats> getUsageStats() async {
-    final byBook = <String, int>{};
-    final byVoice = <String, int>{};
-    var compressedCount = 0;
-
-    for (final entry in _metadata.values) {
-      byBook[entry.bookId] = (byBook[entry.bookId] ?? 0) + entry.sizeBytes;
-      byVoice[entry.voiceId] = (byVoice[entry.voiceId] ?? 0) + entry.sizeBytes;
-      if (entry.key.endsWith('.m4a')) {
-        compressedCount++;
-      }
-    }
+    // Use storage backend for efficient aggregation
+    final byBook = await _storage.getSizeByBook();
+    final byVoice = await _storage.getSizeByVoice();
+    final compressedCount = await _storage.getCompressedCount();
 
     final totalHits = _hits + _misses;
     final hitRate = totalHits > 0 ? _hits / totalHits : 0.0;
@@ -193,7 +203,7 @@ class IntelligentCacheManager implements AudioCache {
   }) async {
     final filename = key.toFilename();
 
-    _metadata[filename] = CacheEntryMetadata(
+    final entry = CacheEntryMetadata(
       key: filename,
       sizeBytes: sizeBytes,
       createdAt: DateTime.now(),
@@ -207,7 +217,8 @@ class IntelligentCacheManager implements AudioCache {
       audioDurationMs: audioDurationMs,
     );
 
-    await _saveMetadata();
+    _metadata[filename] = entry;
+    await _storage.upsertEntry(entry);
     await evictIfNeeded();
   }
 
@@ -276,6 +287,7 @@ class IntelligentCacheManager implements AudioCache {
     final targetSize = (_quotaSettings.maxSizeBytes * 0.9).round();
     var currentSize = totalSize;
     var evicted = 0;
+    final evictedKeys = <String>[];
 
     for (final entry in scoredEntries) {
       if (currentSize <= targetSize) break;
@@ -295,6 +307,7 @@ class IntelligentCacheManager implements AudioCache {
           await file.delete();
           currentSize -= entry.metadata.sizeBytes;
           _metadata.remove(entry.metadata.key);
+          evictedKeys.add(entry.metadata.key);
           evicted++;
 
           developer.log(
@@ -316,7 +329,9 @@ class IntelligentCacheManager implements AudioCache {
       name: 'IntelligentCacheManager',
     );
 
-    await _saveMetadata();
+    if (evictedKeys.isNotEmpty) {
+      await _storage.removeEntries(evictedKeys);
+    }
   }
 
   /// Compress all uncompressed WAV files in the cache.
@@ -352,15 +367,16 @@ class IntelligentCacheManager implements AudioCache {
         
         if (result != null) {
           compressed++;
-          
+
           // Update metadata: remove old WAV entry, add new M4A entry
           final oldMeta = entry.value;
           _metadata.remove(entry.key);
-          
+          await _storage.removeEntry(entry.key);
+
           final m4aKey = entry.key.replaceAll('.wav', '.m4a');
           final m4aStat = await result.stat();
-          
-          _metadata[m4aKey] = CacheEntryMetadata(
+
+          final newEntry = CacheEntryMetadata(
             key: m4aKey,
             sizeBytes: m4aStat.size,
             createdAt: oldMeta.createdAt,
@@ -373,6 +389,8 @@ class IntelligentCacheManager implements AudioCache {
             engineType: oldMeta.engineType,
             audioDurationMs: oldMeta.audioDurationMs,
           );
+          _metadata[m4aKey] = newEntry;
+          await _storage.upsertEntry(newEntry);
         }
       } catch (e) {
         developer.log(
@@ -381,11 +399,7 @@ class IntelligentCacheManager implements AudioCache {
         );
       }
     }
-    
-    if (compressed > 0) {
-      await _saveMetadata();
-    }
-    
+
     return compressed;
   }
 
@@ -502,17 +516,18 @@ class IntelligentCacheManager implements AudioCache {
     final filename = key.toFilename();
     final entry = _metadata[filename];
     if (entry != null) {
-      _metadata[filename] = entry.copyWith(
+      final updated = entry.copyWith(
         lastAccessed: DateTime.now(),
         accessCount: entry.accessCount + 1,
       );
-      // Don't save immediately - batch saves for performance
+      _metadata[filename] = updated;
+      await _storage.upsertEntry(updated);
     } else {
       // Auto-register entry if not in metadata (supports legacy files)
       final file = File('${_cacheDir.path}/$filename');
       if (await file.exists()) {
         final stat = await file.stat();
-        _metadata[filename] = CacheEntryMetadata(
+        final newEntry = CacheEntryMetadata(
           key: filename,
           sizeBytes: stat.size,
           createdAt: stat.changed,
@@ -525,7 +540,8 @@ class IntelligentCacheManager implements AudioCache {
           engineType: _engineTypeForVoice(key.voiceId),
           audioDurationMs: _estimateDurationFromSize(stat.size),
         );
-        await _saveMetadata();
+        _metadata[filename] = newEntry;
+        await _storage.upsertEntry(newEntry);
       }
     }
   }
@@ -574,7 +590,9 @@ class IntelligentCacheManager implements AudioCache {
       _metadata.remove(name);
     }
 
-    await _saveMetadata();
+    if (toRemove.isNotEmpty) {
+      await _storage.removeEntries(toRemove);
+    }
   }
 
   @override
@@ -602,60 +620,7 @@ class IntelligentCacheManager implements AudioCache {
     _metadata.clear();
     _hits = 0;
     _misses = 0;
-    await _saveMetadata();
-  }
-
-  // ============= Persistence =============
-
-  Future<void> _loadMetadata() async {
-    try {
-      if (await metadataFile.exists()) {
-        final content = await metadataFile.readAsString();
-        final json = jsonDecode(content) as Map<String, dynamic>;
-
-        if (json['quota'] != null) {
-          _quotaSettings = CacheQuotaSettings.fromJson(
-            json['quota'] as Map<String, dynamic>,
-          );
-        }
-
-        if (json['entries'] != null) {
-          final entries = json['entries'] as Map<String, dynamic>;
-          for (final e in entries.entries) {
-            _metadata[e.key] = CacheEntryMetadata.fromJson(
-              e.value as Map<String, dynamic>,
-            );
-          }
-        }
-
-        developer.log(
-          '📦 Loaded ${_metadata.length} cache entries',
-          name: 'IntelligentCacheManager',
-        );
-      }
-    } catch (e) {
-      developer.log(
-        '⚠️ Failed to load cache metadata: $e',
-        name: 'IntelligentCacheManager',
-      );
-    }
-  }
-
-  Future<void> _saveMetadata() async {
-    try {
-      final json = {
-        'quota': _quotaSettings.toJson(),
-        'entries': {
-          for (final e in _metadata.entries) e.key: e.value.toJson(),
-        },
-      };
-      await metadataFile.writeAsString(jsonEncode(json));
-    } catch (e) {
-      developer.log(
-        '⚠️ Failed to save cache metadata: $e',
-        name: 'IntelligentCacheManager',
-      );
-    }
+    await _storage.saveEntries({});
   }
 
   /// Sync metadata with actual files on disk.
@@ -734,8 +699,13 @@ class IntelligentCacheManager implements AudioCache {
       );
     }
 
-    if (toRemove.isNotEmpty || orphansRegistered > 0) {
-      await _saveMetadata();
+    // Persist changes to storage
+    if (toRemove.isNotEmpty) {
+      await _storage.removeEntries(toRemove);
+    }
+    if (orphansRegistered > 0) {
+      // Batch save all new entries
+      await _storage.saveEntries(_metadata);
     }
   }
 
