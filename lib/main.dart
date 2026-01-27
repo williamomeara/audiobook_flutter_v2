@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:logging/logging.dart';
 
 import 'app/audio_service_handler.dart';
+import 'app/quick_settings_service.dart';
 import 'app/settings_controller.dart';
 import 'utils/app_logger.dart';
 import 'ui/theme/app_theme.dart';
@@ -89,6 +90,10 @@ Future<void> main() async {
     DeviceOrientation.portraitDown,
   ]);
 
+  // Initialize QuickSettingsService for instant dark mode access.
+  // This reads dark_mode from SharedPreferences before rendering.
+  final initialDarkMode = await QuickSettingsService.initialize();
+
   // Setup logging
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
@@ -105,15 +110,22 @@ Future<void> main() async {
   // The service will be initialized when first needed (e.g., playback starts).
   // This avoids the VRI redraw loop issue on some devices.
 
-  runApp(const ProviderScope(child: AudiobookApp()));
+  runApp(ProviderScope(child: AudiobookApp(initialDarkMode: initialDarkMode)));
 }
 
 class AudiobookApp extends ConsumerWidget {
-  const AudiobookApp({super.key});
+  const AudiobookApp({super.key, required this.initialDarkMode});
+
+  /// Initial dark mode value from QuickSettingsService.
+  /// Used to avoid theme flash while settings load from SQLite.
+  final bool initialDarkMode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
+    // Use settings.darkMode from provider (which may still be loading).
+    // SettingsController initializes with QuickSettingsService.darkMode,
+    // so the value should be correct from the first build.
     
     return MaterialApp.router(
       title: 'Éist',
