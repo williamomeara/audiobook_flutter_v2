@@ -179,11 +179,13 @@ class SettingsController extends Notifier<SettingsState> {
       );
     } catch (e, st) {
       developer.log(
-        '⚠️ Failed to load settings from SQLite: $e',
+        '❌ Critical error loading settings from SQLite: $e\n$st',
         name: 'SettingsController',
         error: e,
         stackTrace: st,
       );
+      // Return defaults when loading fails
+      state = const SettingsState();
     }
   }
 

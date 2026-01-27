@@ -91,17 +91,26 @@ class SettingsMigrationService {
     for (final key in _keysToMigrate) {
       if (!prefs.containsKey(key)) continue;
 
-      final value = _getPrefsValue(prefs, key);
-      if (value != null) {
-        // Map old keys to new SQLite keys
-        final sqliteKey = _mapKey(key);
-        await settingsDao.setSetting(sqliteKey, value);
-        count++;
+      try {
+        final value = _getPrefsValue(prefs, key);
+        if (value != null) {
+          // Map old keys to new SQLite keys
+          final sqliteKey = _mapKey(key);
+          await settingsDao.setSetting(sqliteKey, value);
+          count++;
 
+          developer.log(
+            '  ✅ Migrated: $key -> $sqliteKey',
+            name: 'SettingsMigrationService',
+          );
+        }
+      } catch (e) {
         developer.log(
-          '  ✅ Migrated: $key -> $sqliteKey',
+          '  ⚠️ Failed to migrate $key: $e',
           name: 'SettingsMigrationService',
         );
+        // Skip this setting and continue with others
+        continue;
       }
     }
 
@@ -117,14 +126,28 @@ class SettingsMigrationService {
     }
 
     // Clear old keys (except dark_mode)
-    for (final key in _keysToClear) {
-      if (prefs.containsKey(key)) {
-        await prefs.remove(key);
+    try {
+      for (final key in _keysToClear) {
+        if (prefs.containsKey(key)) {
+          await prefs.remove(key);
+        }
       }
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to clear old preference keys: $e',
+        name: 'SettingsMigrationService',
+      );
     }
 
     // Mark migration as complete
-    await prefs.setBool(_migrationDoneKey, true);
+    try {
+      await prefs.setBool(_migrationDoneKey, true);
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to mark migration as complete: $e',
+        name: 'SettingsMigrationService',
+      );
+    }
 
     developer.log(
       '✅ Settings migration complete: $count settings migrated',

@@ -15,6 +15,8 @@ class SettingsDao {
   SettingsDao(this._db);
 
   /// Get a setting value by key.
+  /// Generic method - prefer type-specific methods (getBool, getInt, etc.)
+  /// for better type safety and error handling.
   Future<T?> getSetting<T>(String key) async {
     final results = await _db.query(
       'settings',
@@ -24,12 +26,39 @@ class SettingsDao {
       limit: 1,
     );
     if (results.isEmpty) return null;
-    final value = results.first['value'] as String;
+
     try {
-      final decoded = jsonDecode(value);
-      return decoded as T?;
+      final jsonValue = results.first['value'] as String?;
+      if (jsonValue == null) return null;
+
+      final decoded = jsonDecode(jsonValue);
+
+      // Safe type checking - only return if it's actually the right type
+      // For safety, don't use unsafe 'as' casts that can throw
+      if (decoded is T) return decoded;
+
+      // Try soft conversions for common cases
+      if (decoded is String) {
+        // If we got a string but expected something else, try parsing
+        final upperDecoded = decoded.toUpperCase();
+        if (upperDecoded == 'TRUE') return true as T?;
+        if (upperDecoded == 'FALSE') return false as T?;
+        if (int.tryParse(decoded) != null) return int.parse(decoded) as T?;
+        if (double.tryParse(decoded) != null) return double.parse(decoded) as T?;
+      } else if (decoded is int) {
+        // If we got an int, try converting to double if needed
+        if (T == double) return (decoded.toDouble()) as T;
+      } else if (decoded is Map) {
+        // Maps are compatible as dynamic
+        if (T == dynamic || T == Map<String, dynamic>) {
+          return decoded as T?;
+        }
+      }
+
+      // No conversion possible
+      return null;
     } catch (e) {
-      // If decoding fails, return null
+      // Silently fail for corrupted data
       return null;
     }
   }
@@ -64,14 +93,26 @@ class SettingsDao {
 
   /// Get all settings as a map.
   Future<Map<String, dynamic>> getAllSettings() async {
-    final results = await _db.query('settings');
-    final map = <String, dynamic>{};
-    for (final row in results) {
-      final key = row['key'] as String;
-      final value = row['value'] as String;
-      map[key] = jsonDecode(value);
+    try {
+      final results = await _db.query('settings');
+      final map = <String, dynamic>{};
+      for (final row in results) {
+        try {
+          final key = row['key'] as String?;
+          final value = row['value'] as String?;
+          if (key != null && value != null) {
+            map[key] = jsonDecode(value);
+          }
+        } catch (e) {
+          // Skip corrupted entries
+          continue;
+        }
+      }
+      return map;
+    } catch (e) {
+      // If table doesn't exist or other error, return empty map
+      return {};
     }
-    return map;
   }
 
   /// Check if a setting exists.
@@ -85,7 +126,24 @@ class SettingsDao {
 
   /// Get an int setting.
   Future<int?> getInt(String key) async {
-    return await getSetting<int>(key);
+    final results = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (results.isEmpty) return null;
+
+    try {
+      final value = results.first['value'] as String;
+      final decoded = jsonDecode(value);
+      if (decoded is int) return decoded;
+      if (decoded is String) return int.tryParse(decoded);
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 
   /// Set an int setting.
@@ -95,7 +153,24 @@ class SettingsDao {
 
   /// Get a string setting.
   Future<String?> getString(String key) async {
-    return await getSetting<String>(key);
+    final results = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (results.isEmpty) return null;
+
+    try {
+      final value = results.first['value'] as String;
+      final decoded = jsonDecode(value);
+      if (decoded is String) return decoded;
+      // If it's another type, convert to string
+      return decoded.toString();
+    } catch (e) {
+      return null;
+    }
   }
 
   /// Set a string setting.
