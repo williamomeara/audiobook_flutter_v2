@@ -770,17 +770,20 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   }
 
   void _startChapterSynthesis(dynamic book, int chapterIndex, dynamic chapter) async {
+    // Capture scaffold messenger before async gaps
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    
     // Get the voice ID from settings
     final settings = ref.read(settingsProvider);
-    final voiceId = settings.selectedVoice.isNotEmpty 
-        ? settings.selectedVoice 
+    final voiceId = settings.selectedVoice.isNotEmpty
+        ? settings.selectedVoice
         : 'supertonic_m5';
-    
-    // Parse chapter content to tracks
-    final tracks = _parseChapterToTracks(book.id, chapterIndex, chapter.content);
+
+    // Load pre-segmented content from SQLite (no runtime segmentation)
+    final tracks = await _loadChapterTracks(book.id, chapterIndex);
     
     if (tracks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      scaffoldMessenger.showSnackBar(
         SnackBar(content: Text('No content to synthesize')),
       );
       return;
@@ -859,22 +862,22 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
     );
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    scaffoldMessenger.showSnackBar(
       SnackBar(content: Text('Preparing chapter...')),
     );
   }
 
-  List<AudioTrack> _parseChapterToTracks(String bookId, int chapterIndex, String content) {
-    // Use the same segmentation as playback_providers.dart to ensure
-    // cache keys match when synthesizing audio
-    final segments = segmentText(content);
-    
-    return segments.asMap().entries.map((e) => AudioTrack(
-      id: IdGenerator.audioTrackId(bookId, chapterIndex, e.key),
-      text: e.value.text,
+  /// Load pre-segmented content from SQLite and convert to AudioTracks.
+  Future<List<AudioTrack>> _loadChapterTracks(String bookId, int chapterIndex) async {
+    final libraryController = ref.read(libraryProvider.notifier);
+    final segments = await libraryController.getSegmentsForChapter(bookId, chapterIndex);
+
+    return segments.map((segment) => AudioTrack(
+      id: IdGenerator.audioTrackId(bookId, chapterIndex, segment.index),
+      text: segment.text,
       chapterIndex: chapterIndex,
-      segmentIndex: e.key,
-      estimatedDuration: e.value.estimatedDuration,
+      segmentIndex: segment.index,
+      estimatedDuration: segment.estimatedDuration,
     )).toList();
   }
 }
