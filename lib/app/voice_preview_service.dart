@@ -79,9 +79,11 @@ class VoicePreviewService {
   }
 
   /// Stop any currently playing preview.
-  Future<void> stop() async {
+  Future<void> stop({bool notifyState = true}) async {
     _currentlyPlayingVoiceId = null;
-    _notifyChange(null);
+    if (notifyState) {
+      _notifyChange(null);
+    }
     if (_player != null) {
       await _player!.stop();
       await _player!.dispose();
@@ -91,7 +93,8 @@ class VoicePreviewService {
 
   /// Dispose of resources.
   Future<void> dispose() async {
-    await stop();
+    // Don't notify state changes during disposal - provider is being torn down
+    await stop(notifyState: false);
   }
 }
 
