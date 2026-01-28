@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:playback/playback.dart' hide SegmentReadinessTracker;
 
+import '../../app/database/daos/chapter_position_dao.dart';
 import '../../app/library_controller.dart';
 import '../../app/listening_actions_notifier.dart';
 import '../../app/playback_providers.dart';
@@ -60,11 +61,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
   int? _sleepTimerMinutes; // null = off
   int? _sleepTimeRemainingSeconds;
   Timer? _sleepTimer;
-
-  // Browsing mode auto-promotion timer
-  // After 30 seconds of listening while browsing, promote to new primary position
-  Timer? _browsingPromotionTimer;
-  static const _browsingPromotionSeconds = 30;
 
   // Orientation transition animation
   late AnimationController _orientationAnimController;
@@ -240,13 +236,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
       // Auto-advance to next chapter when current chapter ends
       _handleAutoAdvanceChapter(previous, next);
 
-      // Start/restart browsing promotion timer when playback starts while browsing
-      final wasPlaying = previous?.isPlaying ?? false;
-      final isNowPlaying = next.isPlaying;
-      if (!wasPlaying && isNowPlaying) {
-        _startBrowsingPromotionTimer();
-      }
-
       // Periodic cache verification for segment color accuracy
       final previousIndex = previous?.currentIndex ?? -1;
       final currentIndex = next.currentIndex;
@@ -387,7 +376,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     ]);
     _sleepTimer?.cancel();
     _autoSaveTimer?.cancel();
-    _browsingPromotionTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -573,9 +561,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           startSegmentIndex: targetSegment,
           autoPlay: playbackState.isPlaying,
         );
-
-    // Start browsing promotion timer (will auto-promote to primary after 30s)
-    _startBrowsingPromotionTimer();
   }
 
   Future<void> _previousChapter() async {
@@ -624,9 +609,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           startSegmentIndex: targetSegment,
           autoPlay: playbackState.isPlaying,
         );
-
-    // Start browsing promotion timer (will auto-promote to primary after 30s)
-    _startBrowsingPromotionTimer();
   }
 
   Future<void> _setPlaybackRate(double rate) async {
@@ -1007,49 +989,11 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     }
   }
 
-  /// Start or restart the browsing promotion timer.
-  /// After 30 seconds of continuous listening while browsing, auto-promote to primary.
-  void _startBrowsingPromotionTimer() {
-    _browsingPromotionTimer?.cancel();
-    final isBrowsing = ref.read(isBrowsingProvider(widget.bookId));
-
-    if (!isBrowsing) return;
-
-    _browsingPromotionTimer = Timer(
-      const Duration(seconds: _browsingPromotionSeconds),
-      () {
-        if (!mounted) return;
-        final playbackState = ref.read(playbackStateProvider);
-        if (!playbackState.isPlaying) return; // Only if still playing
-
-        final currentSegment =
-            playbackState.queue.isNotEmpty
-                ? playbackState.currentIndex.clamp(
-                  0,
-                  playbackState.queue.length - 1,
-                )
-                : 0;
-
-        ref
-            .read(listeningActionsProvider.notifier)
-            .commitCurrentPosition(
-              bookId: widget.bookId,
-              currentChapter: _currentChapterIndex,
-              currentSegment: currentSegment,
-            );
-
-        developer.log(
-          '[PlaybackScreen] Auto-promoted browsing position to primary',
-        );
-      },
-    );
-  }
-
-  /// Handle snap-back to primary position.
+  /// Return to the last played position.
   Future<void> _snapBackToPrimary() async {
     final result = await ref
         .read(listeningActionsProvider.notifier)
-        .snapBackToPrimary(widget.bookId);
+        .returnToLastPlayed(widget.bookId);
     if (result == null) return;
 
     final library = ref.read(libraryProvider).value;
@@ -1070,60 +1014,66 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
         );
 
     developer.log(
-      '[PlaybackScreen] Snapped back to primary: chapter ${result.chapterIndex}, segment ${result.segmentIndex}',
+      '[PlaybackScreen] Returned to last played: chapter ${result.chapterIndex}, segment ${result.segmentIndex}',
     );
   }
 
-  /// Build the snap-back banner shown when in browsing mode.
+  /// Build the banner showing last played position.
   Widget _buildSnapBackBanner(AppThemeColors colors) {
-    final isBrowsing = ref.watch(isBrowsingProvider(widget.bookId));
     final primaryAsync = ref.watch(primaryPositionProvider(widget.bookId));
+    final currentIndex = _currentChapterIndex;
 
-    if (!isBrowsing) return const SizedBox.shrink();
-
+    // Only show banner if we're not already at the last played position
     return primaryAsync.when(
       data: (primary) {
-        if (primary == null) return const SizedBox.shrink();
+        if (primary == null || primary.chapterIndex == currentIndex) {
+          return const SizedBox.shrink();
+        }
 
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: colors.accent.withValues(alpha: 0.1),
-            border: Border(
-              bottom: BorderSide(
-                color: colors.accent.withValues(alpha: 0.3),
-                width: 1,
-              ),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.bookmark_outline, size: 18, color: colors.accent),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Browsing from Chapter ${primary.chapterIndex + 1}',
-                  style: TextStyle(fontSize: 13, color: colors.textSecondary),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: _snapBackToPrimary,
-                icon: Icon(Icons.my_location, size: 18, color: colors.accent),
-                label: Text('Return', style: TextStyle(color: colors.accent)),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-            ],
-          ),
-        );
+        return _buildLastPlayedBanner(colors, primary);
       },
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  /// Build the last played position banner.
+  Widget _buildLastPlayedBanner(AppThemeColors colors, ChapterPosition primary) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: colors.accent.withValues(alpha: 0.1),
+        border: Border(
+          bottom: BorderSide(
+            color: colors.accent.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.history, size: 18, color: colors.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Last played: Chapter ${primary.chapterIndex + 1}',
+              style: TextStyle(fontSize: 13, color: colors.textSecondary),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: _snapBackToPrimary,
+            icon: Icon(Icons.play_arrow, size: 18, color: colors.accent),
+            label: Text('Resume', style: TextStyle(color: colors.accent)),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 4,
+              ),
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
