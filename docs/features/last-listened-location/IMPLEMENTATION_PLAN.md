@@ -1,6 +1,6 @@
 # Last Listened Location - Implementation Plan
 
-## Phase 1: Database Schema (Day 1)
+## Phase 1: Database Schema (Day 1) ✅ COMPLETED
 
 ### 1.1 Create Migration v4
 
@@ -164,7 +164,7 @@ class ChapterPosition {
 
 ---
 
-## Phase 2: Providers (Day 2)
+## Phase 2: Providers (Day 2) ✅ COMPLETED
 
 ### 2.1 Add Position Provider
 
@@ -295,7 +295,7 @@ final listeningActionsProvider = NotifierProvider<ListeningActionsNotifier, void
 
 ---
 
-## Phase 3: Playback Screen Integration (Day 3-4)
+## Phase 3: Playback Screen Integration (Day 3-4) ✅ COMPLETED
 
 ### 3.1 Extend Existing "Resume Auto-Scroll" Button
 
@@ -482,45 +482,29 @@ void _onPlaybackPaused() {
 
 ---
 
-## Phase 4: Book Details Integration (Day 5)
+## Phase 4: Book Details Integration (Day 5) ✅ COMPLETED
 
 ### 4.1 Update Chapter List Badges
+
+**Status: COMPLETED** - The chapter list now uses `primaryPosition` to determine which chapter shows the "CONTINUE HERE" badge.
 
 Show primary position indicator:
 
 ```dart
-Widget _buildChapterBadge(int chapterIndex, String bookId) {
-  final primaryAsync = ref.watch(primaryPositionProvider(bookId));
-  final isPrimary = primaryAsync.valueOrNull?.chapterIndex == chapterIndex;
-  
-  if (isPrimary) {
-    return const Icon(Icons.my_location, size: 16, color: Colors.blue);
-  }
-  
-  // ... existing badge logic
-}
+// Use primary position for "current chapter" indicator (badge, highlighting)
+// Falls back to book.progress if no primary position is set
+final currentChapterIndex = primaryPosition?.chapterIndex ?? book.progress.chapterIndex;
+final isCurrentChapter = index == currentChapterIndex;
 ```
 
 ### 4.2 Update Continue Listening Logic
 
-Prefer primary position over last saved position:
+**Status: COMPLETED** - Continue Listening button and chapter taps now navigate with query params.
 
-```dart
-void _onContinueListening(String bookId) async {
-  final dao = ref.read(chapterPositionDaoProvider);
-  final primary = await dao.getPrimaryPosition(bookId);
-  
-  if (primary != null) {
-    // Resume from primary position
-    context.push('/playback/$bookId?chapter=${primary.chapterIndex}&segment=${primary.segmentIndex}');
-  } else {
-    // Fall back to book.progress
-    final book = ref.read(libraryProvider).value?.books
-        .firstWhere((b) => b.id == bookId);
-    context.push('/playback/$bookId?chapter=${book?.progress.chapterIndex ?? 0}');
-  }
-}
-```
+- PlaybackScreen now accepts `initialChapter` and `initialSegment` parameters
+- GoRouter route updated to parse `?chapter=X&segment=Y` query params
+- Continue Listening button passes primary position params when available
+- Chapter list onTap navigates directly to that chapter with segment 0 (or primary segment if current chapter)
 
 ---
 
@@ -554,14 +538,315 @@ void _onContinueListening(String bookId) async {
 1. `lib/app/database/migrations/migration_v4.dart`
 2. `lib/app/database/daos/chapter_position_dao.dart`
 3. `lib/app/listening_actions_notifier.dart`
-4. `test/unit/database/chapter_position_dao_test.dart`
-5. `test/unit/listening_actions_notifier_test.dart`
+4. `lib/ui/widgets/mini_player.dart`
+5. `test/unit/database/chapter_position_dao_test.dart`
+6. `test/unit/listening_actions_notifier_test.dart`
 
 ### Modified Files
 1. `lib/app/database/database.dart` - Add version bump and migration
 2. `lib/app/playback_providers.dart` - Add position providers
 3. `lib/ui/screens/playback_screen.dart` - Add snap-back UI, browsing tracking
 4. `lib/ui/screens/book_details_screen.dart` - Add primary badge, update resume logic
+5. `lib/main.dart` - Add mini-player wrapper to app
+
+---
+
+## Phase 5: Mini-Player Integration (Day 6-7)
+
+### Overview
+
+Add a persistent mini-player (like YouTube Music/Spotify) that appears at the bottom of screens while audio is playing. This allows users to browse the app while playback continues, with quick access to playback controls.
+
+### Design Principles (Best Practices)
+
+**Placement & Visibility:**
+- Display at the bottom of the screen, above the navigation bar (if present)
+- Persist across most screens while playback is active
+- **DO NOT show on:** Settings screens, Downloads screen, full Playback screen
+- **DO show on:** Library screen, Book Details screen
+
+**Interaction Patterns:**
+1. **Tap on mini-player:** Navigate to full playback screen
+2. **Swipe up:** Expand to full playback screen (optional enhancement)
+3. **Tap play/pause:** Toggle playback without navigation
+4. **Tap skip (if shown):** Skip to next segment
+
+**Visual Design:**
+- Height: 56-64dp (compact but tappable)
+- Content: Book cover thumbnail, title, play/pause button, optional progress indicator
+- Background: Match app theme, slight elevation or border to distinguish from content
+- Animation: Slide up/down when appearing/disappearing
+
+### 5.1 Create MiniPlayer Widget
+
+**File:** `lib/ui/widgets/mini_player.dart`
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../app/playback_providers.dart';
+import '../../app/library_controller.dart';
+import '../theme/app_colors.dart';
+
+class MiniPlayer extends ConsumerWidget {
+  const MiniPlayer({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final playbackState = ref.watch(playbackStateProvider);
+    final libraryAsync = ref.watch(libraryProvider);
+    final colors = context.appColors;
+
+    // Don't show if nothing is playing
+    if (!playbackState.isPlaying && !playbackState.isPaused) {
+      return const SizedBox.shrink();
+    }
+
+    // Don't show if no book is loaded
+    final bookId = playbackState.bookId;
+    if (bookId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return libraryAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (library) {
+        final book = library.books.where((b) => b.id == bookId).firstOrNull;
+        if (book == null) return const SizedBox.shrink();
+
+        return GestureDetector(
+          onTap: () => context.push('/playback/$bookId'),
+          child: Container(
+            height: 64,
+            decoration: BoxDecoration(
+              color: colors.surface,
+              border: Border(
+                top: BorderSide(color: colors.border, width: 1),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  // Book cover thumbnail
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: book.coverImage != null
+                          ? Image.memory(book.coverImage!, fit: BoxFit.cover)
+                          : Container(
+                              color: colors.primary.withValues(alpha: 0.1),
+                              child: Icon(Icons.book, color: colors.primary),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  
+                  // Title and progress
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          book.title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: colors.text,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Segment ${playbackState.currentIndex + 1}/${playbackState.queue.length}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Play/Pause button
+                  IconButton(
+                    onPressed: () {
+                      final controller = ref.read(playbackControllerProvider.notifier);
+                      if (playbackState.isPlaying) {
+                        controller.pause();
+                      } else {
+                        controller.play();
+                      }
+                    },
+                    icon: Icon(
+                      playbackState.isPlaying ? Icons.pause : Icons.play_arrow,
+                      size: 32,
+                      color: colors.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+```
+
+### 5.2 Create MiniPlayerScaffold Wrapper
+
+**File:** `lib/ui/widgets/mini_player_scaffold.dart`
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'mini_player.dart';
+
+/// Wraps a screen with a mini-player at the bottom when playback is active.
+/// 
+/// Usage: Wrap screens where the mini-player should appear.
+class MiniPlayerScaffold extends ConsumerWidget {
+  const MiniPlayerScaffold({
+    super.key,
+    required this.child,
+    this.showMiniPlayer = true,
+  });
+
+  final Widget child;
+  final bool showMiniPlayer;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!showMiniPlayer) return child;
+
+    return Column(
+      children: [
+        Expanded(child: child),
+        const MiniPlayer(),
+      ],
+    );
+  }
+}
+```
+
+### 5.3 Integration with Router
+
+**File:** `lib/main.dart` - Update routes to use MiniPlayerScaffold
+
+For screens that should show the mini-player:
+
+```dart
+// Library screen
+GoRoute(
+  path: '/',
+  builder: (context, state) => const MiniPlayerScaffold(
+    child: LibraryScreen(),
+  ),
+),
+
+// Book details screen  
+GoRoute(
+  path: '/book/:id',
+  builder: (context, state) {
+    final bookId = state.pathParameters['id']!;
+    return MiniPlayerScaffold(
+      child: BookDetailsScreen(bookId: bookId),
+    );
+  },
+),
+```
+
+For screens that should NOT show the mini-player:
+
+```dart
+// Settings screen - no mini-player
+GoRoute(
+  path: '/settings',
+  builder: (context, state) => const SettingsScreen(),
+),
+
+// Playback screen - no mini-player (it IS the player)
+GoRoute(
+  path: '/playback/:bookId',
+  builder: (context, state) {
+    final bookId = state.pathParameters['bookId']!;
+    return PlaybackScreen(bookId: bookId);
+  },
+),
+```
+
+### 5.4 Enhanced Mini-Player Features (Optional)
+
+For a more polished experience, consider these enhancements:
+
+**Progress Indicator:**
+```dart
+// Add a thin progress bar at the bottom of the mini-player
+Positioned(
+  bottom: 0,
+  left: 0,
+  right: 0,
+  child: LinearProgressIndicator(
+    value: playbackState.currentIndex / playbackState.queue.length,
+    backgroundColor: colors.border,
+    valueColor: AlwaysStoppedAnimation(colors.primary),
+    minHeight: 2,
+  ),
+),
+```
+
+**Swipe-to-Dismiss:**
+```dart
+Dismissible(
+  key: Key('mini-player-$bookId'),
+  direction: DismissDirection.down,
+  onDismissed: (_) {
+    ref.read(playbackControllerProvider.notifier).stop();
+  },
+  child: // ... mini-player content
+)
+```
+
+**Expand Animation (Hero-style):**
+Using `Hero` widget to animate between mini-player and full player.
+
+### Where Mini-Player Should Appear
+
+| Screen | Show Mini-Player | Reason |
+|--------|-----------------|--------|
+| Library | ✅ Yes | Browse books while listening |
+| Book Details | ✅ Yes | View chapter list while listening |
+| Playback | ❌ No | Already showing full player |
+| Settings | ❌ No | Settings should be focused, distraction-free |
+| Downloads | ❌ No | System management, not content browsing |
+| Voice Selection | ❌ No | Sub-settings, focused task |
+
+### Testing Considerations
+
+- [ ] Mini-player appears when playback starts
+- [ ] Mini-player disappears when playback stops
+- [ ] Tapping mini-player navigates to full playback screen
+- [ ] Play/pause button works correctly
+- [ ] Mini-player doesn't appear on excluded screens
+- [ ] Mini-player updates when book/chapter changes
+- [ ] Mini-player respects theme (light/dark mode)
 
 ---
 
@@ -573,5 +858,6 @@ void _onContinueListening(String bookId) async {
 | 2 | Providers | 1-2 hours |
 | 3 | Playback screen integration | 3-4 hours |
 | 4 | Book details integration | 2-3 hours |
-| 5 | Testing | 2-3 hours |
-| **Total** | | **10-15 hours** |
+| 5 | Mini-player integration | 3-4 hours |
+| 6 | Testing | 2-3 hours |
+| **Total** | | **14-19 hours** |
