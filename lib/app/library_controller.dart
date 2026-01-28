@@ -163,7 +163,6 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         chapters: chapters,
         gutenbergId: gutenbergId,
         progress: BookProgress.zero,
-        firstContentChapter: segmentationResult.firstContentChapter,
       );
 
       // Insert into SQLite with all segments
@@ -304,16 +303,10 @@ class LibraryController extends AsyncNotifier<LibraryState> {
   
   /// Get segments for a chapter (for playback).
   /// This is the new way to get segment data - from SQLite, not runtime segmentation.
-  /// 
-  /// If [minConfidence] is provided, filters out low-confidence segments.
   Future<List<Segment>> getSegmentsForChapter(
-      String bookId, int chapterIndex, {double? minConfidence}) async {
+      String bookId, int chapterIndex) async {
     final repo = await _getRepository();
-    return await repo.getSegmentsForChapter(
-      bookId, 
-      chapterIndex,
-      minConfidence: minConfidence,
-    );
+    return await repo.getSegmentsForChapter(bookId, chapterIndex);
   }
 
   /// Get segment count for a chapter.

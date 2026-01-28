@@ -10,24 +10,12 @@ class SegmentDao {
   SegmentDao(this._db);
 
   /// Get all segments for a chapter, ordered by segment index.
-  /// 
-  /// If [minConfidence] is provided, only segments with confidence >= minConfidence
-  /// are returned. Segments with null confidence are always included.
   Future<List<Map<String, dynamic>>> getSegmentsForChapter(
-      String bookId, int chapterIndex, {double? minConfidence}) async {
-    if (minConfidence == null || minConfidence <= 0) {
-      return await _db.query(
-        'segments',
-        where: 'book_id = ? AND chapter_index = ?',
-        whereArgs: [bookId, chapterIndex],
-        orderBy: 'segment_index ASC',
-      );
-    }
-    // Filter by confidence, but include segments with null confidence
+      String bookId, int chapterIndex) async {
     return await _db.query(
       'segments',
-      where: 'book_id = ? AND chapter_index = ? AND (content_confidence IS NULL OR content_confidence >= ?)',
-      whereArgs: [bookId, chapterIndex, minConfidence],
+      where: 'book_id = ? AND chapter_index = ?',
+      whereArgs: [bookId, chapterIndex],
       orderBy: 'segment_index ASC',
     );
   }

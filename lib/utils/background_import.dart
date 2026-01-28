@@ -1,8 +1,6 @@
 import 'dart:isolate';
 import 'package:core_domain/core_domain.dart';
 
-import 'segment_confidence_scorer.dart';
-
 /// Parameters for background segmentation work.
 class SegmentationParams {
   const SegmentationParams({
@@ -27,11 +25,9 @@ class ChapterData {
 class SegmentationResult {
   const SegmentationResult({
     required this.chapterSegments,
-    required this.firstContentChapter,
   });
 
   final List<List<SegmentData>> chapterSegments;
-  final int firstContentChapter;
 }
 
 /// Serializable segment data for isolate communication.
@@ -40,27 +36,24 @@ class SegmentData {
     required this.text,
     required this.index,
     required this.estimatedDurationMs,
-    required this.contentConfidence,
   });
 
   final String text;
   final int index;
   final int estimatedDurationMs;
-  final double contentConfidence;
 
   /// Convert to Segment model.
   Segment toSegment() => Segment(
     text: text,
     index: index,
     estimatedDurationMs: estimatedDurationMs,
-    contentConfidence: contentConfidence,
   );
 }
 
-/// Run segmentation and scoring in a background isolate.
+/// Run segmentation in a background isolate.
 /// 
-/// This moves CPU-intensive text segmentation and confidence scoring
-/// off the main UI thread to prevent jank during book import.
+/// This moves CPU-intensive text segmentation off the main UI thread
+/// to prevent jank during book import.
 Future<SegmentationResult> runSegmentationInBackground(
   List<Chapter> chapters,
 ) async {
@@ -85,29 +78,12 @@ SegmentationResult _segmentChapters(SegmentationParams params) {
       text: s.text,
       index: s.index,
       estimatedDurationMs: estimateDurationMs(s.text),
-      contentConfidence: SegmentConfidenceScorer.scoreSegment(s.text),
     )).toList();
     
     allChapterSegments.add(segmentsWithMetadata);
   }
 
-  // Convert to list of lists of Segment for scoring
-  final segmentsForScoring = allChapterSegments.map((chapterSegs) =>
-    chapterSegs.map((s) => Segment(
-      text: s.text,
-      index: s.index,
-      estimatedDurationMs: s.estimatedDurationMs,
-      contentConfidence: s.contentConfidence,
-    )).toList()
-  ).toList();
-
-  final firstContentChapter = SegmentConfidenceScorer.findFirstContentChapter(
-    segmentsForScoring,
-    threshold: 0.5,
-  );
-
   return SegmentationResult(
     chapterSegments: allChapterSegments,
-    firstContentChapter: firstContentChapter,
   );
 }

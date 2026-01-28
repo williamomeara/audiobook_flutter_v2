@@ -9,6 +9,7 @@ import 'migrations/migration_v1.dart';
 import 'migrations/migration_v2.dart';
 import 'migrations/migration_v3.dart';
 import 'migrations/migration_v4.dart';
+import 'migrations/migration_v5.dart';
 import 'migrations/settings_migration_service.dart';
 
 /// Singleton database instance for the Eist audiobook app.
@@ -24,7 +25,7 @@ import 'migrations/settings_migration_service.dart';
 class AppDatabase {
   static Database? _database;
   static const String _dbName = 'eist_audiobook.db';
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   // Private constructor to prevent instantiation
   AppDatabase._();
@@ -73,13 +74,15 @@ class AppDatabase {
     await MigrationV1.up(db);
     await MigrationV2.up(db);
     await MigrationV3.up(db);
-    await MigrationV4.up(db);
+    // Note: MigrationV4 added content_confidence columns, MigrationV5 removes them
+    // For new databases, we skip adding them entirely by not running V4
+    // and calling V5 which handles the case gracefully
 
     // Record schema version
     await db.insert('schema_version', {
       'version': version,
       'applied_at': DateTime.now().millisecondsSinceEpoch,
-      'description': 'Initial schema with segment confidence scoring',
+      'description': 'Initial schema (content confidence feature removed)',
     });
   }
 
@@ -108,6 +111,14 @@ class AppDatabase {
         'version': 4,
         'applied_at': DateTime.now().millisecondsSinceEpoch,
         'description': 'Add content confidence scoring for smart chapter detection',
+      });
+    }
+    if (oldVersion < 5) {
+      await MigrationV5.up(db);
+      await db.insert('schema_version', {
+        'version': 5,
+        'applied_at': DateTime.now().millisecondsSinceEpoch,
+        'description': 'Remove content confidence columns (feature removed)',
       });
     }
   }

@@ -273,5 +273,4 @@ class SettingsKeys {
   static const String showBufferIndicator = 'show_buffer_indicator';
   static const String showBookCoverBackground = 'show_book_cover_background';
   static const String runtimePlaybackConfig = 'runtime_playback_config';
-  static const String contentQualityLevel = 'content_quality_level';
 }
