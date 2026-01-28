@@ -1,5 +1,8 @@
 # State Machine vs Actual Code - Gap Analysis
 
+> **Last Audit:** January 2026  
+> **Status:** ⚠️ Active Issues - See Gap 7 (Provider Cache)
+
 ## Overview
 
 This document compares the ideal state machine architecture against the current implementation of `book_details_screen.dart` and identifies gaps and issues.
@@ -244,6 +247,54 @@ final buttonIcon = switch (bookState) {
 | 4 | Inconsistent progress calculation | Medium | Low | ✅ FIXED (commit 57e0910) |
 | 5 | Missing "Listen Again" button | Low | Low | ✅ FIXED (commit 57e0910) |
 | 6 | Current chapter badge priority | Low | Low | Open |
+| 7 | Provider cache not invalidated on return from playback | Medium | Low | ✅ FIXED (Jan 2026) |
+
+---
+
+## Gap 7: Provider Cache Issue ✅ FIXED
+
+### Issue
+When returning from the playback screen to book details, the `bookChapterProgressProvider` is not invalidated, causing stale progress data to display.
+
+**Symptom**: User starts listening from chapter 1 (skipping chapter 0), returns to book details, and button still shows "Start Listening" instead of "Continue Listening".
+
+### Root Cause
+The provider is only invalidated when:
+- User manually marks chapters listened/unlistened via context menu
+
+But NOT invalidated when:
+- Returning from playback screen (most common case)
+- Progress updates during playback
+
+### Solution Implemented
+Added `WidgetsBindingObserver` mixin to `_BookDetailsScreenState` that invalidates the provider on `AppLifecycleState.resumed`:
+
+```dart
+class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
+    with WidgetsBindingObserver {
+  
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+  
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(bookChapterProgressProvider(widget.bookId));
+    }
+  }
+}
+```
+
+Or use GoRouter's `onEnter` callback to refresh data when navigating back.
 
 ---
 
@@ -254,18 +305,23 @@ final buttonIcon = switch (bookState) {
    - Now uses `chapterProgressMap` for all chapter completion checks
    - Progress bar counts COMPLETED chapters from this map
 
+2. ~~**Fix provider cache invalidation (Gap 7)**: Refresh chapter progress when returning from playback~~ ✅ **COMPLETED**
+   - Added `WidgetsBindingObserver` mixin to `_BookDetailsScreenState`
+   - Invalidates `bookChapterProgressProvider` on `AppLifecycleState.resumed`
+   - "Start Listening" vs "Continue Listening" bug is now fixed
+
 ### Medium Priority  
-2. ~~**Add COMPLETE book state**: Track when all chapters are 100% listened~~ ✅ **COMPLETED**
+3. ~~**Add COMPLETE book state**: Track when all chapters are 100% listened~~ ✅ **COMPLETED**
    - Implemented `BookProgressState` enum: `notStarted`, `inProgress`, `complete`
    - Added `deriveBookProgressState()` function
-3. ~~**Consistent progress**: Use same calculation for badge and progress bar~~ ✅ **COMPLETED**
+4. ~~**Consistent progress**: Use same calculation for badge and progress bar~~ ✅ **COMPLETED**
    - Progress bar now counts completed chapters from `chapterProgressMap`
    - Implemented segmented progress bar showing per-chapter fill
 
 ### Low Priority
-4. **Combined CACHED+COMPLETE indicator**: Show both states visually
-5. ~~**"Listen Again" button**: Add for completed books~~ ✅ **COMPLETED**
-6. **Badge priority fix**: Current chapter always shows play icon
+5. **Combined CACHED+COMPLETE indicator**: Show both states visually
+6. ~~**"Listen Again" button**: Add for completed books~~ ✅ **COMPLETED**
+7. **Badge priority fix**: Current chapter always shows play icon
 
 ---
 

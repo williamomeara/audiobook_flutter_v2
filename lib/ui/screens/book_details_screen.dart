@@ -55,7 +55,8 @@ class BookDetailsScreen extends ConsumerStatefulWidget {
   ConsumerState<BookDetailsScreen> createState() => _BookDetailsScreenState();
 }
 
-class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
+class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
+    with WidgetsBindingObserver {
   bool _showAllChapters = false;
   String _chapterSearchQuery = '';
   final TextEditingController _searchController = TextEditingController();
@@ -64,9 +65,25 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   final Set<int> _notifiedChapters = {};
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Invalidate chapter progress cache when app resumes to ensure
+    // "Continue Listening" button reflects latest playback progress
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(bookChapterProgressProvider(widget.bookId));
+    }
   }
 
   @override
@@ -688,23 +705,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                             )
                                           else if (isListeningComplete)
                                             Icon(Icons.check_circle, size: 18, color: colors.primary)
-                                          else if (hasListeningProgress)
-                                            Stack(
-                                              alignment: Alignment.center,
-                                              children: [
-                                                SizedBox(
-                                                  width: 18,
-                                                  height: 18,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    value: listenedPercent,
-                                                    backgroundColor: colors.border,
-                                                    color: colors.primary,
-                                                  ),
-                                                ),
-                                              ],
-                                            )
-                                          else
+                                          // No circle indicator for partial listening progress -
+                                          // the linear bar below handles this to avoid confusion
+                                          // with the circular download/synthesis indicator
+                                          else if (!hasListeningProgress)
                                             Icon(Icons.circle_outlined, size: 18, color: colors.textTertiary),
                                         ],
                                       ),

@@ -1,5 +1,8 @@
 # Book Details Page - State Machine Architecture
 
+> **Last Audit:** January 2026  
+> **Status:** ⚠️ Partial - Core state machine implemented, provider caching issue identified
+
 ## Implementation Status: ✅ PARTIALLY IMPLEMENTED (commit 57e0910)
 
 **Completed:**
@@ -13,6 +16,21 @@
 - Full unified state model (BookDetailsState)
 - Combined CACHED+COMPLETE indicator
 - Current chapter badge priority fix
+- **Provider cache invalidation on return from playback** (see Gap 7 in GAP_ANALYSIS.md)
+
+---
+
+## Known Issue: "Start Listening" vs "Continue Listening" (Jan 2026)
+
+**Symptom**: Button shows "Start Listening" even when user has listening progress (e.g., skipped first chapter).
+
+**Cause**: `bookChapterProgressProvider` is not invalidated when returning from playback screen. The provider returns cached data showing no progress, causing `deriveBookProgressState()` to return `notStarted`.
+
+**Impact**: Users see incorrect button text until the cache naturally refreshes or they force-reload.
+
+**Workaround**: Navigate away and back, or restart the app.
+
+**Fix**: Add provider invalidation on screen focus/GoRouter navigation. See GAP_ANALYSIS.md Gap 7.
 
 ---
 
@@ -120,9 +138,12 @@ ChapterState deriveChapterState(ChapterProgress? progress, ChapterSynthesisState
 
 | Book State | Button Text | Icon | Action |
 |------------|-------------|------|--------|
-| IMPORTED | "Start Listening" | play_circle_outline | Navigate to chapter 0, segment 0 |
-| STARTED | "Continue Listening" | play_circle_fill | Navigate to current position |
-| COMPLETE | "Listen Again" | replay | Show chapter picker or restart |
+| IMPORTED (notStarted) | "Start Listening" | play_circle_outline | Navigate to `/playback/{bookId}` |
+| STARTED (inProgress) | "Continue Listening" | play_circle_fill | Navigate to `/playback/{bookId}` |
+| COMPLETE | "Listen Again" | replay | Navigate to `/playback/{bookId}` |
+
+> **Note**: All states navigate to the same route. The playback screen handles
+> resuming from the correct position based on saved progress in the database.
 
 ---
 
@@ -200,20 +221,32 @@ enum SynthesisState { idle, preparing, complete, failed }
 ## State Derivation Logic
 
 ```dart
-/// Derive book progress state from chapter progress data
-BookProgressState deriveBookProgressState(Map<int, ChapterProgress> chapterProgress, int totalChapters) {
-  if (chapterProgress.isEmpty) return BookProgressState.notStarted;
+/// Derive book progress state from chapter progress data.
+/// 
+/// NOTE: The actual implementation in book_details_screen.dart uses
+/// Map<int, ChapterProgress?> (nullable values) and handles nulls properly.
+BookProgressState deriveBookProgressState(
+  Map<int, ChapterProgress?> chapterProgress,
+  int totalChapters,
+) {
+  if (totalChapters == 0) return BookProgressState.notStarted;
+  
+  // Check if any chapter has been started
+  final anyStarted = chapterProgress.values.any((p) => p?.hasStarted ?? false);
+  if (!anyStarted) return BookProgressState.notStarted;
   
   // Check if all chapters are complete
-  final allComplete = chapterProgress.length == totalChapters &&
-      chapterProgress.values.every((p) => p.isComplete);
-  if (allComplete) return BookProgressState.complete;
+  // Must iterate by index to ensure ALL chapters are checked, not just those in map
+  int completeCount = 0;
+  for (int i = 0; i < totalChapters; i++) {
+    if (chapterProgress[i]?.isComplete ?? false) {
+      completeCount++;
+    }
+  }
   
-  // Check if any progress has been made
-  final anyProgress = chapterProgress.values.any((p) => p.hasStarted);
-  if (anyProgress) return BookProgressState.inProgress;
+  if (completeCount == totalChapters) return BookProgressState.complete;
   
-  return BookProgressState.notStarted;
+  return BookProgressState.inProgress;
 }
 
 /// Should progress bar be shown?
