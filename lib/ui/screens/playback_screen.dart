@@ -765,17 +765,78 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen> with SingleTick
   }
 
   Widget _buildErrorBanner(AppThemeColors colors, String error) {
-    return Container(
+    // Check if this is a voice unavailable error
+    final isVoiceError = error.toLowerCase().contains('voice not available') ||
+                         error.toLowerCase().contains('voicenotavailable') ||
+                         error.toLowerCase().contains('no engine available');
+    
+    final errorWidget = Container(
       padding: const EdgeInsets.all(12),
       color: colors.danger.withValues(alpha: 0.1),
       child: Row(
         children: [
-          Icon(Icons.error_outline, color: colors.danger, size: 20),
+          Icon(
+            isVoiceError ? Icons.record_voice_over_outlined : Icons.error_outline, 
+            color: colors.danger, 
+            size: 20,
+          ),
           const SizedBox(width: 8),
-          Expanded(child: Text(error, style: TextStyle(color: colors.danger, fontSize: 12))),
+          Expanded(
+            child: Text(
+              isVoiceError 
+                ? 'Voice unavailable. Tap to fix.'
+                : error, 
+              style: TextStyle(color: colors.danger, fontSize: 12),
+            ),
+          ),
+          if (isVoiceError)
+            Icon(Icons.chevron_right, color: colors.danger, size: 20),
         ],
       ),
     );
+    
+    if (isVoiceError) {
+      return GestureDetector(
+        onTap: () => _handleVoiceUnavailableError(error),
+        child: errorWidget,
+      );
+    }
+    
+    return errorWidget;
+  }
+  
+  Future<void> _handleVoiceUnavailableError(String error) async {
+    // Extract voice ID from error if possible
+    // Error format: "VoiceNotAvailableException: message (voice: voice_id)"
+    String voiceId = 'unknown';
+    final voiceMatch = RegExp(r'\(voice:\s*([^\)]+)\)').firstMatch(error);
+    if (voiceMatch != null) {
+      voiceId = voiceMatch.group(1) ?? 'unknown';
+    } else {
+      // Fallback to selected voice from settings
+      voiceId = ref.read(settingsProvider).selectedVoice;
+    }
+    
+    final action = await VoiceUnavailableDialog.show(
+      context,
+      voiceId: voiceId,
+      errorMessage: error,
+    );
+    
+    if (!mounted) return;
+    
+    switch (action) {
+      case VoiceUnavailableAction.download:
+        // Dialog already navigates to downloads
+        break;
+      case VoiceUnavailableAction.selectDifferent:
+        // Navigate to settings to select a different voice
+        context.push('/settings');
+        break;
+      case VoiceUnavailableAction.cancel:
+        // Do nothing
+        break;
+    }
   }
 
   void _jumpToCurrent() {

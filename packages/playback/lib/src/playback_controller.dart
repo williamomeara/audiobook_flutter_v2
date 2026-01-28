@@ -52,6 +52,10 @@ abstract interface class PlaybackController {
   /// Set playback rate.
   Future<void> setPlaybackRate(double rate);
 
+  /// Notify that the voice selection has changed.
+  /// This clears the synthesis queue and prepares for the new voice.
+  void notifyVoiceChanged();
+
   /// Notify of user interaction (suspends prefetch).
   void notifyUserInteraction();
 
@@ -553,6 +557,27 @@ class AudiobookPlaybackController implements PlaybackController {
         _queueMoreSegmentsIfNeeded();
       },
     );
+  }
+
+  @override
+  void notifyVoiceChanged() {
+    if (_disposed) return;
+    
+    final newVoiceId = voiceIdResolver(null);
+    _logger.info('[VoiceChange] Voice changed, clearing synthesis queue. New voice: $newVoiceId');
+    
+    // Reset synthesis coordinator - this clears the queue and in-flight synthesis
+    _synthesisCoordinator.reset();
+    
+    // Also reset the buffer scheduler
+    _scheduler.reset();
+    
+    // If currently playing, we need to re-queue from the current position
+    // with the new voice. The next play() call will handle this.
+    // We don't auto-resynthesize here to avoid synthesizing if user is just
+    // browsing voices in settings.
+    
+    _logger.info('[VoiceChange] Queue cleared. Will use new voice on next play().');
   }
 
   @override

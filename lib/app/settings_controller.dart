@@ -214,6 +214,34 @@ class SettingsController extends Notifier<SettingsState> {
     await _settingsDao?.setString(SettingsKeys.selectedVoice, voiceId);
   }
 
+  /// Validates and potentially resets the selected voice if it's no longer available.
+  /// 
+  /// Call this after the download manager is initialized to ensure the selected
+  /// voice is actually available. If not, resets to [VoiceIds.none].
+  /// 
+  /// Returns true if the voice was valid, false if it was reset.
+  Future<bool> validateSelectedVoice(Set<String> availableVoiceIds) async {
+    final currentVoice = state.selectedVoice;
+    
+    // No voice selected - that's valid
+    if (currentVoice == VoiceIds.none) {
+      return true;
+    }
+    
+    // Check if current voice is available
+    if (availableVoiceIds.contains(currentVoice)) {
+      return true;
+    }
+    
+    // Voice not available - reset to none
+    developer.log(
+      '⚠️ Selected voice "$currentVoice" is no longer available. Resetting to none.',
+      name: 'SettingsController',
+    );
+    await setSelectedVoice(VoiceIds.none);
+    return false;
+  }
+
   Future<void> setAutoAdvanceChapters(bool value) async {
     state = state.copyWith(autoAdvanceChapters: value);
     await _settingsDao?.setBool(SettingsKeys.autoAdvanceChapters, value);

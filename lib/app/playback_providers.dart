@@ -12,6 +12,7 @@ import 'audio_service_handler.dart';
 import 'config/config_providers.dart';
 import 'config/runtime_playback_config.dart' as app_config show PrefetchMode;
 import 'database/database.dart';
+import 'granular_download_manager.dart';
 import 'library_controller.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
@@ -348,6 +349,58 @@ final audioServiceHandlerProvider = FutureProvider<AudioServiceHandler>((ref) as
   return await initAudioService();
 });
 
+/// Resolves voice ID with fallback if selected voice is unavailable.
+/// 
+/// If the selected voice is not in the list of ready voices, falls back to:
+/// 1. The first available voice from the same engine type
+/// 2. Any available voice
+/// 3. VoiceIds.none if no voices are available
+String _resolveVoiceWithFallback(Ref ref) {
+  final selectedVoice = ref.read(settingsProvider).selectedVoice;
+  
+  // If no voice selected, return none
+  if (selectedVoice == VoiceIds.none) {
+    return VoiceIds.none;
+  }
+  
+  // Get ready voice IDs from download manager
+  final downloadState = ref.read(granularDownloadManagerProvider);
+  final readyVoiceIds = downloadState.maybeWhen(
+    data: (state) => state.readyVoices.map((v) => v.voiceId).toSet(),
+    orElse: () => <String>{},
+  );
+  
+  // If selected voice is available, use it
+  if (readyVoiceIds.contains(selectedVoice)) {
+    return selectedVoice;
+  }
+  
+  // Voice not available - try to find a fallback
+  PlaybackLogger.info('[VoiceResolver] Selected voice "$selectedVoice" not available, looking for fallback');
+  
+  // Extract engine type from voice ID (e.g., "supertonic_m5" -> "supertonic")
+  final selectedEngine = selectedVoice.split('_').firstOrNull ?? '';
+  
+  // Try to find a voice from the same engine
+  for (final voiceId in readyVoiceIds) {
+    if (voiceId.startsWith('${selectedEngine}_')) {
+      PlaybackLogger.info('[VoiceResolver] Falling back to "$voiceId" (same engine)');
+      return voiceId;
+    }
+  }
+  
+  // Fall back to any available voice
+  if (readyVoiceIds.isNotEmpty) {
+    final fallback = readyVoiceIds.first;
+    PlaybackLogger.info('[VoiceResolver] Falling back to "$fallback" (any available)');
+    return fallback;
+  }
+  
+  // No voices available
+  PlaybackLogger.info('[VoiceResolver] No voices available, returning none');
+  return VoiceIds.none;
+}
+
 /// Provider for the playback controller.
 /// Creates a single instance of the controller for the app.
 final playbackControllerProvider =
@@ -398,8 +451,8 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         engine: engine,
         cache: cache,
         audioOutput: _audioOutput,
-        // Voice selection is global-only for now (per-book voice not implemented)
-        voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
+        // Voice selection with fallback if selected voice unavailable
+        voiceIdResolver: (_) => _resolveVoiceWithFallback(ref),
         resourceMonitor: resourceMonitor,
         onStateChange: (newState) {
           // Update Riverpod state when controller state changes
@@ -437,6 +490,14 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       // Listen to state changes
       _stateSub = _controller!.stateStream.listen((newState) {
         state = AsyncData(newState);
+      });
+      
+      // Listen for voice changes to notify controller (clears synthesis queue)
+      ref.listen(settingsProvider.select((s) => s.selectedVoice), (prev, next) {
+        if (prev != null && prev != next && _controller != null) {
+          PlaybackLogger.info('[PlaybackProvider] Voice changed: $prev -> $next');
+          _controller!.notifyVoiceChanged();
+        }
       });
       
       // Connect audio output player to audio service for system media controls

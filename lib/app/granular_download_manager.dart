@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:downloads/downloads.dart';
 import 'package:core_domain/core_domain.dart';
+import 'package:playback/playback.dart';
 
 import 'app_paths.dart';
 import 'playback_providers.dart';
@@ -24,6 +25,9 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
   late ManifestService _manifestService;
   late DownloadQueue _queue;
   late Directory _baseDir;
+  
+  /// Tracks whether a controller refresh is pending (deferred because playback was active).
+  bool _pendingControllerRefresh = false;
 
   @override
   FutureOr<GranularDownloadState> build() async {
@@ -34,6 +38,11 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     _assetManager = AtomicAssetManager(baseDir: _baseDir);
     _manifestService = await _loadManifest();
     _queue = DownloadQueue(maxConcurrent: 1);
+    
+    // Listen for playback state changes to handle deferred controller refresh
+    ref.listen(playbackStateProvider, (prev, next) {
+      _onPlaybackStateChanged(prev, next);
+    });
 
     ref.onDispose(() {
       _assetManager.dispose();
@@ -42,6 +51,16 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
 
     // Build initial state by scanning installed assets
     return await _buildInitialState();
+  }
+  
+  /// Handles playback state changes to trigger deferred controller refresh.
+  void _onPlaybackStateChanged(PlaybackState? prev, PlaybackState next) {
+    // If we have a pending refresh and playback just stopped, do the refresh
+    if (_pendingControllerRefresh && !next.isPlaying && (prev?.isPlaying ?? false)) {
+      debugPrint('[GranularDownloadManager] Playback stopped, performing deferred controller refresh');
+      _pendingControllerRefresh = false;
+      ref.invalidate(playbackControllerProvider);
+    }
   }
 
   /// Load manifest from bundled asset.
@@ -93,7 +112,32 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
       );
     }
 
-    return GranularDownloadState(cores: cores, voices: voices);
+    final initialState = GranularDownloadState(cores: cores, voices: voices);
+    
+    // Validate selected voice on startup
+    _validateSelectedVoiceOnStartup(initialState);
+    
+    return initialState;
+  }
+  
+  /// Validates that the selected voice is still available after startup.
+  /// If not, resets the selection to none.
+  Future<void> _validateSelectedVoiceOnStartup(GranularDownloadState downloadState) async {
+    try {
+      final availableVoiceIds = downloadState.readyVoices
+          .map((v) => v.voiceId)
+          .toSet();
+      
+      final wasValid = await ref.read(settingsProvider.notifier)
+          .validateSelectedVoice(availableVoiceIds);
+      
+      if (!wasValid) {
+        debugPrint('[GranularDownloadManager] Selected voice was invalid and has been reset');
+      }
+    } catch (e) {
+      debugPrint('[GranularDownloadManager] Failed to validate selected voice: $e');
+      // Non-fatal - voice resolver will handle unavailable voice gracefully
+    }
   }
 
   /// Check if a core is installed.
@@ -253,26 +297,55 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
   /// Invalidate the appropriate TTS adapter provider for a downloaded core.
   /// Uses scheduleMicrotask to defer invalidation and avoid circular dependency
   /// when called from within the download callback chain.
+  /// 
+  /// Also invalidates the playback controller so it picks up the new engine
+  /// with the newly available voice adapter (only if not actively playing).
+  /// If playback is active, sets a flag to refresh when playback stops.
   void _invalidateAdapterForCore(String coreId) {
     // Defer invalidation to break the synchronous call chain and avoid
     // CircularDependencyError. The adapter providers watch our state,
     // so invalidating them synchronously during state update causes issues.
     scheduleMicrotask(() {
+      // Check if playback is active - don't interrupt ongoing playback
+      final playbackAsync = ref.read(playbackControllerProvider);
+      final isPlaying = playbackAsync.value?.isPlaying ?? false;
+      
       if (coreId.contains('supertonic')) {
         ref.invalidate(supertonicAdapterProvider);
         ref.invalidate(ttsRoutingEngineProvider);
         ref.invalidate(routingEngineProvider);
-        debugPrint('[GranularDownloadManager] Invalidated Supertonic adapter and routing');
+        // Only invalidate playback controller if not currently playing
+        if (!isPlaying) {
+          ref.invalidate(playbackControllerProvider);
+          debugPrint('[GranularDownloadManager] Invalidated Supertonic adapter, routing, and playback');
+        } else {
+          _pendingControllerRefresh = true;
+          debugPrint('[GranularDownloadManager] Invalidated Supertonic adapter and routing (playback active, refresh deferred)');
+        }
       } else if (coreId.contains('piper')) {
         ref.invalidate(piperAdapterProvider);
         ref.invalidate(ttsRoutingEngineProvider);
         ref.invalidate(routingEngineProvider);
-        debugPrint('[GranularDownloadManager] Invalidated Piper adapter and routing');
+        // Only invalidate playback controller if not currently playing
+        if (!isPlaying) {
+          ref.invalidate(playbackControllerProvider);
+          debugPrint('[GranularDownloadManager] Invalidated Piper adapter, routing, and playback');
+        } else {
+          _pendingControllerRefresh = true;
+          debugPrint('[GranularDownloadManager] Invalidated Piper adapter and routing (playback active, refresh deferred)');
+        }
       } else if (coreId.contains('kokoro')) {
         ref.invalidate(kokoroAdapterProvider);
         ref.invalidate(ttsRoutingEngineProvider);
         ref.invalidate(routingEngineProvider);
-        debugPrint('[GranularDownloadManager] Invalidated Kokoro adapter and routing');
+        // Only invalidate playback controller if not currently playing
+        if (!isPlaying) {
+          ref.invalidate(playbackControllerProvider);
+          debugPrint('[GranularDownloadManager] Invalidated Kokoro adapter, routing, and playback');
+        } else {
+          _pendingControllerRefresh = true;
+          debugPrint('[GranularDownloadManager] Invalidated Kokoro adapter and routing (playback active, refresh deferred)');
+        }
       }
     });
   }
