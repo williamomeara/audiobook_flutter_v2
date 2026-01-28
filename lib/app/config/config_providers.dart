@@ -11,7 +11,7 @@ export 'system_channel.dart';
 /// Provider for runtime playback configuration.
 ///
 /// This provider manages the runtime-configurable playback settings,
-/// including persistence to SharedPreferences.
+/// including persistence to SQLite.
 ///
 /// Usage:
 /// ```dart

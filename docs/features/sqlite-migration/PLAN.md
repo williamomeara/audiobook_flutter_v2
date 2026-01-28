@@ -871,24 +871,31 @@ are well-suited to their current implementation:
 ("show all installed voices"). This is populated by scanning manifest files on app startup
 and provides a cached view for the UI, but the `.manifest` files remain the source of truth.
 
-### Phase 7: Cleanup & Verification
+### Phase 7: Cleanup & Verification ✓ COMPLETED
 
-- [ ] **7.1** Remove all JSON file read/write code (except .manifest if kept)
-- [ ] **7.2** Remove all SharedPreferences access code from app layer
-- [ ] **7.3** Remove SharedPreferences from playback package
-- [ ] **7.4** Run full test suite
-- [ ] **7.5** Manual testing checklist:
-  - [ ] Fresh install works
-  - [ ] Existing data migrates correctly
-  - [ ] Add/remove books works
-  - [ ] Progress saves correctly
-  - [ ] Cache stats are accurate
-  - [ ] Voice change clears cache
-  - [ ] Settings persist across restart
-  - [ ] Engine configs persist after profiling
-  - [ ] Downloaded voices remain installed
-- [ ] **7.6** Remove migration scripts (or keep for edge cases)
-- [ ] **7.7** Update ARCHITECTURE.md to reflect SQLite storage
+- [x] **7.1** Remove all JSON file read/write code (except .manifest if kept)
+  - Verified: JSON only used in migration services, API responses, and read-only assets
+- [x] **7.2** Remove all SharedPreferences access code from app layer
+  - Verified: Only `dark_mode` in `QuickSettingsService` (intentional for instant startup)
+  - Fixed stale comment in `config_providers.dart`
+- [x] **7.3** Remove SharedPreferences from playback package
+  - Verified: No SharedPreferences in `packages/playback/`
+- [x] **7.4** Run full test suite
+  - Result: 469 tests passed
+- [x] **7.5** Manual testing checklist:
+  - [x] Fresh install works
+  - [x] Existing data migrates correctly
+  - [x] Add/remove books works
+  - [x] Progress saves correctly
+  - [x] Cache stats are accurate
+  - [x] Voice change clears cache
+  - [x] Settings persist across restart
+  - [x] Engine configs persist after profiling (N/A - feature removed)
+  - [x] Downloaded voices remain installed
+- [x] **7.6** Remove migration scripts (or keep for edge cases)
+  - Decision: Keep migration services for users upgrading from JSON versions
+- [x] **7.7** Update ARCHITECTURE.md to reflect SQLite storage
+  - Added "Data persistence" section documenting schema and patterns
 
 ### Phase 8: Future SQLite Features (Planned)
 

@@ -127,6 +127,36 @@ flowchart TB
 4. Adapter calls Android native via Pigeon; output audio is written to the cache.
 5. Playback uses `just_audio`/`audio_service` to play cached audio.
 
+## Data persistence
+
+The app uses **SQLite** (via `sqflite`) as the primary persistence layer for all structured data:
+
+### Database schema (v3)
+
+| Table | Purpose |
+|-------|---------|
+| `books` | Book metadata (id, title, author, path, cover, voice, timestamps) |
+| `chapters` | Chapter data (id, bookId, title, order, sourceText, processedText) |
+| `segments` | Text segments for TTS synthesis (id, chapterId, text, order, confidence) |
+| `reading_progress` | Per-book and per-segment playback progress |
+| `cache_metadata` | Audio cache tracking (key, path, size, accessTime, voice) |
+| `settings` | Key-value settings store (JSON-encoded values) |
+
+### Persistence patterns
+
+- **Library data**: Books, chapters, and segments stored in SQLite with transactional updates
+- **Playback progress**: Saved to SQLite on segment transitions and periodic auto-save
+- **Settings**: Most settings in SQLite via `SettingsDao`; only `dark_mode` uses `SharedPreferences` for instant startup theme loading
+- **Audio cache**: Cache files stored on disk, metadata tracked in SQLite for eviction
+- **Voice downloads**: Manifest files (`.manifest`) track download state on disk
+
+### Infrastructure services
+
+- `AppDatabase` — singleton database with WAL mode for concurrent reads
+- `SettingsDao` — typed key-value store for app settings
+- `SqliteCacheMetadataStorage` — audio cache metadata with LRU eviction
+- `QuickSettingsService` — SharedPreferences wrapper for startup-critical settings only
+
 ## Detailed docs
 
 - `docs/modules/APP_LAYER.md`
