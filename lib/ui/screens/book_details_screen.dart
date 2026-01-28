@@ -456,21 +456,29 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                                 }
                               },
                               // Button icon and text based on book progress state
-                              icon: Icon(switch (bookProgressState) {
-                                BookProgressState.notStarted =>
-                                  Icons.play_circle_outline,
-                                BookProgressState.inProgress =>
-                                  Icons.play_circle_fill,
-                                BookProgressState.complete => Icons.replay,
-                              }),
+                              // If there's an active listening position, always show "Continue Listening"
+                              icon: Icon(
+                                primaryPosition != null
+                                    ? Icons.play_circle_fill
+                                    : switch (bookProgressState) {
+                                        BookProgressState.notStarted =>
+                                          Icons.play_circle_outline,
+                                        BookProgressState.inProgress =>
+                                          Icons.play_circle_fill,
+                                        BookProgressState.complete => Icons.replay,
+                                      },
+                              ),
                               label: Text(
-                                switch (bookProgressState) {
-                                  BookProgressState.notStarted =>
-                                    'Start Listening',
-                                  BookProgressState.inProgress =>
-                                    'Continue Listening',
-                                  BookProgressState.complete => 'Listen Again',
-                                },
+                                // If actively listening (primaryPosition exists), show "Continue Listening"
+                                primaryPosition != null
+                                    ? 'Continue Listening'
+                                    : switch (bookProgressState) {
+                                        BookProgressState.notStarted =>
+                                          'Start Listening',
+                                        BookProgressState.inProgress =>
+                                          'Continue Listening',
+                                        BookProgressState.complete => 'Listen Again',
+                                      },
                                 style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
