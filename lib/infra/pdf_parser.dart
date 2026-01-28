@@ -13,6 +13,7 @@ import '../app/app_paths.dart';
 import '../utils/text_normalizer.dart' as tts_normalizer;
 import '../utils/boilerplate_remover.dart';
 import '../utils/content_classifier.dart';
+import '../utils/structure_analyzer.dart';
 
 /// Parsed PDF result.
 class ParsedPdf {
@@ -90,7 +91,6 @@ class PdfParser {
       document.dispose();
     }
   }
-
   /// Process chapters through the smart text pipeline.
   ///
   /// Pipeline steps:
@@ -118,12 +118,16 @@ class PdfParser {
     // Filter to body matter only
     var bodyChapters = rawChapters.sublist(startIdx, endIdx);
 
-    // Detect repeated prefixes across chapters (e.g., "Book Title | Publisher")
+    // Detect repeated prefixes and suffixes across chapters
     final chapterContents = bodyChapters.map((ch) => ch.content).toList();
     final repeatedPrefix = BoilerplateRemover.detectRepeatedPrefix(chapterContents);
+    final repeatedSuffix = BoilerplateRemover.detectRepeatedSuffix(chapterContents);
     if (repeatedPrefix != null) {
       debugPrint('PdfParser: Detected repeated prefix: "$repeatedPrefix"');
     }
+
+    // Detect chapter-spanning boilerplate patterns
+    final spanningBoilerplate = StructureAnalyzer.detectChapterSpanningBoilerplate(chapterContents);
 
     // Clean and normalize each chapter
     var chapterNumber = 0;
@@ -136,6 +140,25 @@ class PdfParser {
       // Remove detected repeated prefix
       if (repeatedPrefix != null) {
         content = BoilerplateRemover.removePrefix(content, repeatedPrefix);
+      }
+
+      // Remove detected repeated suffix
+      if (repeatedSuffix != null) {
+        content = BoilerplateRemover.removeSuffix(content, repeatedSuffix);
+      }
+
+      // Remove preliminary sections (transcriber notes, editor notes, etc.)
+      final preliminary = StructureAnalyzer.extractPreliminarySection(content);
+      if (preliminary != null) {
+        content = content.replaceFirst(preliminary, '');
+      }
+
+      // Filter chapter-spanning boilerplate lines
+      if (spanningBoilerplate.isNotEmpty) {
+        content = content
+            .split('\n')
+            .where((line) => !spanningBoilerplate.contains(line.trim()))
+            .join('\n');
       }
 
       // Remove per-chapter boilerplate (page numbers, scanner notes, etc.)

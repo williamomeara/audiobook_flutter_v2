@@ -11,6 +11,9 @@ import 'app_paths.dart';
 import 'audio_service_handler.dart';
 import 'config/config_providers.dart';
 import 'config/runtime_playback_config.dart' as app_config show PrefetchMode;
+import 'database/database.dart';
+import 'granular_download_manager.dart';
+import 'library_controller.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
 import '../main.dart' show initAudioService;
@@ -171,18 +174,25 @@ final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
 
 /// Provider for the intelligent cache manager (Phase 3: Cache management).
 /// Provides quota control, eviction scoring, and usage stats.
+/// Uses SQLite for cache metadata storage (migrated from JSON).
 final intelligentCacheManagerProvider = FutureProvider<IntelligentCacheManager>((ref) async {
   final paths = await ref.watch(appPathsProvider.future);
   final settings = ref.watch(settingsProvider);
-  
+
+  // Get database instance and create SQLite storage
+  final db = await AppDatabase.instance;
+  final cacheDao = CacheDao(db);
+  final settingsDao = SettingsDao(db);
+  final storage = SqliteCacheMetadataStorage(cacheDao, settingsDao);
+
   final manager = IntelligentCacheManager(
     cacheDir: paths.audioCacheDir,
-    metadataFile: File('${paths.audioCacheDir.path}/.cache_metadata.json'),
+    storage: storage,
     quotaSettings: CacheQuotaSettings.fromGB(settings.cacheQuotaGB),
   );
-  
+
   await manager.initialize();
-  
+
   ref.onDispose(() => manager.dispose());
   return manager;
 });
@@ -192,6 +202,60 @@ final intelligentCacheManagerProvider = FutureProvider<IntelligentCacheManager>(
 final cacheUsageStatsProvider = FutureProvider<CacheUsageStats>((ref) async {
   final manager = await ref.watch(intelligentCacheManagerProvider.future);
   return manager.getUsageStats();
+});
+
+/// Provider for the progress DAO (reading position, last played).
+final progressDaoProvider = FutureProvider<ProgressDao>((ref) async {
+  final db = await AppDatabase.instance;
+  return ProgressDao(db);
+});
+
+/// Provider for last played timestamp of a book.
+/// Returns DateTime or null if never played.
+/// Parameter: bookId
+final lastPlayedAtProvider = FutureProvider.family<DateTime?, String>((ref, bookId) async {
+  final dao = await ref.watch(progressDaoProvider.future);
+  final timestamp = await dao.getLastPlayedAt(bookId);
+  if (timestamp == null) return null;
+  return DateTime.fromMillisecondsSinceEpoch(timestamp);
+});
+
+/// Provider for the segment progress DAO (Phase 5.5: Per-segment tracking).
+/// Tracks which segments have been listened to for chapter progress.
+final segmentProgressDaoProvider = FutureProvider<SegmentProgressDao>((ref) async {
+  final db = await AppDatabase.instance;
+  return SegmentProgressDao(db);
+});
+
+/// Provider for chapter progress for all chapters in a book.
+/// 
+/// Returns a map of chapterIndex -> ChapterProgress.
+/// Parameter: bookId
+final bookChapterProgressProvider = FutureProvider.family<Map<int, ChapterProgress>, String>((ref, bookId) async {
+  final dao = await ref.watch(segmentProgressDaoProvider.future);
+  return dao.getBookProgress(bookId);
+});
+
+/// Provider for a single chapter's progress.
+/// 
+/// Parameter: "$bookId:$chapterIndex"
+final chapterProgressProvider = FutureProvider.family<ChapterProgress?, String>((ref, key) async {
+  final parts = key.split(':');
+  if (parts.length != 2) return null;
+  final bookId = parts[0];
+  final chapterIndex = int.tryParse(parts[1]);
+  if (chapterIndex == null) return null;
+  
+  final dao = await ref.watch(segmentProgressDaoProvider.future);
+  return dao.getChapterProgress(bookId, chapterIndex);
+});
+
+/// Provider for total book progress summary.
+/// 
+/// Parameter: bookId
+final bookProgressSummaryProvider = FutureProvider.family<BookProgressSummary, String>((ref, bookId) async {
+  final dao = await ref.watch(segmentProgressDaoProvider.future);
+  return dao.getBookProgressSummary(bookId);
 });
 
 /// Provider for the routing engine.
@@ -208,21 +272,6 @@ final resourceMonitorProvider = Provider<ResourceMonitor>((ref) {
   monitor.initialize();
   ref.onDispose(() => monitor.dispose());
   return monitor;
-});
-
-/// Provider for the engine config manager (Phase 4: Auto-tuning).
-/// Manages per-engine, per-device configurations.
-final engineConfigManagerProvider = Provider<DeviceEngineConfigManager>((ref) {
-  final manager = DeviceEngineConfigManager();
-  // Initialize in background
-  manager.initialize();
-  return manager;
-});
-
-/// Provider for the device profiler (Phase 4: Auto-tuning).
-/// Profiles device performance to determine optimal synthesis settings.
-final deviceProfilerProvider = Provider<DevicePerformanceProfiler>((ref) {
-  return DevicePerformanceProfiler();
 });
 
 /// Provider for adaptive prefetch configuration.
@@ -300,6 +349,58 @@ final audioServiceHandlerProvider = FutureProvider<AudioServiceHandler>((ref) as
   return await initAudioService();
 });
 
+/// Resolves voice ID with fallback if selected voice is unavailable.
+/// 
+/// If the selected voice is not in the list of ready voices, falls back to:
+/// 1. The first available voice from the same engine type
+/// 2. Any available voice
+/// 3. VoiceIds.none if no voices are available
+String _resolveVoiceWithFallback(Ref ref) {
+  final selectedVoice = ref.read(settingsProvider).selectedVoice;
+  
+  // If no voice selected, return none
+  if (selectedVoice == VoiceIds.none) {
+    return VoiceIds.none;
+  }
+  
+  // Get ready voice IDs from download manager
+  final downloadState = ref.read(granularDownloadManagerProvider);
+  final readyVoiceIds = downloadState.maybeWhen(
+    data: (state) => state.readyVoices.map((v) => v.voiceId).toSet(),
+    orElse: () => <String>{},
+  );
+  
+  // If selected voice is available, use it
+  if (readyVoiceIds.contains(selectedVoice)) {
+    return selectedVoice;
+  }
+  
+  // Voice not available - try to find a fallback
+  PlaybackLogger.info('[VoiceResolver] Selected voice "$selectedVoice" not available, looking for fallback');
+  
+  // Extract engine type from voice ID (e.g., "supertonic_m5" -> "supertonic")
+  final selectedEngine = selectedVoice.split('_').firstOrNull ?? '';
+  
+  // Try to find a voice from the same engine
+  for (final voiceId in readyVoiceIds) {
+    if (voiceId.startsWith('${selectedEngine}_')) {
+      PlaybackLogger.info('[VoiceResolver] Falling back to "$voiceId" (same engine)');
+      return voiceId;
+    }
+  }
+  
+  // Fall back to any available voice
+  if (readyVoiceIds.isNotEmpty) {
+    final fallback = readyVoiceIds.first;
+    PlaybackLogger.info('[VoiceResolver] Falling back to "$fallback" (any available)');
+    return fallback;
+  }
+  
+  // No voices available
+  PlaybackLogger.info('[VoiceResolver] No voices available, returning none');
+  return VoiceIds.none;
+}
+
 /// Provider for the playback controller.
 /// Creates a single instance of the controller for the app.
 final playbackControllerProvider =
@@ -335,6 +436,11 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       final resourceMonitor = ref.read(resourceMonitorProvider);
       PlaybackLogger.info('[PlaybackProvider] Resource monitor loaded (mode: ${resourceMonitor.currentMode})');
 
+      // Load segment progress DAO for tracking listened segments
+      PlaybackLogger.info('[PlaybackProvider] Loading segment progress DAO...');
+      final segmentProgressDao = await ref.read(segmentProgressDaoProvider.future);
+      PlaybackLogger.info('[PlaybackProvider] Segment progress DAO loaded');
+
       // Create audio output externally so we can access its player
       // for audio service integration (system media controls)
       PlaybackLogger.info('[PlaybackProvider] Creating audio output...');
@@ -345,8 +451,8 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         engine: engine,
         cache: cache,
         audioOutput: _audioOutput,
-        // Voice selection is global-only for now (per-book voice not implemented)
-        voiceIdResolver: (_) => ref.read(settingsProvider).selectedVoice,
+        // Voice selection with fallback if selected voice unavailable
+        voiceIdResolver: (_) => _resolveVoiceWithFallback(ref),
         resourceMonitor: resourceMonitor,
         onStateChange: (newState) {
           // Update Riverpod state when controller state changes
@@ -365,6 +471,15 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           // Force provider refresh to pick up the new state
           ref.invalidate(segmentReadinessStreamProvider(key));
         },
+        // Track segment progress when audio finishes playing
+        onSegmentAudioComplete: (bookId, chapterIndex, segmentIndex) {
+          // Mark segment as listened (fire and forget - don't block playback)
+          segmentProgressDao.markListened(bookId, chapterIndex, segmentIndex).then((_) {
+            PlaybackLogger.debug('[PlaybackProvider] Marked segment $segmentIndex as listened');
+          }).catchError((e) {
+            PlaybackLogger.error('[PlaybackProvider] Failed to mark segment listened: $e');
+          });
+        },
         // Prevent play button flicker during segment transitions
         onPlayIntentOverride: (override) {
           _audioServiceHandler?.setPlayIntentOverride(override);
@@ -375,6 +490,14 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       // Listen to state changes
       _stateSub = _controller!.stateStream.listen((newState) {
         state = AsyncData(newState);
+      });
+      
+      // Listen for voice changes to notify controller (clears synthesis queue)
+      ref.listen(settingsProvider.select((s) => s.selectedVoice), (prev, next) {
+        if (prev != null && prev != next && _controller != null) {
+          PlaybackLogger.info('[PlaybackProvider] Voice changed: $prev -> $next');
+          _controller!.notifyVoiceChanged();
+        }
       });
       
       // Connect audio output player to audio service for system media controls
@@ -477,12 +600,17 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     PlaybackLogger.info('[PlaybackProvider] Start segment: $startSegmentIndex, autoPlay: $autoPlay');
 
     final chapter = book.chapters[chapterIndex];
-    PlaybackLogger.info('[PlaybackProvider] Chapter: "${chapter.title}", content length: ${chapter.content.length} chars');
-    
+    PlaybackLogger.info('[PlaybackProvider] Chapter: "${chapter.title}"');
+
+    // Load pre-segmented content from SQLite (no runtime segmentation)
     final segmentStart = DateTime.now();
-    final segments = segmentText(chapter.content);
+    final libraryController = ref.read(libraryProvider.notifier);
+    final segments = await libraryController.getSegmentsForChapter(
+      book.id, 
+      chapterIndex,
+    );
     final segmentDuration = DateTime.now().difference(segmentStart);
-    PlaybackLogger.info('[PlaybackProvider] Segmented into ${segments.length} segments in ${segmentDuration.inMilliseconds}ms');
+    PlaybackLogger.info('[PlaybackProvider] Loaded ${segments.length} segments from SQLite in ${segmentDuration.inMilliseconds}ms');
 
     // Handle empty chapter - create a single "empty" track to show in UI
     if (segments.isEmpty) {
@@ -589,14 +717,19 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     Future(() async {
       try {
         PlaybackLogger.info('[NextChapterPresynth] Pre-synthesizing first segment of chapter $nextChapterIndex');
-        
-        // Get the next chapter's content and segment it
-        final nextChapter = book.chapters[nextChapterIndex];
-        final segments = segmentText(nextChapter.content);
+
+        // Load pre-segmented content from SQLite (no runtime segmentation)
+        final libraryController = ref.read(libraryProvider.notifier);
+        final segments = await libraryController.getSegmentsForChapter(
+          book.id, 
+          nextChapterIndex,
+        );
         if (segments.isEmpty) {
           PlaybackLogger.debug('[NextChapterPresynth] Next chapter has no segments');
           return;
         }
+
+        final nextChapter = book.chapters[nextChapterIndex];
         
         // Get current voice and engine
         final settings = ref.read(settingsProvider);

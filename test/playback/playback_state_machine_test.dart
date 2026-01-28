@@ -9,8 +9,11 @@ import 'package:playback/src/playback_controller.dart';
 import 'package:playback/src/playback_state.dart';
 import 'package:tts_engines/tts_engines.dart';
 
+// ignore_for_file: unused_field
+
 /// Mock AudioOutput for testing
 class MockAudioOutput implements AudioOutput {
+  // Mock state tracking (not all fields are read externally)
   bool _isPlaying = false;
   bool _isPaused = false;
   bool _hasSource = false;
@@ -166,7 +169,6 @@ class MockRoutingEngine implements RoutingEngine {
     return Stream.value(CoreReadiness.readyFor(coreId));
   }
   
-  @override
   Future<CoreReadiness> checkReadiness(String voiceId) async {
     return CoreReadiness.readyFor(voiceId);
   }
@@ -191,10 +193,8 @@ class MockAudioCache implements AudioCache {
   @override
   Future<bool> isReady(CacheKey key) async => _cache.containsKey(key);
   
-  @override
   Future<String?> getPath(CacheKey key) async => _cache[key];
   
-  @override
   Future<void> store(CacheKey key, File file) async {
     _cache[key] = file.path;
   }
@@ -674,7 +674,7 @@ void main() {
       
       test('rapid seeks debounce', () async {
         final queue = createTestQueue(10);
-        
+
         // Pre-cache all tracks
         for (var i = 0; i < queue.length; i++) {
           final key = CacheKeyGenerator.generate(
@@ -684,26 +684,24 @@ void main() {
           );
           cache.put(key, '/fake/track_$i.wav');
         }
-        
+
         await controller.loadChapter(
           tracks: queue,
           bookId: 'book1',
           autoPlay: true,
         );
         await Future.delayed(const Duration(milliseconds: 50));
-        
-        final initialCallCount = audioOutput.playFileCallCount;
-        
+
         // Rapid seeks
         unawaited(controller.seekToTrack(1));
         unawaited(controller.seekToTrack(2));
         unawaited(controller.seekToTrack(3));
         unawaited(controller.seekToTrack(4));
         unawaited(controller.seekToTrack(5));
-        
+
         // Wait for debounce
         await Future.delayed(const Duration(milliseconds: 300));
-        
+
         // Should not have called playFile for each seek (debounced)
         // The exact behavior depends on implementation
         expect(controller.state.currentIndex, 5);

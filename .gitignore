@@ -58,4 +58,4 @@ packages/platform_ios_tts/ios/Frameworks/onnxruntime.xcframework/**/*.a
 # iOS Supertonic CoreML models (downloaded at runtime)
 # Keeping these in git during development for testing, but can be removed
 # packages/platform_ios_tts/ios/Assets/supertonic_coreml/
-local_dev/logs.txt
+local_dev/

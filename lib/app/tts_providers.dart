@@ -31,9 +31,11 @@ class _IosApiWrapper implements android.TtsNativeApi {
   _IosApiWrapper(this._iosApi);
 
   @override
+  // ignore: non_constant_identifier_names
   String get pigeonVar_messageChannelSuffix => '';
 
   @override
+  // ignore: non_constant_identifier_names
   BinaryMessenger? get pigeonVar_binaryMessenger => null;
 
   @override

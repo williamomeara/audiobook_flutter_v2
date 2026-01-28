@@ -52,6 +52,10 @@ abstract interface class PlaybackController {
   /// Set playback rate.
   Future<void> setPlaybackRate(double rate);
 
+  /// Notify that the voice selection has changed.
+  /// This clears the synthesis queue and prepares for the new voice.
+  void notifyVoiceChanged();
+
   /// Notify of user interaction (suspends prefetch).
   void notifyUserInteraction();
 
@@ -62,6 +66,10 @@ abstract interface class PlaybackController {
 /// Callback for segment synthesis state changes.
 /// Parameters: (bookId, chapterIndex, segmentIndex)
 typedef SegmentSynthesisCallback = void Function(String bookId, int chapterIndex, int segmentIndex);
+
+/// Callback for when a segment's audio finishes playing.
+/// Parameters: (bookId, chapterIndex, segmentIndex)
+typedef SegmentAudioCompleteCallback = void Function(String bookId, int chapterIndex, int segmentIndex);
 
 /// Callback to set play intent override for media controls.
 typedef PlayIntentOverrideCallback = void Function(bool override);
@@ -79,12 +87,14 @@ class AudiobookPlaybackController implements PlaybackController {
     ResourceMonitor? resourceMonitor,
     SegmentSynthesisCallback? onSegmentSynthesisComplete,
     SegmentSynthesisCallback? onSegmentSynthesisStarted,
+    SegmentAudioCompleteCallback? onSegmentAudioComplete,
     PlayIntentOverrideCallback? onPlayIntentOverride,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _resourceMonitor = resourceMonitor,
         _onSegmentSynthesisComplete = onSegmentSynthesisComplete,
         _onSegmentSynthesisStarted = onSegmentSynthesisStarted,
+        _onSegmentAudioComplete = onSegmentAudioComplete,
         _onPlayIntentOverride = onPlayIntentOverride,
         _scheduler = BufferScheduler(resourceMonitor: resourceMonitor),
         _synthesisCoordinator = SynthesisCoordinator(
@@ -118,6 +128,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Callback for segment synthesis started (for UI feedback).
   final SegmentSynthesisCallback? _onSegmentSynthesisStarted;
+  
+  /// Callback when a segment's audio finishes playing (for progress tracking).
+  final SegmentAudioCompleteCallback? _onSegmentAudioComplete;
   
   /// Callback to set play intent override (prevents play button flicker).
   final PlayIntentOverrideCallback? _onPlayIntentOverride;
@@ -168,6 +181,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Debounce timer for seeks.
   Timer? _seekDebounceTimer;
+
+  /// Currently pinned cache key (to prevent eviction during playback).
+  CacheKey? _pinnedCacheKey;
 
   /// Whether the controller has been disposed.
   bool _disposed = false;
@@ -297,6 +313,17 @@ class AudiobookPlaybackController implements PlaybackController {
       case AudioEvent.completed:
         _logger.info('[AudioEvent] Completed. speakingTrackId: $_speakingTrackId, currentTrack: ${_state.currentTrack?.id}');
         if (_speakingTrackId == _state.currentTrack?.id) {
+          // Notify that this segment's audio finished playing (for progress tracking)
+          final currentTrack = _state.currentTrack;
+          final bookId = _state.bookId;
+          if (currentTrack != null && bookId != null) {
+            _onSegmentAudioComplete?.call(
+              bookId,
+              currentTrack.chapterIndex,
+              currentTrack.segmentIndex,
+            );
+          }
+          
           _speakingTrackId = null;
           // C3: Wrap in error handler to catch unexpected errors
           unawaited(nextTrack().catchError((error, stackTrace) {
@@ -533,12 +560,40 @@ class AudiobookPlaybackController implements PlaybackController {
   }
 
   @override
+  void notifyVoiceChanged() {
+    if (_disposed) return;
+    
+    final newVoiceId = voiceIdResolver(null);
+    _logger.info('[VoiceChange] Voice changed, clearing synthesis queue. New voice: $newVoiceId');
+    
+    // Reset synthesis coordinator - this clears the queue and in-flight synthesis
+    _synthesisCoordinator.reset();
+    
+    // Also reset the buffer scheduler
+    _scheduler.reset();
+    
+    // If currently playing, we need to re-queue from the current position
+    // with the new voice. The next play() call will handle this.
+    // We don't auto-resynthesize here to avoid synthesizing if user is just
+    // browsing voices in settings.
+    
+    _logger.info('[VoiceChange] Queue cleared. Will use new voice on next play().');
+  }
+
+  @override
   Future<void> dispose() async {
     _disposed = true;
     _cancelSeekDebounce();
     _autoCalibration?.dispose();
     _scheduler.dispose();
     _synthesisCoordinator.dispose();
+    
+    // Unpin any pinned file on dispose
+    if (_pinnedCacheKey != null) {
+      cache.unpin(_pinnedCacheKey!);
+      _pinnedCacheKey = null;
+    }
+    
     await _coordinatorReadySub?.cancel();
     await _coordinatorFailedSub?.cancel();
     await _coordinatorStartedSub?.cancel();
@@ -555,6 +610,12 @@ class AudiobookPlaybackController implements PlaybackController {
   Future<void> _stopPlayback() async {
     await _audioOutput.stop();
     _speakingTrackId = null;
+    
+    // Unpin the current file when stopping playback
+    if (_pinnedCacheKey != null) {
+      cache.unpin(_pinnedCacheKey!);
+      _pinnedCacheKey = null;
+    }
   }
 
   /// Wait for a segment to become ready (used with unified synthesis coordinator).
@@ -607,10 +668,20 @@ class AudiobookPlaybackController implements PlaybackController {
       playbackRate: CacheKeyGenerator.getSynthesisRate(effectiveRate),
     );
     
+    // Pin this file to prevent eviction/compression during playback.
+    // Unpin the previous file first.
+    if (_pinnedCacheKey != null) {
+      cache.unpin(_pinnedCacheKey!);
+    }
+    cache.pin(cacheKey);
+    _pinnedCacheKey = cacheKey;
+    
     // Use playableFileFor to get either M4A (compressed) or WAV (uncompressed)
     final file = await cache.playableFileFor(cacheKey);
     if (file == null) {
       _logger.severe('[Coordinator] No playable file found for cache key');
+      cache.unpin(cacheKey);
+      _pinnedCacheKey = null;
       return;
     }
     

@@ -22,6 +22,8 @@ dependencies:
   # Storage
   shared_preferences: ">=2.5.0 <2.5.4"  # 2.5.4 requires Dart 3.9
   path_provider: ^2.1.5
+  sqflite: ^2.4.1  # SQLite for structured data persistence
+  path: ^1.9.1  # Path utilities for database file location
   
   # Audio playback
   just_audio: ^0.10.5
@@ -81,6 +83,7 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_launcher_icons: ^0.11.0
+  sqflite_common_ffi: ^2.3.3  # For in-memory database testing
 
 flutter:
   uses-material-design: true

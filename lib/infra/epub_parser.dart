@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:archive/archive_io.dart';
 import 'package:epubx/epubx.dart';
@@ -11,9 +10,7 @@ import 'package:image/image.dart' as img;
 import 'package:core_domain/core_domain.dart';
 
 import '../app/app_paths.dart';
-import '../utils/text_normalizer.dart' as tts_normalizer;
-import '../utils/boilerplate_remover.dart';
-import '../utils/content_classifier.dart';
+import '../utils/background_chapter_processor.dart';
 
 /// Parsed EPUB result.
 class ParsedEpub {
@@ -101,11 +98,32 @@ class EpubParser {
 
     addChapters(epubBook.Chapters);
 
+    // Group chapters by their content file to handle anchor-based splitting
+    final chaptersByFile = <String, List<EpubChapter>>{};
+    for (final ch in flattened) {
+      final fileName = ch.ContentFileName ?? '';
+      if (fileName.isEmpty) continue;
+      chaptersByFile.putIfAbsent(fileName, () => []).add(ch);
+    }
+
     var chapterNumber = 0;
     for (final ch in flattened) {
       final html = (ch.HtmlContent ?? '').trim();
       if (html.isEmpty) continue;
-      final text = _stripHtmlToText(html);
+      
+      // Extract only the content for this chapter's anchor if file is shared
+      final fileName = ch.ContentFileName ?? '';
+      final chaptersInFile = chaptersByFile[fileName] ?? [];
+      String text;
+      
+      if (chaptersInFile.length > 1 && ch.Anchor != null && ch.Anchor!.isNotEmpty) {
+        // Multiple chapters share this file - extract content between anchors
+        text = _extractAnchorContent(html, ch.Anchor!, chaptersInFile, ch);
+      } else {
+        // Single chapter per file - use entire content
+        text = _stripHtmlToText(html);
+      }
+      
       if (text.isEmpty) continue;
 
       chapterNumber += 1;
@@ -118,8 +136,8 @@ class EpubParser {
       ));
     }
 
-    // Apply smart text processing pipeline
-    final chapters = _processChapters(rawChapters);
+    // Apply smart text processing pipeline in background isolate
+    final chapters = await processChaptersInBackground(rawChapters);
 
     return ParsedEpub(
       title: title,
@@ -127,70 +145,6 @@ class EpubParser {
       coverPath: coverPath,
       chapters: chapters,
     );
-  }
-
-  /// Process chapters through the smart text pipeline.
-  ///
-  /// Pipeline steps:
-  /// 1. Classify chapters to find body matter range (skip front/back matter)
-  /// 2. Clean each chapter (remove boilerplate, scanner notes)
-  /// 3. Normalize text (quotes, dashes, ligatures, spaces)
-  /// 4. Renumber chapters starting from 1
-  List<Chapter> _processChapters(List<Chapter> rawChapters) {
-    if (rawChapters.isEmpty) return rawChapters;
-
-    // Build ChapterInfo for classification
-    final chapterInfos = rawChapters.map((ch) {
-      final snippetLength = min(500, ch.content.length);
-      return ChapterInfo(
-        filename: ch.id,
-        title: ch.title,
-        contentSnippet: ch.content.substring(0, snippetLength),
-      );
-    }).toList();
-
-    // Find body matter range (skip front/back matter)
-    final (startIdx, endIdx) = ContentClassifier.findBodyMatterRange(chapterInfos);
-
-    // Filter to body matter only
-    var bodyChapters = rawChapters.sublist(startIdx, endIdx);
-
-    // Detect repeated prefixes across chapters (e.g., "Book Title | Publisher")
-    final chapterContents = bodyChapters.map((ch) => ch.content).toList();
-    final repeatedPrefix = BoilerplateRemover.detectRepeatedPrefix(chapterContents);
-
-    // Clean and normalize each chapter
-    bodyChapters = bodyChapters.map((chapter) {
-      var content = chapter.content;
-
-      // Remove detected repeated prefix
-      if (repeatedPrefix != null) {
-        content = BoilerplateRemover.removePrefix(content, repeatedPrefix);
-      }
-
-      // Remove per-chapter boilerplate (page numbers, scanner notes, etc.)
-      content = BoilerplateRemover.cleanChapter(content);
-
-      // Normalize text (quotes, dashes, ligatures, special chars)
-      content = tts_normalizer.TextNormalizer.normalize(content);
-
-      return Chapter(
-        id: chapter.id,
-        number: chapter.number,
-        title: chapter.title,
-        content: content,
-      );
-    }).toList();
-
-    // Renumber chapters starting from 1
-    final renumbered = bodyChapters.asMap().entries.map((e) => Chapter(
-      id: e.value.id,
-      number: e.key + 1,
-      title: e.value.title,
-      content: e.value.content,
-    )).toList();
-
-    return renumbered;
   }
 
   Future<String?> _extractCoverFromZip({
@@ -284,8 +238,8 @@ class EpubParser {
         ));
       }
 
-      // Apply smart text processing pipeline
-      final chapters = _processChapters(rawChapters);
+      // Apply smart text processing pipeline in background isolate
+      final chapters = await processChaptersInBackground(rawChapters);
 
       final fileName = epubPath.split('/').last;
       return ParsedEpub(
@@ -296,7 +250,7 @@ class EpubParser {
       );
     } catch (e) {
       // Apply smart processing even on error path if we have chapters
-      final chapters = _processChapters(rawChapters);
+      final chapters = await processChaptersInBackground(rawChapters);
       
       final fileName = epubPath.split('/').last;
       return ParsedEpub(
@@ -369,6 +323,65 @@ class EpubParser {
         .replaceAll('&apos;', "'")
         .replaceAll('&#39;', "'")
         .replaceAll('&#x27;', "'");
+  }
+
+  /// Extract content between anchor boundaries when multiple chapters share one file.
+  /// 
+  /// This handles EPUBs where the TOC uses anchor fragments (e.g., file.xhtml#chapter1)
+  /// to point to different sections within a single HTML file.
+  String _extractAnchorContent(
+    String html, 
+    String currentAnchor, 
+    List<EpubChapter> chaptersInFile,
+    EpubChapter currentChapter,
+  ) {
+    // Find all anchor positions in the HTML for chapters in this file
+    final anchorPositions = <String, int>{};
+    
+    for (final ch in chaptersInFile) {
+      final anchor = ch.Anchor;
+      if (anchor == null || anchor.isEmpty) continue;
+      
+      // Look for id="anchor" or name="anchor" in the HTML
+      final patterns = [
+        RegExp('id=["\']${RegExp.escape(anchor)}["\']', caseSensitive: false),
+        RegExp('name=["\']${RegExp.escape(anchor)}["\']', caseSensitive: false),
+      ];
+      
+      for (final pattern in patterns) {
+        final match = pattern.firstMatch(html);
+        if (match != null) {
+          anchorPositions[anchor] = match.start;
+          break;
+        }
+      }
+    }
+    
+    // If we couldn't find the current anchor, fall back to full content
+    if (!anchorPositions.containsKey(currentAnchor)) {
+      return _stripHtmlToText(html);
+    }
+    
+    // Sort anchors by position in HTML
+    final sortedAnchors = anchorPositions.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+    
+    // Find the current anchor's position in the sorted list
+    final currentIndex = sortedAnchors.indexWhere((e) => e.key == currentAnchor);
+    if (currentIndex == -1) {
+      return _stripHtmlToText(html);
+    }
+    
+    // Extract content from current anchor to next anchor (or end of file)
+    final startPos = anchorPositions[currentAnchor]!;
+    final endPos = currentIndex + 1 < sortedAnchors.length
+        ? sortedAnchors[currentIndex + 1].value
+        : html.length;
+    
+    // Extract the HTML segment
+    final segment = html.substring(startPos, endPos);
+    
+    return _stripHtmlToText(segment);
   }
 }
 

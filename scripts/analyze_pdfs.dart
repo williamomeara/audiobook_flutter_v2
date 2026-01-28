@@ -1,11 +1,11 @@
 #!/usr/bin/env dart
 // ignore_for_file: avoid_print
-/// PDF Analysis Script
-///
-/// Run directly with:
-///   dart run scripts/analyze_pdfs.dart
-///
-/// This script uses pdfrx to analyze PDF files and output results.
+// PDF Analysis Script
+//
+// Run directly with:
+//   dart run scripts/analyze_pdfs.dart
+//
+// This script uses pdfrx to analyze PDF files and output results.
 
 import 'dart:convert';
 import 'dart:io';

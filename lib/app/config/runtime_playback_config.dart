@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:developer' as developer;
 
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/app_database.dart';
+import '../database/daos/settings_dao.dart';
 
 /// Prefetch mode for controlling synthesis aggressiveness.
 ///
@@ -153,18 +153,19 @@ class RuntimePlaybackConfig {
   // Persistence
   // ═══════════════════════════════════════════════════════════════════
 
-  static const String _prefsKey = 'runtime_playback_config_v1';
-
-  /// Load configuration from SharedPreferences.
+  /// Load configuration from SQLite.
   ///
   /// Returns default configuration if no saved config exists or
   /// if there's an error loading the config.
   static Future<RuntimePlaybackConfig> load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final json = prefs.getString(_prefsKey);
+      final db = await AppDatabase.instance;
+      final settingsDao = SettingsDao(db);
+      final configMap = await settingsDao.getSetting<Map<String, dynamic>>(
+        SettingsKeys.runtimePlaybackConfig,
+      );
 
-      if (json == null) {
+      if (configMap == null) {
         developer.log(
           'RuntimePlaybackConfig: No saved config, using defaults',
           name: 'RuntimePlaybackConfig',
@@ -172,11 +173,9 @@ class RuntimePlaybackConfig {
         return RuntimePlaybackConfig();
       }
 
-      final config = RuntimePlaybackConfig.fromJson(
-        jsonDecode(json) as Map<String, dynamic>,
-      );
+      final config = RuntimePlaybackConfig.fromJson(configMap);
       developer.log(
-        'RuntimePlaybackConfig: Loaded from storage',
+        'RuntimePlaybackConfig: Loaded from SQLite',
         name: 'RuntimePlaybackConfig',
       );
       return config;
@@ -191,13 +190,17 @@ class RuntimePlaybackConfig {
     }
   }
 
-  /// Persist this configuration to SharedPreferences.
+  /// Persist this configuration to SQLite.
   Future<void> save() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, jsonEncode(toJson()));
+      final db = await AppDatabase.instance;
+      final settingsDao = SettingsDao(db);
+      await settingsDao.setSetting(
+        SettingsKeys.runtimePlaybackConfig,
+        toJson(),
+      );
       developer.log(
-        'RuntimePlaybackConfig: Saved to storage',
+        'RuntimePlaybackConfig: Saved to SQLite',
         name: 'RuntimePlaybackConfig',
       );
     } catch (e, stackTrace) {

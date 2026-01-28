@@ -7,15 +7,11 @@ export 'src/buffer_scheduler.dart';
 export 'src/playback_controller.dart';
 export 'src/resource_monitor.dart';  // Phase 2: Battery-aware prefetch
 export 'src/segment_readiness.dart'; // Segment readiness UI feedback
-export 'src/engine_config.dart';     // Phase 4: Auto-tuning device tier configs
-export 'src/device_profiler.dart';   // Phase 4: Device performance profiling
-export 'src/engine_config_manager.dart'; // Phase 4: Config persistence
 export 'src/adaptive_prefetch.dart'; // Configuration flexibility: Adaptive prefetch
 export 'src/prefetch_resume_controller.dart'; // Configuration flexibility: Resume control
 export 'src/strategies/synthesis_strategy.dart'; // Phase 3: Synthesis strategies
 export 'src/synthesis/synthesis.dart'; // Phase 4: Parallel synthesis
 export 'src/strategies/synthesis_strategy_manager.dart'; // Phase 3: Strategy management
-export 'src/calibration/calibration.dart'; // Phase 2: Engine calibration
 export 'src/edge_cases/edge_cases.dart'; // Phase 5: Edge case handlers
 
 // Re-export SmartSynthesisManager for convenience

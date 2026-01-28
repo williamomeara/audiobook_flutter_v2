@@ -1,15 +1,16 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'package:core_domain/core_domain.dart';
 
 import '../infra/epub_parser.dart';
 import '../infra/pdf_parser.dart';
+import '../utils/background_import.dart';
 import 'app_paths.dart';
+import 'database/app_database.dart';
+import 'database/repositories/library_repository.dart';
 
 /// Library state containing all books.
 class LibraryState {
@@ -37,51 +38,31 @@ class LibraryState {
 }
 
 /// Library controller for managing books.
+///
+/// Uses SQLite for persistence via LibraryRepository.
+/// All data operations are atomic and fast (indexed queries).
 class LibraryController extends AsyncNotifier<LibraryState> {
-  static const _libraryFileName = 'library.json';
+  LibraryRepository? _repository;
 
   @override
   Future<LibraryState> build() async {
     return _loadLibrary();
   }
 
-  Future<Directory> _getAppDir() async {
-    return await getApplicationDocumentsDirectory();
-  }
-
-  Future<File> _getLibraryFile() async {
-    final dir = await _getAppDir();
-    return File('${dir.path}/$_libraryFileName');
+  Future<LibraryRepository> _getRepository() async {
+    if (_repository != null) return _repository!;
+    final db = await AppDatabase.instance;
+    _repository = LibraryRepository(db);
+    return _repository!;
   }
 
   Future<LibraryState> _loadLibrary() async {
     try {
-      final file = await _getLibraryFile();
-      if (!await file.exists()) {
-        return const LibraryState();
-      }
-
-      final json = await file.readAsString();
-      final data = jsonDecode(json) as Map<String, dynamic>;
-      final booksList = (data['books'] as List<dynamic>? ?? [])
-          .map((b) => Book.fromJson(b as Map<String, dynamic>))
-          .toList();
-
-      return LibraryState(books: booksList);
+      final repo = await _getRepository();
+      final books = await repo.getAllBooks();
+      return LibraryState(books: books);
     } catch (e) {
       return LibraryState(error: 'Failed to load library: $e');
-    }
-  }
-
-  Future<void> _saveLibrary(List<Book> books) async {
-    try {
-      final file = await _getLibraryFile();
-      final data = {
-        'books': books.map((b) => b.toJson()).toList(),
-      };
-      await file.writeAsString(jsonEncode(data));
-    } catch (e) {
-      // Log error but don't fail
     }
   }
 
@@ -89,7 +70,8 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     final current = state.value ?? const LibraryState();
     final updated = [book, ...current.books];
     state = AsyncValue.data(current.copyWith(books: updated));
-    await _saveLibrary(updated);
+    // Note: For addBook without segments, we need the import flow
+    // This method is kept for API compatibility but import should use importBookFromPath
   }
 
   /// Finds an imported book by Project Gutenberg id.
@@ -105,6 +87,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
   /// Import an EPUB or PDF file into the app's book storage, parse it, and add to library.
   ///
   /// Returns the created (or existing) bookId.
+  /// Pre-segments all chapters at import time for fast playback.
   Future<String> importBookFromPath({
     required String sourcePath,
     required String fileName,
@@ -161,6 +144,15 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         chapters = parsed.chapters;
       }
 
+      // Pre-segment all chapters in background isolate to avoid UI jank
+      // This moves CPU-intensive segmentation and scoring off main thread
+      final segmentationResult = await runSegmentationInBackground(chapters);
+      
+      // Convert SegmentData back to Segment models
+      final chapterSegments = segmentationResult.chapterSegments.map(
+        (chapterSegs) => chapterSegs.map((s) => s.toSegment()).toList()
+      ).toList();
+
       final book = Book(
         id: bookId,
         title: title,
@@ -173,9 +165,13 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         progress: BookProgress.zero,
       );
 
+      // Insert into SQLite with all segments
+      final repo = await _getRepository();
+      await repo.insertBook(book, chapterSegments);
+
+      // Update in-memory state
       final updated = [book, ...current.books];
       state = AsyncValue.data(current.copyWith(books: updated, isLoading: false));
-      await _saveLibrary(updated);
 
       return bookId;
     } catch (e) {
@@ -201,7 +197,9 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     final current = state.value ?? const LibraryState();
     final updated = current.books.where((b) => b.id != bookId).toList();
     state = AsyncValue.data(current.copyWith(books: updated));
-    await _saveLibrary(updated);
+
+    final repo = await _getRepository();
+    await repo.deleteBook(bookId);
   }
 
   Future<void> updateProgress(
@@ -210,6 +208,8 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     int segmentIndex,
   ) async {
     final current = state.value ?? const LibraryState();
+
+    // Update in-memory state
     final updated = current.books.map((b) {
       if (b.id == bookId) {
         return b.copyWith(
@@ -222,11 +222,15 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       return b;
     }).toList();
     state = AsyncValue.data(current.copyWith(books: updated));
-    await _saveLibrary(updated);
+
+    // Persist to SQLite (fast indexed update)
+    final repo = await _getRepository();
+    await repo.updateProgress(bookId, chapterIndex, segmentIndex);
   }
 
   Future<void> setBookVoice(String bookId, String? voiceId) async {
     final current = state.value ?? const LibraryState();
+
     final updated = current.books.map((b) {
       if (b.id == bookId) {
         return b.copyWith(voiceId: voiceId);
@@ -234,11 +238,14 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       return b;
     }).toList();
     state = AsyncValue.data(current.copyWith(books: updated));
-    await _saveLibrary(updated);
+
+    final repo = await _getRepository();
+    await repo.setBookVoice(bookId, voiceId);
   }
 
   Future<void> toggleFavorite(String bookId) async {
     final current = state.value ?? const LibraryState();
+
     final updated = current.books.map((b) {
       if (b.id == bookId) {
         return b.copyWith(isFavorite: !b.isFavorite);
@@ -246,12 +253,15 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       return b;
     }).toList();
     state = AsyncValue.data(current.copyWith(books: updated));
-    await _saveLibrary(updated);
+
+    final repo = await _getRepository();
+    await repo.toggleFavorite(bookId);
   }
 
   /// Mark a chapter as completed (listened to >95%).
   Future<void> markChapterComplete(String bookId, int chapterIndex) async {
     final current = state.value ?? const LibraryState();
+
     final updated = current.books.map((b) {
       if (b.id == bookId) {
         final newCompleted = Set<int>.from(b.completedChapters)..add(chapterIndex);
@@ -260,12 +270,15 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       return b;
     }).toList();
     state = AsyncValue.data(current.copyWith(books: updated));
-    await _saveLibrary(updated);
+
+    final repo = await _getRepository();
+    await repo.markChapterComplete(bookId, chapterIndex);
   }
 
   /// Toggle a chapter's read/unread state manually.
   Future<void> toggleChapterComplete(String bookId, int chapterIndex) async {
     final current = state.value ?? const LibraryState();
+
     final updated = current.books.map((b) {
       if (b.id == bookId) {
         final newCompleted = Set<int>.from(b.completedChapters);
@@ -279,15 +292,40 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       return b;
     }).toList();
     state = AsyncValue.data(current.copyWith(books: updated));
-    await _saveLibrary(updated);
+
+    final repo = await _getRepository();
+    await repo.toggleChapterComplete(bookId, chapterIndex);
   }
 
   Book? getBook(String bookId) {
     return state.value?.books.where((b) => b.id == bookId).firstOrNull;
+  }
+  
+  /// Get segments for a chapter (for playback).
+  /// This is the new way to get segment data - from SQLite, not runtime segmentation.
+  Future<List<Segment>> getSegmentsForChapter(
+      String bookId, int chapterIndex) async {
+    final repo = await _getRepository();
+    return await repo.getSegmentsForChapter(bookId, chapterIndex);
+  }
+
+  /// Get segment count for a chapter.
+  Future<int> getSegmentCount(String bookId, int chapterIndex) async {
+    final repo = await _getRepository();
+    return await repo.getSegmentCount(bookId, chapterIndex);
   }
 }
 
 /// Library provider.
 final libraryProvider = AsyncNotifierProvider<LibraryController, LibraryState>(
   LibraryController.new,
+);
+
+/// Provider for getting segments from SQLite.
+/// Use this instead of runtime segmentText() calls.
+final segmentsProvider = FutureProvider.family<List<Segment>, ({String bookId, int chapterIndex})>(
+  (ref, params) async {
+    final controller = ref.read(libraryProvider.notifier);
+    return await controller.getSegmentsForChapter(params.bookId, params.chapterIndex);
+  },
 );

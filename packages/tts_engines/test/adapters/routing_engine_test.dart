@@ -6,8 +6,6 @@ import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/src/adapters/routing_engine.dart';
 import 'package:tts_engines/src/cache/audio_cache.dart';
 import 'package:tts_engines/src/interfaces/ai_voice_engine.dart';
-import 'package:tts_engines/src/interfaces/synth_request.dart';
-import 'package:tts_engines/src/interfaces/synth_result.dart';
 import 'package:tts_engines/src/interfaces/tts_state_machines.dart';
 
 /// Mock AudioCache for testing
