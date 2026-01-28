@@ -210,6 +210,13 @@ final progressDaoProvider = FutureProvider<ProgressDao>((ref) async {
   return ProgressDao(db);
 });
 
+/// Provider for the chapter position DAO (per-chapter resume).
+/// Tracks listening positions within each chapter for snap-back functionality.
+final chapterPositionDaoProvider = FutureProvider<ChapterPositionDao>((ref) async {
+  final db = await AppDatabase.instance;
+  return ChapterPositionDao(db);
+});
+
 /// Provider for last played timestamp of a book.
 /// Returns DateTime or null if never played.
 /// Parameter: bookId
@@ -226,6 +233,95 @@ final segmentProgressDaoProvider = FutureProvider<SegmentProgressDao>((ref) asyn
   final db = await AppDatabase.instance;
   return SegmentProgressDao(db);
 });
+
+// ===========================================================================
+// Chapter Position Providers (Last Listened Location Feature)
+// ===========================================================================
+
+// ===========================================================================
+// Browsing Mode Notifier (Last Listened Location Feature)
+// ===========================================================================
+
+/// Tracks browsing mode state for each book.
+/// 
+/// Browsing mode is entered when the user manually jumps to a different chapter
+/// (not through auto-advance). While in browsing mode:
+/// - The primary position is preserved as the snap-back target
+/// - A "Back to Chapter X" button appears in the playback UI
+/// 
+/// Browsing mode exits when:
+/// - User taps the snap-back button
+/// - User listens for 30+ seconds (auto-promotion)
+/// - User explicitly commits to the new position
+class BrowsingModeNotifier extends Notifier<Map<String, bool>> {
+  @override
+  Map<String, bool> build() => {};
+
+  /// Check if browsing mode is active for a book.
+  bool isBrowsing(String bookId) => state[bookId] ?? false;
+
+  /// Enter browsing mode for a book.
+  void enterBrowsingMode(String bookId) {
+    state = {...state, bookId: true};
+  }
+
+  /// Exit browsing mode for a book.
+  void exitBrowsingMode(String bookId) {
+    state = {...state, bookId: false};
+  }
+
+  /// Toggle browsing mode for a book.
+  void setBrowsingMode(String bookId, bool value) {
+    state = {...state, bookId: value};
+  }
+}
+
+/// Provider for browsing mode state.
+/// Use `ref.watch(browsingModeNotifierProvider).isBrowsing(bookId)` to check.
+final browsingModeNotifierProvider = NotifierProvider<BrowsingModeNotifier, Map<String, bool>>(
+  BrowsingModeNotifier.new,
+);
+
+/// Convenience provider to check if a specific book is in browsing mode.
+/// Parameter: bookId
+/// Returns: true if browsing mode is active for this book
+final isBrowsingProvider = Provider.family<bool, String>((ref, bookId) {
+  final browsingState = ref.watch(browsingModeNotifierProvider);
+  return browsingState[bookId] ?? false;
+});
+
+/// Primary listening position for a book (snap-back target).
+/// 
+/// The primary position is where the user was actively listening before
+/// they started browsing other chapters. This is the target for the
+/// "Back to Chapter X" snap-back feature.
+/// 
+/// Returns null if:
+/// - No position has been saved yet
+/// - User hasn't started any chapter navigation
+/// 
+/// Parameter: bookId
+final primaryPositionProvider = FutureProvider.family<ChapterPosition?, String>(
+  (ref, bookId) async {
+    final dao = await ref.watch(chapterPositionDaoProvider.future);
+    return dao.getPrimaryPosition(bookId);
+  },
+);
+
+/// All chapter positions for a book, keyed by chapter index.
+/// 
+/// Each position represents where the user last stopped in that chapter.
+/// Used for:
+/// - Resuming from the correct position when returning to a chapter
+/// - Showing position indicators in the chapter list
+/// 
+/// Parameter: bookId
+final chapterPositionsProvider = FutureProvider.family<Map<int, ChapterPosition>, String>(
+  (ref, bookId) async {
+    final dao = await ref.watch(chapterPositionDaoProvider.future);
+    return dao.getAllPositions(bookId);
+  },
+);
 
 /// Provider for chapter progress for all chapters in a book.
 /// 
