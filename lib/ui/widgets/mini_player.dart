@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,8 +21,8 @@ class MiniPlayer extends ConsumerWidget {
     final libraryAsync = ref.watch(libraryProvider);
     final colors = Theme.of(context).extension<AppThemeColors>()!;
 
-    // Don't show if nothing is playing or paused
-    if (!playbackState.isPlaying && !playbackState.isPaused) {
+    // Don't show if nothing is playing
+    if (!playbackState.isPlaying) {
       return const SizedBox.shrink();
     }
 
@@ -42,7 +44,7 @@ class MiniPlayer extends ConsumerWidget {
           child: Container(
             height: 64,
             decoration: BoxDecoration(
-              color: colors.surface,
+              color: colors.background,
               border: Border(
                 top: BorderSide(color: colors.border, width: 1),
               ),
@@ -64,8 +66,8 @@ class MiniPlayer extends ConsumerWidget {
                     child: SizedBox(
                       width: 44,
                       height: 44,
-                      child: book.coverImage != null
-                          ? Image.memory(book.coverImage!, fit: BoxFit.cover)
+                      child: book.coverImagePath != null && File(book.coverImagePath!).existsSync()
+                          ? Image.file(File(book.coverImagePath!), fit: BoxFit.cover)
                           : Container(
                               color: colors.primary.withOpacity(0.1),
                               child: Icon(Icons.book, color: colors.primary),
