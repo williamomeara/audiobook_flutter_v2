@@ -10,6 +10,7 @@ import 'migrations/migration_v2.dart';
 import 'migrations/migration_v3.dart';
 import 'migrations/migration_v4.dart';
 import 'migrations/migration_v5.dart';
+import 'migrations/migration_v6.dart';
 import 'migrations/settings_migration_service.dart';
 
 /// Singleton database instance for the Eist audiobook app.
@@ -25,7 +26,7 @@ import 'migrations/settings_migration_service.dart';
 class AppDatabase {
   static Database? _database;
   static const String _dbName = 'eist_audiobook.db';
-  static const int _dbVersion = 5;
+  static const int _dbVersion = 6;
 
   // Private constructor to prevent instantiation
   AppDatabase._();
@@ -77,12 +78,13 @@ class AppDatabase {
     // Note: MigrationV4 added content_confidence columns, MigrationV5 removes them
     // For new databases, we skip adding them entirely by not running V4
     // and calling V5 which handles the case gracefully
+    await MigrationV6.up(db);
 
     // Record schema version
     await db.insert('schema_version', {
       'version': version,
       'applied_at': DateTime.now().millisecondsSinceEpoch,
-      'description': 'Initial schema (content confidence feature removed)',
+      'description': 'Initial schema with chapter positions',
     });
   }
 
@@ -119,6 +121,14 @@ class AppDatabase {
         'version': 5,
         'applied_at': DateTime.now().millisecondsSinceEpoch,
         'description': 'Remove content confidence columns (feature removed)',
+      });
+    }
+    if (oldVersion < 6) {
+      await MigrationV6.up(db);
+      await db.insert('schema_version', {
+        'version': 6,
+        'applied_at': DateTime.now().millisecondsSinceEpoch,
+        'description': 'Add chapter_positions table for per-chapter resume',
       });
     }
   }
