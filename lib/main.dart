@@ -17,6 +17,7 @@ import 'ui/screens/settings_screen.dart';
 import 'ui/screens/free_books_screen.dart';
 import 'ui/screens/download_manager_screen.dart';
 import 'ui/screens/developer_screen.dart';
+import 'ui/widgets/mini_player_scaffold.dart';
 
 /// Global audio handler instance for system media controls.
 /// Initialized lazily to avoid blocking app startup.
@@ -166,12 +167,19 @@ class AudiobookApp extends ConsumerWidget {
 final _router = GoRouter(
   initialLocation: '/',
   routes: [
-    GoRoute(path: '/', builder: (context, state) => const LibraryScreen()),
+    GoRoute(
+      path: '/',
+      builder: (context, state) => const MiniPlayerScaffold(
+        child: LibraryScreen(),
+      ),
+    ),
     GoRoute(
       path: '/book/:id',
       builder: (context, state) {
         final bookId = state.pathParameters['id']!;
-        return BookDetailsScreen(bookId: bookId);
+        return MiniPlayerScaffold(
+          child: BookDetailsScreen(bookId: bookId),
+        );
       },
     ),
     GoRoute(
