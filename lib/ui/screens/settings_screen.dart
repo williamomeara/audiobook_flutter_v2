@@ -1014,6 +1014,7 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     final cacheStats = ref.watch(cacheUsageStatsProvider);
+    final compressionProgress = ref.watch(compressionProgressProvider);
     
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -1064,7 +1065,7 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
           
           // Usage display
           cacheStats.when(
-            data: (stats) => _buildUsageDisplay(stats),
+            data: (stats) => _buildUsageDisplay(stats, compressionProgress),
             loading: () => const Center(
               child: SizedBox(
                 width: 20,
@@ -1103,7 +1104,7 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
     );
   }
 
-  Widget _buildUsageDisplay(CacheUsageStats stats) {
+  Widget _buildUsageDisplay(CacheUsageStats stats, CompressionProgressState compressionProgress) {
     final usagePercent = stats.usagePercent;
     final isWarning = usagePercent > 90;
     final barColor = isWarning ? Colors.orange : widget.colors.primary;
@@ -1148,7 +1149,33 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
             color: widget.colors.textSecondary,
           ),
         ),
-        if (stats.compressedCount > 0 || stats.uncompressedCount > 0)
+        if (compressionProgress.isRunning)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    value: compressionProgress.progress,
+                    valueColor: AlwaysStoppedAnimation<Color>(widget.colors.primary),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Compressing: ${compressionProgress.completed}/${compressionProgress.total}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: widget.colors.primary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else if (stats.compressedCount > 0 || stats.uncompressedCount > 0)
           Text(
             '${stats.compressedCount} compressed, ${stats.uncompressedCount} uncompressed',
             style: TextStyle(
@@ -1434,6 +1461,9 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
     
     // Create a ValueNotifier to trigger dialog updates
     final progressNotifier = ValueNotifier<(int, int)>((0, 0));
+    
+    // Initialize compression progress state (will be updated with total once known)
+    ref.read(compressionProgressProvider.notifier).start(0);
 
     showDialog(
       context: context,
@@ -1565,6 +1595,9 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
     try {
       final manager = await ref.read(intelligentCacheManagerProvider.future);
       final service = AacCompressionService();
+      
+      // Get the compression progress notifier
+      final progressNotifierRef = ref.read(compressionProgressProvider.notifier);
 
       // Pass storage to enable DB-first compression workflow
       final result = await service.compressDirectory(
@@ -1573,9 +1606,18 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
         onProgress: (done, count) {
           // Update the dialog via ValueNotifier
           progressNotifier.value = (done, count);
+          // Also update the provider for live updates on Settings screen
+          progressNotifierRef.update(done, count);
+          // Refresh cache stats periodically (every 5 files)
+          if (done % 5 == 0 || done == count) {
+            ref.invalidate(cacheUsageStatsProvider);
+          }
         },
         shouldCancel: () => isCancelled,
       );
+      
+      // Mark compression as finished
+      progressNotifierRef.finish();
 
       // Dispose notifier
       progressNotifier.dispose();

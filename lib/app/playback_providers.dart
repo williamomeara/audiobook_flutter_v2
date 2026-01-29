@@ -226,6 +226,67 @@ final cacheUsageStatsProvider = FutureProvider<CacheUsageStats>((ref) async {
   return manager.getUsageStats();
 });
 
+/// State for tracking background compression progress.
+class CompressionProgressState {
+  const CompressionProgressState({
+    this.isRunning = false,
+    this.completed = 0,
+    this.total = 0,
+    this.lastUpdate,
+  });
+  
+  final bool isRunning;
+  final int completed;
+  final int total;
+  final DateTime? lastUpdate;
+  
+  double get progress => total > 0 ? completed / total : 0.0;
+  
+  CompressionProgressState copyWith({
+    bool? isRunning,
+    int? completed,
+    int? total,
+    DateTime? lastUpdate,
+  }) => CompressionProgressState(
+    isRunning: isRunning ?? this.isRunning,
+    completed: completed ?? this.completed,
+    total: total ?? this.total,
+    lastUpdate: lastUpdate ?? this.lastUpdate,
+  );
+}
+
+/// Notifier for compression progress tracking.
+class CompressionProgressNotifier extends Notifier<CompressionProgressState> {
+  @override
+  CompressionProgressState build() => const CompressionProgressState();
+  
+  void start(int total) {
+    state = CompressionProgressState(
+      isRunning: true,
+      completed: 0,
+      total: total,
+      lastUpdate: DateTime.now(),
+    );
+  }
+  
+  void update(int completed, int total) {
+    state = state.copyWith(
+      completed: completed,
+      total: total,
+      lastUpdate: DateTime.now(),
+    );
+  }
+  
+  void finish() {
+    state = const CompressionProgressState(isRunning: false);
+  }
+}
+
+/// Provider for tracking background compression progress.
+final compressionProgressProvider = NotifierProvider<CompressionProgressNotifier, CompressionProgressState>(
+  CompressionProgressNotifier.new,
+);
+
 /// Provider for the progress DAO (reading position, last played).
 final progressDaoProvider = FutureProvider<ProgressDao>((ref) async {
   final db = await AppDatabase.instance;
