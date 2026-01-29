@@ -165,18 +165,20 @@ final segmentReadinessProvider = Provider.family<Map<int, SegmentReadiness>, Str
 
 /// Provider for the audio cache.
 /// Re-exported from tts_providers for backwards compatibility.
+/// Uses ref.read to avoid cascading rebuilds during initialization.
 final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
   // Use IntelligentCacheManager as the single source of truth for audio cache
-  final manager = await ref.watch(intelligentCacheManagerProvider.future);
+  final manager = await ref.read(intelligentCacheManagerProvider.future);
   return manager;
 });
 
 /// Provider for the intelligent cache manager (Phase 3: Cache management).
 /// Provides quota control, eviction scoring, and usage stats.
 /// Uses SQLite for cache metadata storage (migrated from JSON).
+/// Uses ref.read to avoid cascading rebuilds during initialization.
 final intelligentCacheManagerProvider = FutureProvider<IntelligentCacheManager>((ref) async {
-  final paths = await ref.watch(appPathsProvider.future);
-  final settings = ref.watch(settingsProvider);
+  final paths = await ref.read(appPathsProvider.future);
+  final settings = ref.read(settingsProvider);
 
   // Get database instance and create SQLite storage
   final db = await AppDatabase.instance;
@@ -537,13 +539,27 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       
       // Listen for voice changes to notify controller (clears synthesis queue)
       // Also update _currentVoice so the voiceIdResolver always has the latest value
-      ref.listen(settingsProvider.select((s) => s.selectedVoice), (prev, next) {
-        _currentVoice = next;  // Keep _currentVoice in sync
-        if (prev != null && prev != next && _controller != null) {
-          PlaybackLogger.info('[PlaybackProvider] Voice changed: $prev -> $next');
-          _controller!.notifyVoiceChanged();
-        }
-      });
+      // Use fireImmediately to sync _currentVoice in case settings already loaded
+      // from SQLite before this listener was set up (race condition fix)
+      ref.listen(
+        settingsProvider.select((s) => s.selectedVoice),
+        (prev, next) {
+          final previousVoice = _currentVoice;
+          _currentVoice = next;  // Keep _currentVoice in sync
+          
+          // Only notify controller if voice actually changed AND controller exists
+          // Check against previousVoice (not prev) because prev might be the initial
+          // callback value which doesn't reflect what we actually had stored
+          if (previousVoice != VoiceIds.none && previousVoice != next && _controller != null) {
+            PlaybackLogger.info('[PlaybackProvider] Voice changed: $previousVoice -> $next');
+            _controller!.notifyVoiceChanged();
+          } else if (previousVoice == VoiceIds.none && next != VoiceIds.none) {
+            // Voice was loaded from settings (initial sync) - just log, no need to notify
+            PlaybackLogger.info('[PlaybackProvider] Voice synced from settings: $next');
+          }
+        },
+        fireImmediately: true,  // Sync voice immediately in case settings already loaded
+      );
       
       // Connect audio output player to audio service for system media controls
       await _connectAudioService();

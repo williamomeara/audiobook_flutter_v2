@@ -170,10 +170,10 @@ class _IosApiWrapper implements android.TtsNativeApi {
 
 /// Provider for Kokoro adapter.
 /// Checks granular download state to see if required cores are ready.
-/// Uses watch to reactively update when downloads complete.
+/// Uses read to avoid cascading rebuilds that block playback initialization.
 final kokoroAdapterProvider = FutureProvider<KokoroAdapter?>((ref) async {
   final paths = await ref.read(appPathsProvider.future);
-  final granularState = await ref.watch(granularDownloadManagerProvider.future);
+  final granularState = await ref.read(granularDownloadManagerProvider.future);
   
   // Check if any Kokoro core is ready (platform-specific: kokoro_core_android_v1 or kokoro_core_ios_v1)
   final kokoroCores = granularState.cores.values.where((c) => c.engineType == 'kokoro');
@@ -190,10 +190,10 @@ final kokoroAdapterProvider = FutureProvider<KokoroAdapter?>((ref) async {
 
 /// Provider for Piper adapter.
 /// Piper voices are per-model cores, check if any Piper core is ready.
-/// Uses watch to reactively update when downloads complete.
+/// Uses read to avoid cascading rebuilds that block playback initialization.
 final piperAdapterProvider = FutureProvider<PiperAdapter?>((ref) async {
   final paths = await ref.read(appPathsProvider.future);
-  final granularState = await ref.watch(granularDownloadManagerProvider.future);
+  final granularState = await ref.read(granularDownloadManagerProvider.future);
   
   // Check if any Piper core is ready
   final piperCores = granularState.cores.values.where((c) => c.engineType == 'piper');
@@ -218,10 +218,10 @@ final piperAdapterProvider = FutureProvider<PiperAdapter?>((ref) async {
 
 /// Provider for Supertonic adapter.
 /// Checks granular download state to see if required cores are ready.
-/// Uses watch to reactively update when downloads complete.
+/// Uses read to avoid cascading rebuilds that block playback initialization.
 final supertonicAdapterProvider = FutureProvider<SupertonicAdapter?>((ref) async {
   final paths = await ref.read(appPathsProvider.future);
-  final granularState = await ref.watch(granularDownloadManagerProvider.future);
+  final granularState = await ref.read(granularDownloadManagerProvider.future);
   
   // On iOS, Supertonic uses bundled CoreML models - always ready
   if (Platform.isIOS) {
@@ -245,13 +245,13 @@ final supertonicAdapterProvider = FutureProvider<SupertonicAdapter?>((ref) async
 });
 
 /// Provider for the routing engine with all adapters.
-/// Uses watch to reactively update when adapters become available.
+/// Uses read to avoid cascading rebuilds that block playback initialization.
 final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
   final cache = await ref.read(intelligentCacheManagerProvider.future);
-  final kokoro = await ref.watch(kokoroAdapterProvider.future);
-  final piper = await ref.watch(piperAdapterProvider.future);
-  final supertonic = await ref.watch(supertonicAdapterProvider.future);
-  final settings = ref.watch(settingsProvider);
+  final kokoro = await ref.read(kokoroAdapterProvider.future);
+  final piper = await ref.read(piperAdapterProvider.future);
+  final supertonic = await ref.read(supertonicAdapterProvider.future);
+  final settings = ref.read(settingsProvider);
 
   // Create compression service for on-the-fly compression
   final compressionService = AacCompressionService();
