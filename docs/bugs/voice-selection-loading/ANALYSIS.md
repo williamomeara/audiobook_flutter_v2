@@ -28,29 +28,51 @@ When user goes to Settings and selects a voice:
 
 ## Fix Applied
 
+### Fix 1: Voice Listener (Initial Attempt - Insufficient)
+
 **File**: `lib/app/playback_providers.dart`
 
 **Change**: Added `fireImmediately: true` to the voice change listener
 
-```dart
-ref.listen(
-  settingsProvider.select((s) => s.selectedVoice),
-  (prev, next) {
-    final previousVoice = _currentVoice;
-    _currentVoice = next;  // Keep _currentVoice in sync
-    // ... rest of handler
-  },
-  fireImmediately: true,  // <-- This ensures initial sync
-);
+This fix alone was insufficient - playback controller was still stuck at initialization.
+
+### Fix 2: Eliminate Cascading Rebuilds (Root Cause)
+
+**Root Cause**: `ref.watch()` calls in provider initialization chain caused cascading rebuilds
+that blocked playback controller initialization forever.
+
+**Files Modified**:
+1. `lib/app/tts_providers.dart`
+2. `lib/app/playback_providers.dart`
+
+**Changes**:
+- Changed `ref.watch()` to `ref.read()` in adapter providers and ttsRoutingEngineProvider
+- Changed `ref.watch()` to `ref.read()` in intelligentCacheManagerProvider and audioCacheProvider
+
+**Provider Chain Fixed**:
+```
+playbackControllerProvider
+  → routingEngineProvider
+    → ttsRoutingEngineProvider (ref.watch → ref.read)
+      → kokoroAdapterProvider (ref.watch → ref.read)
+      → piperAdapterProvider (ref.watch → ref.read)  
+      → supertonicAdapterProvider (ref.watch → ref.read)
+      → intelligentCacheManagerProvider (ref.watch → ref.read)
 ```
 
-**How it works**:
-- `fireImmediately: true` causes the callback to fire once immediately with current value
-- If settings already loaded, callback gets actual voice and syncs `_currentVoice`
-- If settings not yet loaded, callback gets 'none', then fires again when settings load
+**Why `ref.watch()` was problematic**:
+- `ref.watch()` in FutureProviders causes provider to be invalidated and re-run when dependencies change
+- Settings async load triggers rebuild cascade
+- Rebuild resets provider to loading state
+- Playback screen sees loading state forever
+
+**Why `ref.read()` fixes it**:
+- `ref.read()` gets current value without establishing dependency
+- Provider runs once and completes
+- No rebuild when settings load later
 
 ## Testing
 
 1. Build and install app fresh
 2. Start app and go to book
-3. Should load without getting stuck (voice already synced from settings)
+3. Should load without getting stuck (provider chain completes initialization)

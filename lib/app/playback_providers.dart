@@ -165,18 +165,20 @@ final segmentReadinessProvider = Provider.family<Map<int, SegmentReadiness>, Str
 
 /// Provider for the audio cache.
 /// Re-exported from tts_providers for backwards compatibility.
+/// Uses ref.read to avoid cascading rebuilds during initialization.
 final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
   // Use IntelligentCacheManager as the single source of truth for audio cache
-  final manager = await ref.watch(intelligentCacheManagerProvider.future);
+  final manager = await ref.read(intelligentCacheManagerProvider.future);
   return manager;
 });
 
 /// Provider for the intelligent cache manager (Phase 3: Cache management).
 /// Provides quota control, eviction scoring, and usage stats.
 /// Uses SQLite for cache metadata storage (migrated from JSON).
+/// Uses ref.read to avoid cascading rebuilds during initialization.
 final intelligentCacheManagerProvider = FutureProvider<IntelligentCacheManager>((ref) async {
-  final paths = await ref.watch(appPathsProvider.future);
-  final settings = ref.watch(settingsProvider);
+  final paths = await ref.read(appPathsProvider.future);
+  final settings = ref.read(settingsProvider);
 
   // Get database instance and create SQLite storage
   final db = await AppDatabase.instance;
