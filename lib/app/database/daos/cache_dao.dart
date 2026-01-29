@@ -139,6 +139,28 @@ class CacheDao {
     await _db.delete('cache_entries');
   }
 
+  /// Check if an entry exists by file path.
+  Future<bool> hasEntry(String filePath) async {
+    final result = await _db.rawQuery(
+      'SELECT 1 FROM cache_entries WHERE file_path = ? LIMIT 1',
+      [filePath],
+    );
+    return result.isNotEmpty;
+  }
+
+  /// Get total entry count.
+  Future<int> getEntryCount() async {
+    final result = await _db.rawQuery(
+      'SELECT COUNT(*) as count FROM cache_entries',
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// Get all cache entries as a list.
+  Future<List<Map<String, dynamic>>> getAllEntries() async {
+    return await _db.query('cache_entries');
+  }
+
   // ============= Coordinate-based methods (original) =============
 
   /// Get a cache entry by coordinates.
@@ -316,5 +338,10 @@ class CacheDao {
       SET is_pinned = ?
       WHERE book_id = ? AND chapter_index = ? AND segment_index = ?
     ''', [pinned ? 1 : 0, bookId, chapterIndex, segmentIndex]);
+  }
+
+  /// Delete all cache entries.
+  Future<void> deleteAllEntries() async {
+    await _db.delete('cache_entries');
   }
 }

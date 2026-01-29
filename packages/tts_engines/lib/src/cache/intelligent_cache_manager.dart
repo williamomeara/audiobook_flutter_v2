@@ -123,8 +123,7 @@ class IntelligentCacheManager implements AudioCache {
   /// Get the storage backend (for compression and other operations).
   CacheMetadataStorage get storage => _storage;
 
-  /// Metadata for all cache entries.
-  final Map<String, CacheEntryMetadata> _metadata = {};
+  // NO MORE _metadata! Database is the single source of truth.
 
   /// Hit/miss tracking for statistics.
   int _hits = 0;
@@ -151,22 +150,21 @@ class IntelligentCacheManager implements AudioCache {
     await evictIfNeeded();
   }
 
-  /// Initialize the cache manager by loading persisted metadata.
+  /// Initialize the cache manager.
+  /// 
+  /// Simplified: just loads quota settings and syncs with filesystem.
+  /// No in-memory cache of entries - DB is queried directly.
   Future<void> initialize() async {
     await _cacheDir.create(recursive: true);
-
-    // Load from storage backend
-    final entries = await _storage.loadEntries();
-    _metadata.clear();
-    _metadata.addAll(entries);
 
     final quota = await _storage.loadQuotaSettings();
     if (quota != null) {
       _quotaSettings = quota;
     }
 
+    final entryCount = await _storage.getEntryCount();
     developer.log(
-      '📦 Loaded ${_metadata.length} cache entries',
+      '📦 Database has $entryCount cache entries',
       name: 'IntelligentCacheManager',
     );
 
@@ -242,7 +240,7 @@ class IntelligentCacheManager implements AudioCache {
       audioDurationMs: audioDurationMs,
     );
 
-    _metadata[filename] = entry;
+    // DB is the single source of truth
     await _storage.upsertEntry(entry);
     await evictIfNeeded();
   }
@@ -290,10 +288,13 @@ class IntelligentCacheManager implements AudioCache {
     );
 
     // Build eviction context if not provided
-    final ctx = context ?? _buildDefaultContext();
+    final ctx = context ?? await _buildDefaultContext();
 
+    // Get all entries from database
+    final allEntries = await _storage.getAllEntries();
+    
     // Score all entries - WAV files get lower scores (evict first)
-    final scoredEntries = _metadata.values.map((m) {
+    final scoredEntries = allEntries.map((m) {
       var score = _scoreCalculator.calculateScore(m, ctx);
       // Penalty for WAV files (prefer to evict over compressed)
       if (m.key.endsWith('.wav')) {
@@ -331,7 +332,6 @@ class IntelligentCacheManager implements AudioCache {
         if (await file.exists()) {
           await file.delete();
           currentSize -= entry.metadata.sizeBytes;
-          _metadata.remove(entry.metadata.key);
           evictedKeys.add(entry.metadata.key);
           evicted++;
 
@@ -365,10 +365,8 @@ class IntelligentCacheManager implements AudioCache {
     final compressionService = AacCompressionService();
     int compressed = 0;
     
-    // Find all WAV files
-    final wavEntries = _metadata.entries
-        .where((e) => e.key.endsWith('.wav'))
-        .toList();
+    // Get all WAV entries from database
+    final wavEntries = await _storage.getUncompressedEntries();
     
     if (wavEntries.isEmpty) return 0;
     
@@ -393,29 +391,25 @@ class IntelligentCacheManager implements AudioCache {
         if (result != null) {
           compressed++;
 
-          // Update metadata: remove old WAV entry, add new M4A entry
-          final oldMeta = entry.value;
-          _metadata.remove(entry.key);
-          await _storage.removeEntry(entry.key);
-
+          // Update DB: replace old WAV entry with new M4A entry
           final m4aKey = entry.key.replaceAll('.wav', '.m4a');
           final m4aStat = await result.stat();
 
           final newEntry = CacheEntryMetadata(
             key: m4aKey,
             sizeBytes: m4aStat.size,
-            createdAt: oldMeta.createdAt,
-            lastAccessed: oldMeta.lastAccessed,
-            accessCount: oldMeta.accessCount,
-            bookId: oldMeta.bookId,
-            voiceId: oldMeta.voiceId,
-            segmentIndex: oldMeta.segmentIndex,
-            chapterIndex: oldMeta.chapterIndex,
-            engineType: oldMeta.engineType,
-            audioDurationMs: oldMeta.audioDurationMs,
+            createdAt: entry.createdAt,
+            lastAccessed: entry.lastAccessed,
+            accessCount: entry.accessCount,
+            bookId: entry.bookId,
+            voiceId: entry.voiceId,
+            segmentIndex: entry.segmentIndex,
+            chapterIndex: entry.chapterIndex,
+            engineType: entry.engineType,
+            audioDurationMs: entry.audioDurationMs,
+            compressionState: CompressionState.m4a,
           );
-          _metadata[m4aKey] = newEntry;
-          await _storage.upsertEntry(newEntry);
+          await _storage.replaceEntry(oldKey: entry.key, newEntry: newEntry);
         }
       } catch (e) {
         developer.log(
@@ -429,9 +423,10 @@ class IntelligentCacheManager implements AudioCache {
   }
 
   /// Build default eviction context from current state.
-  EvictionContext _buildDefaultContext() {
+  Future<EvictionContext> _buildDefaultContext() async {
     int maxAccessCount = 1;
-    for (final m in _metadata.values) {
+    final entries = await _storage.getAllEntries();
+    for (final m in entries) {
       if (m.accessCount > maxAccessCount) {
         maxAccessCount = m.accessCount;
       }
@@ -539,16 +534,15 @@ class IntelligentCacheManager implements AudioCache {
   @override
   Future<void> markUsed(CacheKey key) async {
     final filename = key.toFilename();
-    final entry = _metadata[filename];
+    final entry = await _storage.getEntry(filename);
     if (entry != null) {
       final updated = entry.copyWith(
         lastAccessed: DateTime.now(),
         accessCount: entry.accessCount + 1,
       );
-      _metadata[filename] = updated;
       await _storage.upsertEntry(updated);
     } else {
-      // Auto-register entry if not in metadata (supports legacy files)
+      // Auto-register entry if not in DB (supports legacy files)
       final file = File('${_cacheDir.path}/$filename');
       if (await file.exists()) {
         final stat = await file.stat();
@@ -565,7 +559,6 @@ class IntelligentCacheManager implements AudioCache {
           engineType: _engineTypeForVoice(key.voiceId),
           audioDurationMs: _estimateDurationFromSize(stat.size),
         );
-        _metadata[filename] = newEntry;
         await _storage.upsertEntry(newEntry);
       }
     }
@@ -611,10 +604,6 @@ class IntelligentCacheManager implements AudioCache {
       }
     }
 
-    for (final name in toRemove) {
-      _metadata.remove(name);
-    }
-
     if (toRemove.isNotEmpty) {
       await _storage.removeEntries(toRemove);
     }
@@ -642,10 +631,9 @@ class IntelligentCacheManager implements AudioCache {
         await entity.delete(recursive: true);
       } catch (_) {}
     }
-    _metadata.clear();
     _hits = 0;
     _misses = 0;
-    await _storage.saveEntries({});
+    await _storage.clearAll();
   }
 
   /// Sync metadata with actual files on disk.
@@ -659,19 +647,20 @@ class IntelligentCacheManager implements AudioCache {
       }
     }
 
+    // Get all entries from DB to compare with filesystem
+    final dbEntries = await _storage.getAllEntries();
+    final dbKeys = dbEntries.map((e) => e.key).toSet();
+
     // Remove metadata for files that no longer exist
     final toRemove = <String>[];
-    for (final key in _metadata.keys) {
+    for (final key in dbKeys) {
       if (!existingFiles.containsKey(key)) {
         toRemove.add(key);
       }
     }
 
-    for (final key in toRemove) {
-      _metadata.remove(key);
-    }
-
     if (toRemove.isNotEmpty) {
+      await _storage.removeEntries(toRemove);
       developer.log(
         '🔄 Removed ${toRemove.length} stale metadata entries',
         name: 'IntelligentCacheManager',
@@ -688,13 +677,13 @@ class IntelligentCacheManager implements AudioCache {
       // Skip metadata file itself
       if (filename.endsWith('.json')) continue;
       
-      if (!_metadata.containsKey(filename)) {
+      if (!dbKeys.contains(filename)) {
         try {
           final stat = await file.stat();
           // Parse voice ID from filename (format: voiceId_hash.wav)
           final voiceId = _parseVoiceIdFromFilename(filename);
           
-          _metadata[filename] = CacheEntryMetadata(
+          final newEntry = CacheEntryMetadata(
             key: filename,
             sizeBytes: stat.size,
             createdAt: stat.changed,
@@ -707,6 +696,7 @@ class IntelligentCacheManager implements AudioCache {
             engineType: _engineTypeForVoice(voiceId),
             audioDurationMs: _estimateDurationFromSize(stat.size),
           );
+          await _storage.upsertEntry(newEntry);
           orphansRegistered++;
         } catch (e) {
           developer.log(
@@ -722,15 +712,6 @@ class IntelligentCacheManager implements AudioCache {
         '📦 Auto-registered $orphansRegistered orphan cache files',
         name: 'IntelligentCacheManager',
       );
-    }
-
-    // Persist changes to storage
-    if (toRemove.isNotEmpty) {
-      await _storage.removeEntries(toRemove);
-    }
-    if (orphansRegistered > 0) {
-      // Batch save all new entries
-      await _storage.saveEntries(_metadata);
     }
   }
 
@@ -810,14 +791,14 @@ class IntelligentCacheManager implements AudioCache {
   Future<bool> compressEntryByFilenameInBackground(String filename) async {
     // DEBUG: Use print to ensure visibility in logcat
     print('[COMPRESSION] compressEntryByFilenameInBackground called: $filename');
-    print('[COMPRESSION] _metadata keys: ${_metadata.keys.take(5).toList()}...');
     print('[COMPRESSION] _pinnedFiles: $_pinnedFiles');
     
-    // Skip if not in metadata
-    if (!_metadata.containsKey(filename)) {
-      print('[COMPRESSION] ⚠️ SKIPPED (not in metadata): $filename');
+    // Skip if not in DB
+    final entry = await _storage.getEntry(filename);
+    if (entry == null) {
+      print('[COMPRESSION] ⚠️ SKIPPED (not in DB): $filename');
       developer.log(
-        '⚠️ Compression skipped (not in metadata): $filename',
+        '⚠️ Compression skipped (not in DB): $filename',
         name: 'IntelligentCacheManager',
       );
       return false;
@@ -861,10 +842,6 @@ class IntelligentCacheManager implements AudioCache {
         CompressionState.compressing,
         compressionStartedAt: DateTime.now(),
       );
-      _metadata[filename] = _metadata[filename]!.copyWith(
-        compressionState: CompressionState.compressing,
-        compressionStartedAt: DateTime.now(),
-      );
       
       print('[COMPRESSION] Marked as compressing, starting native codec...');
       developer.log(
@@ -889,9 +866,6 @@ class IntelligentCacheManager implements AudioCache {
           filename,
           CompressionState.failed,
         );
-        _metadata[filename] = _metadata[filename]!.copyWith(
-          compressionState: CompressionState.failed,
-        );
         developer.log(
           '❌ Compression failed for $filename',
           name: 'IntelligentCacheManager',
@@ -901,22 +875,21 @@ class IntelligentCacheManager implements AudioCache {
       
       print('[COMPRESSION] ✅ Native codec succeeded for: $filename');
       // Step 3: Update metadata atomically (DB-first approach)
-      final oldMeta = _metadata[filename]!;
       final m4aKey = filename.replaceAll('.wav', '.m4a');
       final m4aStat = await m4aFile.stat();
       
       final newEntry = CacheEntryMetadata(
         key: m4aKey,
         sizeBytes: m4aStat.size,
-        createdAt: oldMeta.createdAt,
-        lastAccessed: oldMeta.lastAccessed,
-        accessCount: oldMeta.accessCount,
-        bookId: oldMeta.bookId,
-        voiceId: oldMeta.voiceId,
-        segmentIndex: oldMeta.segmentIndex,
-        chapterIndex: oldMeta.chapterIndex,
-        engineType: oldMeta.engineType,
-        audioDurationMs: oldMeta.audioDurationMs,
+        createdAt: entry.createdAt,
+        lastAccessed: entry.lastAccessed,
+        accessCount: entry.accessCount,
+        bookId: entry.bookId,
+        voiceId: entry.voiceId,
+        segmentIndex: entry.segmentIndex,
+        chapterIndex: entry.chapterIndex,
+        engineType: entry.engineType,
+        audioDurationMs: entry.audioDurationMs,
         compressionState: CompressionState.m4a,
         compressionStartedAt: null,
       );
@@ -924,13 +897,9 @@ class IntelligentCacheManager implements AudioCache {
       // Replace in DB (atomic: delete WAV, insert M4A)
       await _storage.replaceEntry(oldKey: filename, newEntry: newEntry);
       
-      // Update memory metadata
-      _metadata.remove(filename);
-      _metadata[m4aKey] = newEntry;
-      
       developer.log(
         '✅ Background compressed $filename → $m4aKey '
-        '(${oldMeta.sizeBytes ~/ 1024}KB → ${newEntry.sizeBytes ~/ 1024}KB)',
+        '(${entry.sizeBytes ~/ 1024}KB → ${newEntry.sizeBytes ~/ 1024}KB)',
         name: 'IntelligentCacheManager',
       );
       
@@ -966,13 +935,14 @@ class IntelligentCacheManager implements AudioCache {
   // ══════════════════════════════════════════════════════════════════════════
 
   /// Get all metadata entries (for reconciliation).
-  Map<String, CacheEntryMetadata> getAllMetadata() {
-    return Map.unmodifiable(_metadata);
+  /// Queries the database directly.
+  Future<Map<String, CacheEntryMetadata>> getAllMetadata() async {
+    final entries = await _storage.getAllEntries();
+    return {for (final e in entries) e.key: e};
   }
 
   /// Remove a single entry by key (for reconciliation - ghost entry cleanup).
   Future<void> removeEntry(String key) async {
-    _metadata.remove(key);
     await _storage.removeEntries([key]);
   }
 
@@ -981,7 +951,6 @@ class IntelligentCacheManager implements AudioCache {
   /// This is used to add entries for files that exist on disk
   /// but don't have database entries.
   Future<void> registerOrphanEntry(CacheEntryMetadata entry) async {
-    _metadata[entry.key] = entry;
     await _storage.upsertEntry(entry);
   }
 

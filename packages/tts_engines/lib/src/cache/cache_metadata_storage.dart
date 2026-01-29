@@ -3,16 +3,34 @@ import 'intelligent_cache_manager.dart';
 
 /// Abstract interface for cache metadata storage.
 ///
+/// This is the SINGLE SOURCE OF TRUTH for cache metadata.
+/// No in-memory caching - query DB directly for all operations.
+/// SQLite is fast enough for our use case (1-5ms per query).
+///
 /// This allows IntelligentCacheManager to work with different backends:
 /// - JSON file (legacy/fallback)
 /// - SQLite (preferred)
 ///
 /// The app layer provides the implementation.
 abstract class CacheMetadataStorage {
-  /// Load all cache entry metadata.
+  /// Get a single entry by key. Returns null if not found.
+  Future<CacheEntryMetadata?> getEntry(String key);
+
+  /// Check if an entry exists by key.
+  Future<bool> hasEntry(String key);
+
+  /// Get all entries (for iteration operations like eviction).
+  Future<List<CacheEntryMetadata>> getAllEntries();
+
+  /// Get total entry count.
+  Future<int> getEntryCount();
+  
+  /// Load all cache entry metadata as a map.
+  /// @deprecated Use getAllEntries() instead.
   Future<Map<String, CacheEntryMetadata>> loadEntries();
 
   /// Save all cache entry metadata.
+  /// @deprecated Use upsertEntry() for individual saves.
   Future<void> saveEntries(Map<String, CacheEntryMetadata> entries);
 
   /// Load quota settings.
@@ -73,4 +91,9 @@ abstract class CacheMetadataStorage {
     required String oldKey,
     required CacheEntryMetadata newEntry,
   });
+
+  /// Clear all entries from storage.
+  /// 
+  /// Used when clearing the entire cache.
+  Future<void> clearAll();
 }

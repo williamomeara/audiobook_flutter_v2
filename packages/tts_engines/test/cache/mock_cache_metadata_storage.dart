@@ -110,4 +110,29 @@ class MockCacheMetadataStorage implements CacheMetadataStorage {
     _entries.remove(oldKey);
     _entries[newEntry.key] = newEntry;
   }
+
+  @override
+  Future<CacheEntryMetadata?> getEntry(String key) async {
+    return _entries[key];
+  }
+
+  @override
+  Future<bool> hasEntry(String key) async {
+    return _entries.containsKey(key);
+  }
+
+  @override
+  Future<List<CacheEntryMetadata>> getAllEntries() async {
+    return _entries.values.toList();
+  }
+
+  @override
+  Future<int> getEntryCount() async {
+    return _entries.length;
+  }
+
+  @override
+  Future<void> clearAll() async {
+    _entries.clear();
+  }
 }

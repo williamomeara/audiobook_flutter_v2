@@ -7,6 +7,7 @@ import 'daos/settings_dao.dart';
 
 /// SQLite implementation of CacheMetadataStorage.
 ///
+/// This is the SINGLE SOURCE OF TRUTH for cache metadata.
 /// Uses CacheDao for database operations and provides the interface
 /// expected by IntelligentCacheManager.
 class SqliteCacheMetadataStorage implements CacheMetadataStorage {
@@ -19,6 +20,61 @@ class SqliteCacheMetadataStorage implements CacheMetadataStorage {
   static const _quotaMaxSizeKey = 'cache_quota_max_size_bytes';
   static const _quotaWarningThresholdKey = 'cache_quota_warning_percent';
   static const _quotaCompressionThresholdKey = 'cache_quota_compression_percent';
+
+  @override
+  Future<CacheEntryMetadata?> getEntry(String key) async {
+    try {
+      final row = await _cacheDao.getEntryByFilePath(key);
+      if (row == null) return null;
+      return _rowToMetadata(row);
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to get cache entry: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> hasEntry(String key) async {
+    try {
+      return await _cacheDao.hasEntry(key);
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to check entry existence: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+      return false;
+    }
+  }
+
+  @override
+  Future<List<CacheEntryMetadata>> getAllEntries() async {
+    try {
+      final rows = await _cacheDao.getAllEntries();
+      return rows.map(_rowToMetadata).toList();
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to get all entries: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+      return [];
+    }
+  }
+
+  @override
+  Future<int> getEntryCount() async {
+    try {
+      return await _cacheDao.getEntryCount();
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to get entry count: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+      return 0;
+    }
+  }
 
   @override
   Future<Map<String, CacheEntryMetadata>> loadEntries() async {
@@ -250,6 +306,22 @@ class SqliteCacheMetadataStorage implements CacheMetadataStorage {
     } catch (e) {
       developer.log(
         '⚠️ Failed to replace entry: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+    }
+  }
+
+  @override
+  Future<void> clearAll() async {
+    try {
+      await _cacheDao.deleteAllEntries();
+      developer.log(
+        '🗑️ Cleared all cache entries',
+        name: 'SqliteCacheMetadataStorage',
+      );
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to clear all cache entries: $e',
         name: 'SqliteCacheMetadataStorage',
       );
     }

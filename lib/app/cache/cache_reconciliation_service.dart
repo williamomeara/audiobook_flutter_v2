@@ -120,7 +120,7 @@ class CacheReconciliationService {
       );
 
       // Step 2: Get database entries (using cache's internal metadata)
-      final dbEntries = cache.getAllMetadata();
+      final dbEntries = await cache.getAllMetadata();
       developer.log(
         '🗃️ Found ${dbEntries.length} entries in database',
         name: 'CacheReconciliation',
