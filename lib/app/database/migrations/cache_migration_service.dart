@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -16,6 +17,9 @@ import '../sqlite_cache_metadata_storage.dart';
 /// 2. Migrates entries and quota settings to SQLite
 /// 3. Deletes the JSON file after successful migration
 /// 4. Sets a flag to prevent re-running
+///
+/// This service contains the JSON reading logic directly to avoid
+/// dependencies on legacy JsonCacheMetadataStorage class.
 class CacheMigrationService {
   static const _migrationCompleteKey = 'cache_json_migration_complete';
 
@@ -44,12 +48,9 @@ class CacheMigrationService {
     }
 
     try {
-      // Create JSON storage to read from
-      final jsonStorage = JsonCacheMetadataStorage(jsonFile);
-
-      // Load entries and quota from JSON
-      final entries = await jsonStorage.getEntriesForMigration();
-      final quota = await jsonStorage.loadQuotaSettings();
+      // Load entries and quota from JSON file
+      final entries = await _loadEntriesFromJson(jsonFile);
+      final quota = await _loadQuotaFromJson(jsonFile);
 
       if (entries.isEmpty) {
         if (kDebugMode) debugPrint('📦 No cache entries to migrate');
@@ -110,6 +111,60 @@ class CacheMigrationService {
       }
       // Don't mark complete - allow retry
       return 0;
+    }
+  }
+
+  /// Load cache entries from legacy JSON file.
+  static Future<Map<String, CacheEntryMetadata>> _loadEntriesFromJson(
+    File jsonFile,
+  ) async {
+    try {
+      if (!await jsonFile.exists()) return {};
+
+      final content = await jsonFile.readAsString();
+      final json = jsonDecode(content) as Map<String, dynamic>;
+      final result = <String, CacheEntryMetadata>{};
+
+      if (json['entries'] != null) {
+        final entries = json['entries'] as Map<String, dynamic>;
+        for (final e in entries.entries) {
+          result[e.key] = CacheEntryMetadata.fromJson(
+            e.value as Map<String, dynamic>,
+          );
+        }
+      }
+
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('⚠️ Failed to load JSON cache entries: $e');
+      }
+      return {};
+    }
+  }
+
+  /// Load quota settings from legacy JSON file.
+  static Future<CacheQuotaSettings?> _loadQuotaFromJson(
+    File jsonFile,
+  ) async {
+    try {
+      if (!await jsonFile.exists()) return null;
+
+      final content = await jsonFile.readAsString();
+      final json = jsonDecode(content) as Map<String, dynamic>;
+
+      if (json['quota'] != null) {
+        return CacheQuotaSettings.fromJson(
+          json['quota'] as Map<String, dynamic>,
+        );
+      }
+
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('⚠️ Failed to load JSON quota settings: $e');
+      }
+      return null;
     }
   }
 

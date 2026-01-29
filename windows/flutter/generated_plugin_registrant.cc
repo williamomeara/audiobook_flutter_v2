@@ -8,7 +8,6 @@
 
 #include <battery_plus/battery_plus_windows_plugin.h>
 #include <flutter_audio_toolkit/flutter_audio_toolkit_plugin_c_api.h>
-#include <flutter_tts/flutter_tts_plugin.h>
 #include <opus_flutter_windows/none.h>
 #include <permission_handler_windows/permission_handler_windows_plugin.h>
 #include <url_launcher_windows/url_launcher_windows.h>
@@ -18,8 +17,6 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("BatteryPlusWindowsPlugin"));
   FlutterAudioToolkitPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterAudioToolkitPluginCApi"));
-  FlutterTtsPluginRegisterWithRegistrar(
-      registry->GetRegistrarForPlugin("FlutterTtsPlugin"));
   noneRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("none"));
   PermissionHandlerWindowsPluginRegisterWithRegistrar(

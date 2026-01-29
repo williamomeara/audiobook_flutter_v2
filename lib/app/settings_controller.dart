@@ -108,8 +108,9 @@ class SettingsState {
 
 /// Settings controller using SQLite for persistence.
 ///
-/// Only dark_mode uses SharedPreferences (via QuickSettingsService) for
-/// instant theme loading at startup. All other settings use SQLite.
+/// All settings including dark_mode are stored in SQLite.
+/// QuickSettingsService preloads dark_mode at startup to avoid theme flash
+/// while the rest of settings load asynchronously.
 class SettingsController extends Notifier<SettingsState> {
   SettingsDao? _settingsDao;
 

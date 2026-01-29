@@ -284,8 +284,8 @@ class CacheDao {
   Future<Map<String, int>> getCompressionStats() async {
     final result = await _db.rawQuery('''
       SELECT
-        SUM(CASE WHEN is_compressed = 1 THEN 1 ELSE 0 END) as compressed,
-        SUM(CASE WHEN is_compressed = 0 THEN 1 ELSE 0 END) as uncompressed
+        SUM(CASE WHEN compression_state = 'm4a' THEN 1 ELSE 0 END) as compressed,
+        SUM(CASE WHEN compression_state != 'm4a' THEN 1 ELSE 0 END) as uncompressed
       FROM cache_entries
     ''');
     if (result.isEmpty) {

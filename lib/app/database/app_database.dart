@@ -5,12 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'migrations/cache_migration_service.dart';
 import 'migrations/json_migration_service.dart';
-import 'migrations/migration_v1.dart';
-import 'migrations/migration_v2.dart';
-import 'migrations/migration_v3.dart';
-import 'migrations/migration_v4.dart';
-import 'migrations/migration_v5.dart';
-import 'migrations/migration_v6.dart';
+import 'migrations/migration_consolidated.dart';
 import 'migrations/settings_migration_service.dart';
 
 /// Singleton database instance for the Eist audiobook app.
@@ -68,68 +63,32 @@ class AppDatabase {
   }
 
   /// Create initial database schema.
+  /// Uses consolidated schema (pre-release optimization).
   static Future<void> _onCreate(Database db, int version) async {
     // Note: Pragmas are set in _onConfigure, not here (onCreate runs in a transaction)
 
-    // Create all tables
-    await MigrationV1.up(db);
-    await MigrationV2.up(db);
-    await MigrationV3.up(db);
-    // Note: MigrationV4 added content_confidence columns, MigrationV5 removes them
-    // For new databases, we skip adding them entirely by not running V4
-    // and calling V5 which handles the case gracefully
-    await MigrationV6.up(db);
-
-    // Record schema version
-    await db.insert('schema_version', {
-      'version': version,
-      'applied_at': DateTime.now().millisecondsSinceEpoch,
-      'description': 'Initial schema with chapter positions',
-    });
+    // Create consolidated schema with all tables, columns, and indexes
+    // This combines V1-V6 migrations into a single comprehensive schema
+    await MigrationConsolidated.up(db);
   }
 
   /// Handle schema upgrades for future versions.
+  ///
+  /// Pre-release note: For v1.0 release, all existing schema is consolidated.
+  /// If upgrading from pre-consolidated versions, users must delete and reinstall.
+  /// Future upgrades will use new migration files (e.g., migration_v7.dart).
   static Future<void> _onUpgrade(
       Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await MigrationV2.up(db);
-      await db.insert('schema_version', {
-        'version': 2,
-        'applied_at': DateTime.now().millisecondsSinceEpoch,
-        'description': 'Add cache metadata extensions (access_count, engine_type, voice_id)',
-      });
-    }
-    if (oldVersion < 3) {
-      await MigrationV3.up(db);
-      await db.insert('schema_version', {
-        'version': 3,
-        'applied_at': DateTime.now().millisecondsSinceEpoch,
-        'description': 'Add segment progress tracking for per-segment listening history',
-      });
-    }
-    if (oldVersion < 4) {
-      await MigrationV4.up(db);
-      await db.insert('schema_version', {
-        'version': 4,
-        'applied_at': DateTime.now().millisecondsSinceEpoch,
-        'description': 'Add content confidence scoring for smart chapter detection',
-      });
-    }
-    if (oldVersion < 5) {
-      await MigrationV5.up(db);
-      await db.insert('schema_version', {
-        'version': 5,
-        'applied_at': DateTime.now().millisecondsSinceEpoch,
-        'description': 'Remove content confidence columns (feature removed)',
-      });
-    }
+    // For v1.0 release with consolidated schema, upgrades start from version 6
+    // Future migrations will be added here as new files (migration_v7.dart, etc.)
+
+    // Currently: no upgrades needed for pre-release versions
+    // Users with old test databases should delete and reinstall
     if (oldVersion < 6) {
-      await MigrationV6.up(db);
-      await db.insert('schema_version', {
-        'version': 6,
-        'applied_at': DateTime.now().millisecondsSinceEpoch,
-        'description': 'Add chapter_positions table for per-chapter resume',
-      });
+      if (kDebugMode) {
+        debugPrint('Pre-release database detected (version $oldVersion)');
+        debugPrint('Please delete app data and reinstall for v1.0 release');
+      }
     }
   }
 

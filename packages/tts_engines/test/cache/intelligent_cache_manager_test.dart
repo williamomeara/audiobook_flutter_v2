@@ -4,18 +4,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:tts_engines/src/cache/intelligent_cache_manager.dart';
 import 'package:tts_engines/src/cache/cache_metadata_storage.dart';
-import 'package:tts_engines/src/cache/json_cache_metadata_storage.dart';
+import 'mock_cache_metadata_storage.dart';
 
 void main() {
   late Directory tempDir;
   late IntelligentCacheManager manager;
-  late File metadataFile;
   late CacheMetadataStorage storage;
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('cache_test_');
-    metadataFile = File('${tempDir.path}/.cache_metadata.json');
-    storage = JsonCacheMetadataStorage(metadataFile);
+    storage = MockCacheMetadataStorage();
     manager = IntelligentCacheManager(
       cacheDir: tempDir,
       storage: storage,
@@ -146,10 +144,9 @@ void main() {
           .writeAsBytes(List.filled(3000, 0));
       
       // Re-initialize to trigger sync
-      final newStorage = JsonCacheMetadataStorage(metadataFile);
       final newManager = IntelligentCacheManager(
         cacheDir: tempDir,
-        storage: newStorage,
+        storage: storage,
         quotaSettings: CacheQuotaSettings.fromGB(1.0),
       );
       await newManager.initialize();
@@ -192,10 +189,9 @@ void main() {
       await file.delete();
       
       // Re-initialize to trigger sync
-      final newStorage = JsonCacheMetadataStorage(metadataFile);
       final newManager = IntelligentCacheManager(
         cacheDir: tempDir,
-        storage: newStorage,
+        storage: storage,
         quotaSettings: CacheQuotaSettings.fromGB(1.0),
       );
       await newManager.initialize();
@@ -476,7 +472,6 @@ void main() {
       
       // Re-initialize to pick up the M4A file
       manager.dispose();
-      storage = JsonCacheMetadataStorage(metadataFile);
       manager = IntelligentCacheManager(
         cacheDir: tempDir,
         storage: storage,

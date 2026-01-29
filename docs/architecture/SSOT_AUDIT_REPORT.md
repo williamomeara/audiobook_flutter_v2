@@ -35,37 +35,36 @@ All structured data is stored in SQLite:
 | `downloaded_voices` | Voice model metadata | `DownloadedVoicesDao` |
 | `model_metrics` | TTS performance data | `ModelMetricsDao` |
 
-### 2. SharedPreferences ⚠️ INTENTIONAL DUAL-WRITE
+### 2. SharedPreferences ❌ REMOVED
 
-**Only `dark_mode` is stored in SharedPreferences.**
+**SharedPreferences has been completely removed in favor of SQLite-only storage.**
 
-This is intentional for instant theme loading at startup (avoiding flash):
+Previously, `dark_mode` was cached in SharedPreferences for instant startup theme loading.
+This has been refactored with `QuickSettingsService` now preloading `dark_mode` directly from SQLite.
 
-```dart
-// settings_controller.dart
-Future<void> setDarkMode(bool value) async {
-  state = state.copyWith(darkMode: value);
-  // Write to both SharedPreferences (for instant startup) and SQLite
-  if (QuickSettingsService.isInitialized) {
-    await QuickSettingsService.instance.setDarkMode(value);
-  }
-  await _settingsDao?.setBool(SettingsKeys.darkMode, value);
-}
-```
+**Current flow:**
+1. App startup calls `QuickSettingsService.initialize()` before rendering
+2. This loads `dark_mode` from SQLite and caches it in memory
+3. UI uses cached value for instant theme application
+4. SQLite remains the single source of truth
 
-**SQLite remains the SSOT.** SharedPreferences is a read-optimized cache that gets synced from SQLite during migration.
+**Benefits:**
+- No dual-write complexity
+- No SharedPreferences dependency
+- Cleaner SSOT implementation
 
-### 3. JSON Files 📦 MIGRATION/FALLBACK ONLY
+### 3. JSON Files 📦 MIGRATION ONLY (LEGACY)
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `library.json` | Legacy book storage | **Read-only for migration** |
-| `.cache_metadata.json` | Legacy cache index | **Read-only for migration** |
+| `library.json` | Legacy book storage | **Migrated to SQLite** |
+| `.cache_metadata.json` | Legacy cache index | **Migrated to SQLite** |
 
 These files are:
-- Only read during one-time migration to SQLite
-- Not written to after migration
-- `JsonCacheMetadataStorage` class is kept as fallback but not used in production
+- Read one-time during migration to SQLite (if they exist)
+- Backed up as `.migrated` files after successful migration
+- Never written to in production
+- `JsonCacheMetadataStorage` class was removed - migration logic moved to `CacheMigrationService`
 
 ### 4. Marker/Manifest Files ✅ NOT DATA PERSISTENCE
 
@@ -130,14 +129,46 @@ enum CompressionState { wav, compressing, m4a, failed }
 ### Already Implemented ✅
 
 1. **SQLite as SSOT** - All settings, books, cache metadata in one database
-2. **Documented dual-write** - dark_mode SharedPreferences is documented in `QuickSettingsService`
-3. **Migration services** - One-time migration from JSON to SQLite completed
-4. **Compression state in DB** - `compression_state` column is authoritative
+2. **SQLite-only settings** - Removed SharedPreferences dependency; `QuickSettingsService` now preloads from SQLite
+3. **Removed legacy JSON storage** - `JsonCacheMetadataStorage` deleted; migration logic consolidated in `CacheMigrationService`
+4. **Migration services** - One-time migration from JSON to SQLite with automatic backup
+5. **Compression state in DB** - `compression_state` column is authoritative
+6. **SSOT consistency tests** - Added `ssot_consistency_test.dart` for cache/settings validation
+7. **Performance metrics** - Added `SsotMetrics` for database query latency tracking
+8. **Recovery documentation** - Created `SSOT_RECOVERY_GUIDE.md` with disaster recovery procedures
+
+### Recently Implemented ✨
+
+1. **Remove legacy JSON storage classes** ✅ - `JsonCacheMetadataStorage` deleted
+   - Migration logic moved directly into `CacheMigrationService`
+   - Tests updated to use `MockCacheMetadataStorage` instead
+   - All imports and dependencies removed
+
+2. **Remove SharedPreferences package** ✅ - SQLite-only implementation completed
+   - `QuickSettingsService` now preloads `dark_mode` from SQLite at startup
+   - Eliminates dual-write complexity and SharedPreferences dependency
+   - Maintains instant theme loading by caching dark_mode in memory
 
 ### Future Considerations
 
-1. **Remove legacy JSON storage classes** - `JsonCacheMetadataStorage` could be removed after confirming no users need migration
-2. **Remove SharedPreferences package** - If startup theme flash is acceptable, could simplify to SQLite-only
+3. **Implement SSOT consistency validation tests**
+   - Automated tests to verify in-memory caches (`IntelligentCacheManager._metadata`) match SQLite state after operations
+   - Add integrity checks in CI/CD to detect SSOT violations early
+   - Test simulated database failures and verify fallback behavior
+
+4. **Monitor SSOT performance metrics**
+   - Track database query latency (especially for frequently-accessed settings and cache metadata)
+   - Alert if SQLite becomes a bottleneck during concurrent downloads/compression
+   - Consider read replicas or connection pooling if performance issues emerge
+
+5. **Document fallback and recovery procedures**
+   - What happens if SQLite database file is corrupted
+   - How to rebuild cache metadata from disk files if needed
+   - Backup strategy for user library data
+
+6. **Add feature flags for zero-downtime migrations**
+   - If future schema changes are needed, use feature flags to coordinate app versions
+   - Prevents data loss during migrations to new table structures
 
 ---
 
