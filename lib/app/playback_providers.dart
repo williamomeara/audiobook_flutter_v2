@@ -625,12 +625,14 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         // Only compress if the setting is enabled
         onEntryRegistered: (filename) async {
           final shouldCompress = ref.read(settingsProvider).compressOnSynthesize;
+          PlaybackLogger.info('[PlaybackProvider] onEntryRegistered called for: $filename, compress setting: $shouldCompress');
           if (!shouldCompress) {
             PlaybackLogger.debug('[PlaybackProvider] Entry registered (compression disabled): $filename');
             return;
           }
           PlaybackLogger.debug('[PlaybackProvider] Entry registered, triggering compression: $filename');
-          await intelligentCache.compressEntryByFilenameInBackground(filename);
+          final result = await intelligentCache.compressEntryByFilenameInBackground(filename);
+          PlaybackLogger.info('[PlaybackProvider] Compression result for $filename: $result');
         },
       );
       PlaybackLogger.info('[PlaybackProvider] Controller created successfully');

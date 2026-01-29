@@ -784,16 +784,40 @@ class IntelligentCacheManager implements AudioCache {
   /// Returns false if file doesn't exist, is already compressed, or is pinned.
   Future<bool> compressEntryByFilenameInBackground(String filename) async {
     // Skip if not in metadata
-    if (!_metadata.containsKey(filename)) return false;
+    if (!_metadata.containsKey(filename)) {
+      developer.log(
+        '⚠️ Compression skipped (not in metadata): $filename',
+        name: 'IntelligentCacheManager',
+      );
+      return false;
+    }
     
     // Skip if already compressed
-    if (filename.endsWith('.m4a') || filename.endsWith('.aac')) return false;
+    if (filename.endsWith('.m4a') || filename.endsWith('.aac')) {
+      developer.log(
+        '⚠️ Compression skipped (already compressed): $filename',
+        name: 'IntelligentCacheManager',
+      );
+      return false;
+    }
     
     // Skip if pinned (in use by prefetch)
-    if (_pinnedFiles.contains(filename)) return false;
+    if (_pinnedFiles.contains(filename)) {
+      developer.log(
+        '⚠️ Compression skipped (file pinned for playback): $filename',
+        name: 'IntelligentCacheManager',
+      );
+      return false;
+    }
     
     final wavFile = File('${_cacheDir.path}/$filename');
-    if (!await wavFile.exists()) return false;
+    if (!await wavFile.exists()) {
+      developer.log(
+        '⚠️ Compression skipped (file not found): $filename',
+        name: 'IntelligentCacheManager',
+      );
+      return false;
+    }
     
     try {
       // Step 1: Mark as compressing in DB (prevents concurrent compression)
