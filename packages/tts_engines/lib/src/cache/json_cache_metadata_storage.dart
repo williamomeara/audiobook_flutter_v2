@@ -133,7 +133,7 @@ class JsonCacheMetadataStorage implements CacheMetadataStorage {
   @override
   Future<int> getCompressedCount() async {
     _entriesCache ??= await loadEntries();
-    return _entriesCache!.values.where((e) => e.key.endsWith('.m4a')).length;
+    return _entriesCache!.values.where((e) => e.compressionState == CompressionState.m4a).length;
   }
 
   @override

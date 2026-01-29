@@ -99,20 +99,20 @@ class CacheDao {
     return map;
   }
 
-  /// Get count of compressed entries (files ending with .m4a).
+  /// Get count of compressed entries (compression_state = 'm4a').
   Future<int> getCompressedCount() async {
     final result = await _db.rawQuery('''
       SELECT COUNT(*) as count FROM cache_entries
-      WHERE file_path LIKE '%.m4a'
+      WHERE compression_state = 'm4a'
     ''');
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
-  /// Get all uncompressed (WAV) entries.
+  /// Get all uncompressed (WAV) entries (compression_state = 'wav').
   Future<List<Map<String, dynamic>>> getUncompressedEntries() async {
     return await _db.query(
       'cache_entries',
-      where: 'file_path LIKE "%.wav"',
+      where: "compression_state = 'wav'",
       orderBy: 'created_at ASC',
     );
   }
