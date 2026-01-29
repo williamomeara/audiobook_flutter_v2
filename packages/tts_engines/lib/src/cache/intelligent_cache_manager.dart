@@ -783,8 +783,14 @@ class IntelligentCacheManager implements AudioCache {
   /// Returns true if compression was performed and successful.
   /// Returns false if file doesn't exist, is already compressed, or is pinned.
   Future<bool> compressEntryByFilenameInBackground(String filename) async {
+    // DEBUG: Use print to ensure visibility in logcat
+    print('[COMPRESSION] compressEntryByFilenameInBackground called: $filename');
+    print('[COMPRESSION] _metadata keys: ${_metadata.keys.take(5).toList()}...');
+    print('[COMPRESSION] _pinnedFiles: $_pinnedFiles');
+    
     // Skip if not in metadata
     if (!_metadata.containsKey(filename)) {
+      print('[COMPRESSION] ⚠️ SKIPPED (not in metadata): $filename');
       developer.log(
         '⚠️ Compression skipped (not in metadata): $filename',
         name: 'IntelligentCacheManager',
@@ -794,6 +800,7 @@ class IntelligentCacheManager implements AudioCache {
     
     // Skip if already compressed
     if (filename.endsWith('.m4a') || filename.endsWith('.aac')) {
+      print('[COMPRESSION] ⚠️ SKIPPED (already compressed): $filename');
       developer.log(
         '⚠️ Compression skipped (already compressed): $filename',
         name: 'IntelligentCacheManager',
@@ -803,6 +810,7 @@ class IntelligentCacheManager implements AudioCache {
     
     // Skip if pinned (in use by prefetch)
     if (_pinnedFiles.contains(filename)) {
+      print('[COMPRESSION] ⚠️ SKIPPED (pinned): $filename');
       developer.log(
         '⚠️ Compression skipped (file pinned for playback): $filename',
         name: 'IntelligentCacheManager',
@@ -812,6 +820,7 @@ class IntelligentCacheManager implements AudioCache {
     
     final wavFile = File('${_cacheDir.path}/$filename');
     if (!await wavFile.exists()) {
+      print('[COMPRESSION] ⚠️ SKIPPED (file not found): $filename');
       developer.log(
         '⚠️ Compression skipped (file not found): $filename',
         name: 'IntelligentCacheManager',
@@ -819,6 +828,7 @@ class IntelligentCacheManager implements AudioCache {
       return false;
     }
     
+    print('[COMPRESSION] ✅ All checks passed, starting compression for: $filename');
     try {
       // Step 1: Mark as compressing in DB (prevents concurrent compression)
       await _storage.updateCompressionState(
@@ -831,6 +841,7 @@ class IntelligentCacheManager implements AudioCache {
         compressionStartedAt: DateTime.now(),
       );
       
+      print('[COMPRESSION] Marked as compressing, starting isolate...');
       developer.log(
         '⏳ Starting background compression for: $filename',
         name: 'IntelligentCacheManager',
@@ -843,6 +854,7 @@ class IntelligentCacheManager implements AudioCache {
       
       if (m4aFile == null) {
         // Compression failed - mark as failed in DB
+        print('[COMPRESSION] ❌ Isolate returned null for: $filename');
         await _storage.updateCompressionState(
           filename,
           CompressionState.failed,
@@ -857,6 +869,7 @@ class IntelligentCacheManager implements AudioCache {
         return false;
       }
       
+      print('[COMPRESSION] ✅ Isolate succeeded for: $filename');
       // Step 3: Update metadata atomically (DB-first approach)
       final oldMeta = _metadata[filename]!;
       final m4aKey = filename.replaceAll('.wav', '.m4a');
