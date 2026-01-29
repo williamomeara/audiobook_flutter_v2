@@ -240,6 +240,32 @@ class SqliteCacheMetadataStorage implements CacheMetadataStorage {
   }
 
   @override
+  Future<CacheCombinedStats> getCombinedStats() async {
+    try {
+      final stats = await _cacheDao.getCombinedStats();
+      return CacheCombinedStats(
+        totalSize: stats.totalSize,
+        entryCount: stats.entryCount,
+        compressedCount: stats.compressedCount,
+        byBook: stats.byBook,
+        byVoice: stats.byVoice,
+      );
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to get combined stats: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+      return CacheCombinedStats(
+        totalSize: 0,
+        entryCount: 0,
+        compressedCount: 0,
+        byBook: {},
+        byVoice: {},
+      );
+    }
+  }
+
+  @override
   Future<int> getCompressedCount() async {
     try {
       return await _cacheDao.getCompressedCount();

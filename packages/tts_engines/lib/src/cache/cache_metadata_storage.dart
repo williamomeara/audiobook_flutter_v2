@@ -60,6 +60,13 @@ abstract class CacheMetadataStorage {
   /// Get count of compressed entries.
   Future<int> getCompressedCount();
 
+  /// Get combined cache stats in a single optimized query.
+  /// 
+  /// Returns (totalSize, entryCount, compressedCount, byBook, byVoice) 
+  /// in one database call instead of 3+ separate queries.
+  /// This is similar to Django's select_related/prefetch_related pattern.
+  Future<CacheCombinedStats> getCombinedStats();
+
   /// Get all uncompressed (WAV) entries from database.
   /// 
   /// Queries the database for entries with compressionState = WAV.
@@ -96,4 +103,21 @@ abstract class CacheMetadataStorage {
   /// 
   /// Used when clearing the entire cache.
   Future<void> clearAll();
+}
+
+/// Combined cache statistics from a single optimized query.
+class CacheCombinedStats {
+  final int totalSize;
+  final int entryCount;
+  final int compressedCount;
+  final Map<String, int> byBook;
+  final Map<String, int> byVoice;
+
+  CacheCombinedStats({
+    required this.totalSize,
+    required this.entryCount,
+    required this.compressedCount,
+    required this.byBook,
+    required this.byVoice,
+  });
 }

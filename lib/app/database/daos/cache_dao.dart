@@ -1,5 +1,25 @@
 import 'package:sqflite/sqflite.dart';
 
+/// Combined cache statistics from a single optimized query.
+/// 
+/// This class holds all the stats that would otherwise require multiple
+/// separate database queries (getSizeByBook, getSizeByVoice, getEntryCount, etc.)
+class CacheDaoStats {
+  final int totalSize;
+  final int entryCount;
+  final int compressedCount;
+  final Map<String, int> byBook;
+  final Map<String, int> byVoice;
+
+  CacheDaoStats({
+    required this.totalSize,
+    required this.entryCount,
+    required this.compressedCount,
+    required this.byBook,
+    required this.byVoice,
+  });
+}
+
 /// Data Access Object for cache_entries table.
 ///
 /// Manages audio cache metadata with book-centric design.
@@ -159,6 +179,76 @@ class CacheDao {
   /// Get all cache entries as a list.
   Future<List<Map<String, dynamic>>> getAllEntries() async {
     return await _db.query('cache_entries');
+  }
+
+  /// Get all cache stats in a single query (optimized batch stats).
+  /// 
+  /// Returns total size, count, byBook and byVoice aggregations in one DB call
+  /// instead of making 2-3 separate queries.
+  /// 
+  /// Similar to Django's select_related/prefetch_related optimization pattern.
+  Future<CacheDaoStats> getCombinedStats() async {
+    // Single query with CTEs for all aggregations
+    final results = await _db.rawQuery('''
+      WITH book_stats AS (
+        SELECT book_id, COALESCE(SUM(size_bytes), 0) as total
+        FROM cache_entries
+        GROUP BY book_id
+      ),
+      voice_stats AS (
+        SELECT COALESCE(voice_id, 'unknown') as voice_id, COALESCE(SUM(size_bytes), 0) as total
+        FROM cache_entries
+        GROUP BY voice_id
+      ),
+      totals AS (
+        SELECT 
+          COALESCE(SUM(size_bytes), 0) as total_size,
+          COUNT(*) as entry_count,
+          SUM(CASE WHEN compression_state = 'm4a' THEN 1 ELSE 0 END) as compressed_count,
+          SUM(CASE WHEN compression_state = 'wav' OR compression_state IS NULL THEN 1 ELSE 0 END) as uncompressed_count
+        FROM cache_entries
+      )
+      SELECT 
+        'totals' as type,
+        '' as key,
+        total_size as total,
+        entry_count as entry_count,
+        compressed_count as compressed_count,
+        0 as unused
+      FROM totals
+      UNION ALL
+      SELECT 'book' as type, book_id as key, total, 0, 0, 0 FROM book_stats
+      UNION ALL
+      SELECT 'voice' as type, voice_id as key, total, 0, 0, 0 FROM voice_stats
+    ''');
+
+    int totalSize = 0;
+    int entryCount = 0;
+    int compressedCount = 0;
+    final byBook = <String, int>{};
+    final byVoice = <String, int>{};
+
+    for (final row in results) {
+      final type = row['type'] as String;
+      switch (type) {
+        case 'totals':
+          totalSize = row['total'] as int;
+          entryCount = row['entry_count'] as int;
+          compressedCount = row['compressed_count'] as int;
+        case 'book':
+          byBook[row['key'] as String] = row['total'] as int;
+        case 'voice':
+          byVoice[row['key'] as String] = row['total'] as int;
+      }
+    }
+
+    return CacheDaoStats(
+      totalSize: totalSize,
+      entryCount: entryCount,
+      compressedCount: compressedCount,
+      byBook: byBook,
+      byVoice: byVoice,
+    );
   }
 
   // ============= Coordinate-based methods (original) =============

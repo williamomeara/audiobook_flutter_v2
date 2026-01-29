@@ -135,4 +135,29 @@ class MockCacheMetadataStorage implements CacheMetadataStorage {
   Future<void> clearAll() async {
     _entries.clear();
   }
+
+  @override
+  Future<CacheCombinedStats> getCombinedStats() async {
+    final byBook = <String, int>{};
+    final byVoice = <String, int>{};
+    int totalSize = 0;
+    int compressedCount = 0;
+
+    for (final entry in _entries.values) {
+      byBook[entry.bookId] = (byBook[entry.bookId] ?? 0) + entry.sizeBytes;
+      byVoice[entry.voiceId] = (byVoice[entry.voiceId] ?? 0) + entry.sizeBytes;
+      totalSize += entry.sizeBytes;
+      if (entry.compressionState == CompressionState.m4a) {
+        compressedCount++;
+      }
+    }
+
+    return CacheCombinedStats(
+      totalSize: totalSize,
+      entryCount: _entries.length,
+      compressedCount: compressedCount,
+      byBook: byBook,
+      byVoice: byVoice,
+    );
+  }
 }

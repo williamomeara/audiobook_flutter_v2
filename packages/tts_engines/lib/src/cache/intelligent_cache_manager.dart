@@ -173,12 +173,13 @@ class IntelligentCacheManager implements AudioCache {
 
   /// Get cache usage statistics.
   /// 
-  /// Uses filesystem scan for compression counts (more accurate than DB)
+  /// Uses a single optimized database query for book/voice/count stats,
+  /// then filesystem scan for accurate compression counts (more accurate than DB)
   /// because DB state can become stale during background compression.
   Future<CacheUsageStats> getUsageStats() async {
-    // Use storage backend for book/voice aggregation
-    final byBook = await _storage.getSizeByBook();
-    final byVoice = await _storage.getSizeByVoice();
+    // Use optimized single-query method for DB stats
+    // This is similar to Django's select_related/prefetch_related pattern
+    final stats = await _storage.getCombinedStats();
     
     // Scan filesystem for accurate compression counts
     // DB compression_state can be stale if entries weren't updated properly
@@ -208,8 +209,8 @@ class IntelligentCacheManager implements AudioCache {
       quotaSizeBytes: _quotaSettings.maxSizeBytes,
       entryCount: entryCount,
       compressedCount: m4aCount,
-      byBook: byBook,
-      byVoice: byVoice,
+      byBook: stats.byBook,
+      byVoice: stats.byVoice,
       hitRate: hitRate,
     );
   }
