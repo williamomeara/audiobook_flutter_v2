@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/playback_providers.dart';
+import '../../../../app/settings_controller.dart';
 import '../../../theme/app_colors.dart';
 
 /// Displays time remaining in chapter and book.
 /// 
 /// Shows "Xh Ym left in chapter • Xh Ym left in book" below the progress slider.
+/// Time is adjusted for current playback speed (e.g., at 1.5x, shows 1/1.5 of actual time).
 class TimeRemainingRow extends ConsumerWidget {
   const TimeRemainingRow({
     super.key,
@@ -28,9 +30,22 @@ class TimeRemainingRow extends ConsumerWidget {
     return '${hours}h ${minutes}m';
   }
 
+  /// Adjust duration for playback speed.
+  /// At 1.5x speed, a 30 minute segment will play in 20 minutes.
+  Duration _adjustForSpeed(Duration duration, double playbackRate) {
+    if (playbackRate <= 0) return duration;
+    final adjustedMs = (duration.inMilliseconds / playbackRate).round();
+    return Duration(milliseconds: adjustedMs);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
+
+    // Get current playback rate
+    final playbackRate = ref.watch(
+      settingsProvider.select((s) => s.defaultPlaybackRate),
+    );
 
     // Get chapter progress for current chapter
     final chapterKey = '$bookId:$chapterIndex';
@@ -54,8 +69,9 @@ class TimeRemainingRow extends ConsumerWidget {
               final listenedMs = (chapterProgress.percentComplete * totalMs).round();
               final remainingMs = (totalMs - listenedMs).clamp(0, totalMs);
               final remaining = Duration(milliseconds: remainingMs);
+              final adjustedRemaining = _adjustForSpeed(remaining, playbackRate);
               return Text(
-                '${_formatDuration(remaining)} left in chapter',
+                '${_formatDuration(adjustedRemaining)} left in chapter',
                 style: TextStyle(
                   fontSize: 12,
                   color: colors.textSecondary,
@@ -87,8 +103,9 @@ class TimeRemainingRow extends ConsumerWidget {
               if (summary.totalDurationMs == 0) {
                 return const SizedBox.shrink();
               }
+              final adjustedRemaining = _adjustForSpeed(summary.remainingDuration, playbackRate);
               return Text(
-                '${_formatDuration(summary.remainingDuration)} left in book',
+                '${_formatDuration(adjustedRemaining)} left in book',
                 style: TextStyle(
                   fontSize: 12,
                   color: colors.textTertiary,
