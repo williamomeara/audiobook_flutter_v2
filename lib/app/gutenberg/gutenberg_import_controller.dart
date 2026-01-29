@@ -193,6 +193,8 @@ class GutenbergImportController extends Notifier<GutenbergImportState> {
             sourcePath: downloaded.path,
             fileName: safeName,
             gutenbergId: book.id,
+            overrideTitle: book.title,
+            overrideAuthor: book.authorsDisplay,
           );
 
       _setEntry(

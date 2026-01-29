@@ -116,17 +116,25 @@ class GutendexPerson {
     required this.name,
     required this.birthYear,
     required this.deathYear,
+    this.aliases = const [],
   });
 
   final String name;
   final int? birthYear;
   final int? deathYear;
+  final List<String> aliases;
 
   factory GutendexPerson.fromJson(Map<String, dynamic> json) {
+    final aliasesJson = (json['aliases'] as List?) ?? const <dynamic>[];
     return GutendexPerson(
       name: (json['name'] as String?)?.trim() ?? '',
       birthYear: (json['birth_year'] as num?)?.toInt(),
       deathYear: (json['death_year'] as num?)?.toInt(),
+      aliases: aliasesJson
+          .whereType<String>()
+          .map((a) => a.trim())
+          .where((a) => a.isNotEmpty)
+          .toList(growable: false),
     );
   }
 }

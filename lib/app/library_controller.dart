@@ -7,6 +7,7 @@ import 'package:core_domain/core_domain.dart';
 
 import '../infra/epub_parser.dart';
 import '../infra/pdf_parser.dart';
+import '../infra/book_metadata_service.dart';
 import '../utils/background_import.dart';
 import 'app_paths.dart';
 import 'database/app_database.dart';
@@ -92,6 +93,8 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     required String sourcePath,
     required String fileName,
     int? gutenbergId,
+    String? overrideTitle,
+    String? overrideAuthor,
   }) async {
     final current = state.value ?? const LibraryState();
     state = AsyncValue.data(current.copyWith(isLoading: true, error: null));
@@ -144,6 +147,43 @@ class LibraryController extends AsyncNotifier<LibraryState> {
         chapters = parsed.chapters;
       }
 
+      // Try to look up better metadata from Google Books API
+      String lookupTitle = title;
+      String lookupAuthor = author;
+      // Always try Google Books lookup for better metadata
+      final metadata = await BookMetadataService().searchBook(title, author);
+      if (metadata != null) {
+        // Use API data if we're confident enough
+        final isMessy = _shouldLookupMetadata(title, author);
+        final confidenceThreshold = isMessy ? 0.7 : 0.9; // Higher threshold for clean metadata
+        
+        // Calculate confidence score
+        final score = BookMetadataService().calculateConfidence(metadata, title, author);
+        if (score >= confidenceThreshold) {
+          lookupTitle = metadata.title;
+          lookupAuthor = metadata.authorsDisplay;
+        }
+      }
+
+      // Override with provided values if available (for Gutenberg imports)
+      // But prefer Google Books data if it's very confident
+      String finalTitle = lookupTitle;
+      String finalAuthor = lookupAuthor;
+      
+      if (overrideTitle != null) {
+        // For Gutenberg, use override unless Google Books is very confident
+        final googleConfidence = metadata != null ? BookMetadataService().calculateConfidence(metadata, title, author) : 0.0;
+        if (googleConfidence >= 0.95) {
+          // Google Books is very confident, use its data
+          finalTitle = metadata!.title;
+          finalAuthor = metadata.authorsDisplay;
+        } else {
+          // Use Gutenberg override
+          finalTitle = overrideTitle;
+          finalAuthor = overrideAuthor ?? finalAuthor;
+        }
+      }
+
       // Pre-segment all chapters in background isolate to avoid UI jank
       // This moves CPU-intensive segmentation and scoring off main thread
       final segmentationResult = await runSegmentationInBackground(chapters);
@@ -155,8 +195,8 @@ class LibraryController extends AsyncNotifier<LibraryState> {
 
       final book = Book(
         id: bookId,
-        title: title,
-        author: author,
+        title: finalTitle,
+        author: finalAuthor,
         filePath: destPath,
         addedAt: DateTime.now().millisecondsSinceEpoch,
         coverImagePath: coverPath,
@@ -313,6 +353,35 @@ class LibraryController extends AsyncNotifier<LibraryState> {
   Future<int> getSegmentCount(String bookId, int chapterIndex) async {
     final repo = await _getRepository();
     return await repo.getSegmentCount(bookId, chapterIndex);
+  }
+
+  /// Check if we should attempt metadata lookup for this book.
+  /// Looks for signs of unreliable metadata like extra annotations.
+  bool _shouldLookupMetadata(String title, String author) {
+    // Skip if author is unknown (likely not worth looking up)
+    if (author.toLowerCase().contains('unknown') || author.trim().isEmpty) {
+      return false;
+    }
+
+    // Look for common patterns that indicate messy metadata
+    final messyPatterns = RegExp(r'\([^)]*(?:z-library|pdf|epub|kindle|azw|djvu)[^)]*\)', caseSensitive: false);
+    if (messyPatterns.hasMatch(title)) {
+      return true;
+    }
+
+    // Look for brackets with extra info
+    final bracketPatterns = RegExp(r'\[[^\]]*(?:pdf|epub|kindle|azw|djvu)[^\]]*\]', caseSensitive: false);
+    if (bracketPatterns.hasMatch(title)) {
+      return true;
+    }
+
+    // Look for multiple parentheses (likely annotations)
+    final parenCount = '('.allMatches(title).length;
+    if (parenCount > 1) {
+      return true;
+    }
+
+    return false;
   }
 }
 
