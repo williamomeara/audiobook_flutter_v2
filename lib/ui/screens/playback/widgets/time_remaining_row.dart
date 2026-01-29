@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/playback_providers.dart';
-import '../../../../app/settings_controller.dart';
 import '../../../theme/app_colors.dart';
 
 /// Displays time remaining in chapter and book.
@@ -42,9 +41,9 @@ class TimeRemainingRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
 
-    // Get current playback rate
+    // Get current playback rate from player state (not settings default)
     final playbackRate = ref.watch(
-      settingsProvider.select((s) => s.defaultPlaybackRate),
+      playbackStateProvider.select((s) => s.playbackRate),
     );
 
     // Get chapter progress for current chapter
