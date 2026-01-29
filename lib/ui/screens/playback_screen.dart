@@ -872,7 +872,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
   void _increaseSpeed() {
     _resetSleepTimer(); // Reset sleep timer on user action
     final currentRate = ref.read(playbackStateProvider).playbackRate;
-    final newRate = (currentRate + 0.25).clamp(0.5, 2.0);
+    final newRate = (currentRate + 0.25).clamp(0.5, 3.0);
     if (newRate == currentRate) {
       AppHaptics.heavy(); // At max speed limit
     } else {
@@ -884,7 +884,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
   void _decreaseSpeed() {
     _resetSleepTimer(); // Reset sleep timer on user action
     final currentRate = ref.read(playbackStateProvider).playbackRate;
-    final newRate = (currentRate - 0.25).clamp(0.5, 2.0);
+    final newRate = (currentRate - 0.25).clamp(0.5, 3.0);
     if (newRate == currentRate) {
       AppHaptics.heavy(); // At min speed limit
     } else {
