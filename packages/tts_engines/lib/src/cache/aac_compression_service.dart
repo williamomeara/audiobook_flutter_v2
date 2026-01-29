@@ -3,6 +3,9 @@ import 'dart:developer' as developer;
 
 import 'package:flutter_audio_toolkit/flutter_audio_toolkit.dart';
 
+import 'cache_entry_metadata.dart';
+import 'cache_metadata_storage.dart';
+
 /// Result of compressing the audio cache.
 class AacCompressionResult {
   const AacCompressionResult({
@@ -166,6 +169,7 @@ class AacCompressionService {
   /// Calls [onProgress] after each file with (completed, total).
   /// Returns compression statistics.
   Future<AacCompressionResult> compressDirectory(
+    CacheMetadataStorage? storage,
     Directory cacheDir, {
     void Function(int completed, int total)? onProgress,
     bool Function()? shouldCancel,
@@ -182,22 +186,27 @@ class AacCompressionService {
       );
     }
 
-    // Find all WAV files
-    final wavFiles = <File>[];
-    await for (final entity in cacheDir.list()) {
-      if (entity is File && entity.path.endsWith('.wav')) {
-        wavFiles.add(entity);
+    // Step 1: Get uncompressed entries from DB (not filesystem scan)
+    List<CacheEntryMetadata> wavEntries = [];
+    if (storage != null) {
+      wavEntries = await storage.getUncompressedEntries();
+    } else {
+      // Fallback: scan filesystem if storage not available
+      final wavFiles = <File>[];
+      await for (final entity in cacheDir.list()) {
+        if (entity is File && entity.path.endsWith('.wav')) {
+          wavFiles.add(entity);
+        }
       }
-    }
-
-    if (wavFiles.isEmpty) {
-      return const AacCompressionResult(
-        filesCompressed: 0,
-        filesFailed: 0,
-        originalSizeBytes: 0,
-        compressedSizeBytes: 0,
-        durationMs: 0,
-      );
+      if (wavFiles.isEmpty) {
+        return const AacCompressionResult(
+          filesCompressed: 0,
+          filesFailed: 0,
+          originalSizeBytes: 0,
+          compressedSizeBytes: 0,
+          durationMs: 0,
+        );
+      }
     }
 
     int filesCompressed = 0;
@@ -205,32 +214,76 @@ class AacCompressionService {
     int originalSizeBytes = 0;
     int compressedSizeBytes = 0;
 
-    for (int i = 0; i < wavFiles.length; i++) {
+    for (int i = 0; i < wavEntries.length; i++) {
       // Check for cancellation
       if (shouldCancel?.call() ?? false) {
         developer.log(
-          'Compression cancelled at $i/${wavFiles.length}',
+          'Compression cancelled at $i/${wavEntries.length}',
           name: 'AacCompressionService',
         );
         break;
       }
 
-      final wavFile = wavFiles[i];
+      final entry = wavEntries[i];
+      final wavFile = File('${cacheDir.path}/${entry.key}');
       final wavStat = await wavFile.stat();
       originalSizeBytes += wavStat.size;
 
+      // Step 2: Mark as compressing in DB
+      if (storage != null) {
+        await storage.updateCompressionState(
+          entry.key,
+          CompressionState.compressing,
+          compressionStartedAt: DateTime.now(),
+        );
+      }
+
+      // Step 3: Compress file
       final m4aFile = await compressFile(wavFile);
+      
+      // Step 4: Update DB based on result
       if (m4aFile != null) {
         final m4aStat = await m4aFile.stat();
         compressedSizeBytes += m4aStat.size;
         filesCompressed++;
+        
+        // Update DB: replace WAV with M4A
+        if (storage != null) {
+          final m4aKey = entry.key.replaceAll('.wav', '.m4a');
+          // Can't easily update key in copyWith, so use replaceEntry
+          await storage.replaceEntry(
+            oldKey: entry.key,
+            newEntry: CacheEntryMetadata(
+              key: m4aKey,
+              sizeBytes: m4aStat.size,
+              createdAt: entry.createdAt,
+              lastAccessed: entry.lastAccessed,
+              accessCount: entry.accessCount,
+              bookId: entry.bookId,
+              voiceId: entry.voiceId,
+              segmentIndex: entry.segmentIndex,
+              chapterIndex: entry.chapterIndex,
+              engineType: entry.engineType,
+              audioDurationMs: entry.audioDurationMs,
+              compressionState: CompressionState.m4a,
+              compressionStartedAt: null,
+            ),
+          );
+        }
       } else {
-        // Keep original size in total if compression failed
+        // Compression failed - keep original size and mark as failed in DB
         compressedSizeBytes += wavStat.size;
         filesFailed++;
+        
+        if (storage != null) {
+          await storage.updateCompressionState(
+            entry.key,
+            CompressionState.failed,
+          );
+        }
       }
 
-      onProgress?.call(i + 1, wavFiles.length);
+      onProgress?.call(i + 1, wavEntries.length);
     }
 
     stopwatch.stop();

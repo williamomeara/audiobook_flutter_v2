@@ -196,6 +196,65 @@ class SqliteCacheMetadataStorage implements CacheMetadataStorage {
     }
   }
 
+  @override
+  Future<List<CacheEntryMetadata>> getUncompressedEntries() async {
+    try {
+      final rows = await _cacheDao.getUncompressedEntries();
+      return rows.map(_rowToMetadata).toList();
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to get uncompressed entries: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+      return [];
+    }
+  }
+
+  @override
+  Future<void> updateCompressionState(
+    String key,
+    CompressionState state, {
+    DateTime? compressionStartedAt,
+  }) async {
+    try {
+      await _cacheDao.updateCompressionState(
+        key,
+        state.name,
+        compressionStartedAt,
+      );
+      developer.log(
+        '📝 Updated compression state for $key: ${state.name}',
+        name: 'SqliteCacheMetadataStorage',
+      );
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to update compression state: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+    }
+  }
+
+  @override
+  Future<void> replaceEntry({
+    required String oldKey,
+    required CacheEntryMetadata newEntry,
+  }) async {
+    try {
+      // Delete old entry and insert new one in a transaction
+      await _cacheDao.deleteEntryByFilePath(oldKey);
+      await _cacheDao.upsertEntryByFilePath(_metadataToRow(newEntry));
+      developer.log(
+        '🔄 Replaced entry: $oldKey → ${newEntry.key}',
+        name: 'SqliteCacheMetadataStorage',
+      );
+    } catch (e) {
+      developer.log(
+        '⚠️ Failed to replace entry: $e',
+        name: 'SqliteCacheMetadataStorage',
+      );
+    }
+  }
+
   // ============= Conversion helpers =============
 
   CacheEntryMetadata _rowToMetadata(Map<String, dynamic> row) {
@@ -212,6 +271,21 @@ class SqliteCacheMetadataStorage implements CacheMetadataStorage {
       chapterIndex: row['chapter_index'] as int,
       engineType: row['engine_type'] as String? ?? 'unknown',
       audioDurationMs: row['duration_ms'] as int? ?? 0,
+      compressionState: _parseCompressionState(row['compression_state'] as String?),
+      compressionStartedAt: row['compression_started_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['compression_started_at'] as int)
+          : null,
+    );
+  }
+
+  CompressionState _parseCompressionState(String? value) {
+    if (value == null) {
+      // Legacy: infer from filename extension
+      return CompressionState.wav;
+    }
+    return CompressionState.values.firstWhere(
+      (s) => s.name == value,
+      orElse: () => CompressionState.wav,
     );
   }
 
@@ -223,13 +297,15 @@ class SqliteCacheMetadataStorage implements CacheMetadataStorage {
       'segment_index': entry.segmentIndex,
       'size_bytes': entry.sizeBytes,
       'duration_ms': entry.audioDurationMs,
-      'is_compressed': entry.key.endsWith('.m4a') ? 1 : 0,
+      'is_compressed': entry.compressionState == CompressionState.m4a ? 1 : 0,
       'is_pinned': 0,
       'created_at': entry.createdAt.millisecondsSinceEpoch,
       'last_accessed_at': entry.lastAccessed.millisecondsSinceEpoch,
       'access_count': entry.accessCount,
       'engine_type': entry.engineType,
       'voice_id': entry.voiceId,
+      'compression_state': entry.compressionState.name,
+      'compression_started_at': entry.compressionStartedAt?.millisecondsSinceEpoch,
     };
   }
 }

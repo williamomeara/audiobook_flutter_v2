@@ -108,6 +108,32 @@ class CacheDao {
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
+  /// Get all uncompressed (WAV) entries.
+  Future<List<Map<String, dynamic>>> getUncompressedEntries() async {
+    return await _db.query(
+      'cache_entries',
+      where: 'file_path LIKE "%.wav"',
+      orderBy: 'created_at ASC',
+    );
+  }
+
+  /// Update compression state for an entry.
+  Future<void> updateCompressionState(
+    String filePath,
+    String compressionState,
+    DateTime? compressionStartedAt,
+  ) async {
+    await _db.update(
+      'cache_entries',
+      {
+        'compression_state': compressionState,
+        'compression_started_at': compressionStartedAt?.millisecondsSinceEpoch,
+      },
+      where: 'file_path = ?',
+      whereArgs: [filePath],
+    );
+  }
+
   /// Clear all entries (for cache clear operation).
   Future<void> clearAll() async {
     await _db.delete('cache_entries');

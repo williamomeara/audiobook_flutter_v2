@@ -121,6 +121,12 @@ class IntelligentCacheManager implements AudioCache {
   final CacheMetadataStorage _storage;
   CacheQuotaSettings _quotaSettings;
 
+  /// Get the storage backend (for compression and other operations).
+  CacheMetadataStorage get storage => _storage;
+
+  /// Get the cache directory.
+  Directory get directory => _cacheDir;
+
   /// Metadata for all cache entries.
   final Map<String, CacheEntryMetadata> _metadata = {};
 
@@ -793,18 +799,45 @@ class IntelligentCacheManager implements AudioCache {
     if (!await wavFile.exists()) return false;
     
     try {
-      // Run compression in background isolate
+      // Step 1: Mark as compressing in DB (prevents concurrent compression)
+      await _storage.updateCompressionState(
+        filename,
+        CompressionState.compressing,
+        compressionStartedAt: DateTime.now(),
+      );
+      _metadata[filename] = _metadata[filename]!.copyWith(
+        compressionState: CompressionState.compressing,
+        compressionStartedAt: DateTime.now(),
+      );
+      
+      developer.log(
+        '⏳ Starting background compression for: $filename',
+        name: 'IntelligentCacheManager',
+      );
+      
+      // Step 2: Run compression in background isolate
       final m4aFile = await Isolate.run(
         () => _compressFileIsolate(wavFile.path),
       );
       
-      if (m4aFile == null) return false;
+      if (m4aFile == null) {
+        // Compression failed - mark as failed in DB
+        await _storage.updateCompressionState(
+          filename,
+          CompressionState.failed,
+        );
+        _metadata[filename] = _metadata[filename]!.copyWith(
+          compressionState: CompressionState.failed,
+        );
+        developer.log(
+          '❌ Compression failed for $filename',
+          name: 'IntelligentCacheManager',
+        );
+        return false;
+      }
       
-      // Update metadata atomically
+      // Step 3: Update metadata atomically (DB-first approach)
       final oldMeta = _metadata[filename]!;
-      _metadata.remove(filename);
-      await _storage.removeEntry(filename);
-      
       final m4aKey = filename.replaceAll('.wav', '.m4a');
       final m4aStat = await m4aFile.stat();
       
@@ -820,12 +853,20 @@ class IntelligentCacheManager implements AudioCache {
         chapterIndex: oldMeta.chapterIndex,
         engineType: oldMeta.engineType,
         audioDurationMs: oldMeta.audioDurationMs,
+        compressionState: CompressionState.m4a,
+        compressionStartedAt: null,
       );
+      
+      // Replace in DB (atomic: delete WAV, insert M4A)
+      await _storage.replaceEntry(oldKey: filename, newEntry: newEntry);
+      
+      // Update memory metadata
+      _metadata.remove(filename);
       _metadata[m4aKey] = newEntry;
-      await _storage.upsertEntry(newEntry);
       
       developer.log(
-        '✅ Background compressed $filename → $m4aKey',
+        '✅ Background compressed $filename → $m4aKey '
+        '(${oldMeta.sizeBytes ~/ 1024}KB → ${newEntry.sizeBytes ~/ 1024}KB)',
         name: 'IntelligentCacheManager',
       );
       
@@ -834,6 +875,11 @@ class IntelligentCacheManager implements AudioCache {
       developer.log(
         '❌ Background compression failed for $filename: $e',
         name: 'IntelligentCacheManager',
+      );
+      // Try to mark as failed in DB
+      await _storage.updateCompressionState(
+        filename,
+        CompressionState.failed,
       );
       return false;
     }

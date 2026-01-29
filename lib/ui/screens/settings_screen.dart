@@ -1566,7 +1566,9 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
       final manager = await ref.read(intelligentCacheManagerProvider.future);
       final service = AacCompressionService();
 
+      // Pass storage to enable DB-first compression workflow
       final result = await service.compressDirectory(
+        manager.storage,  // ✅ Pass storage for metadata updates
         manager.directory,
         onProgress: (done, count) {
           // Update the dialog via ValueNotifier

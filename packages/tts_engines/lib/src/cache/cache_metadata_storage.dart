@@ -41,4 +41,36 @@ abstract class CacheMetadataStorage {
 
   /// Get count of compressed entries.
   Future<int> getCompressedCount();
+
+  /// Get all uncompressed (WAV) entries from database.
+  /// 
+  /// Queries the database for entries with compressionState = WAV.
+  /// Used by compression services to find files needing compression.
+  Future<List<CacheEntryMetadata>> getUncompressedEntries();
+
+  /// Update compression state of an entry.
+  /// 
+  /// Used to mark entry as COMPRESSING before compression starts,
+  /// then M4A or FAILED when compression completes.
+  /// Atomically updates database.
+  Future<void> updateCompressionState(
+    String key,
+    CompressionState state, {
+    DateTime? compressionStartedAt,
+  });
+
+  /// Replace an entry atomically.
+  /// 
+  /// Deletes old entry and inserts new one in a transaction.
+  /// Used when converting WAV entry to M4A after compression.
+  /// 
+  /// Example:
+  ///   replaceEntry(
+  ///     oldKey: 'segment_001.wav',
+  ///     newEntry: metadataForSegment001M4a,
+  ///   )
+  Future<void> replaceEntry({
+    required String oldKey,
+    required CacheEntryMetadata newEntry,
+  });
 }

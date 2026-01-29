@@ -136,6 +136,42 @@ class JsonCacheMetadataStorage implements CacheMetadataStorage {
     return _entriesCache!.values.where((e) => e.key.endsWith('.m4a')).length;
   }
 
+  @override
+  Future<List<CacheEntryMetadata>> getUncompressedEntries() async {
+    _entriesCache ??= await loadEntries();
+    return _entriesCache!.values
+        .where((e) => e.compressionState == CompressionState.wav)
+        .toList();
+  }
+
+  @override
+  Future<void> updateCompressionState(
+    String key,
+    CompressionState state, {
+    DateTime? compressionStartedAt,
+  }) async {
+    _entriesCache ??= await loadEntries();
+    final entry = _entriesCache![key];
+    if (entry != null) {
+      _entriesCache![key] = entry.copyWith(
+        compressionState: state,
+        compressionStartedAt: compressionStartedAt,
+      );
+      await _save();
+    }
+  }
+
+  @override
+  Future<void> replaceEntry({
+    required String oldKey,
+    required CacheEntryMetadata newEntry,
+  }) async {
+    _entriesCache ??= await loadEntries();
+    _entriesCache!.remove(oldKey);
+    _entriesCache![newEntry.key] = newEntry;
+    await _save();
+  }
+
   Future<void> _save() async {
     try {
       final json = {

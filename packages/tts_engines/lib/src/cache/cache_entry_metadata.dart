@@ -1,3 +1,11 @@
+/// Compression state of a cache entry.
+enum CompressionState {
+  wav,        // Uncompressed WAV file
+  compressing, // Compression in progress
+  m4a,        // Compressed M4A file
+  failed,     // Compression failed (keep original WAV)
+}
+
 /// Metadata for a cache entry used in intelligent eviction.
 class CacheEntryMetadata {
   CacheEntryMetadata({
@@ -12,6 +20,8 @@ class CacheEntryMetadata {
     required this.chapterIndex,
     required this.engineType,
     required this.audioDurationMs,
+    this.compressionState = CompressionState.wav,
+    this.compressionStartedAt,
   });
 
   /// Cache key (voiceId_rate_hash)
@@ -19,6 +29,12 @@ class CacheEntryMetadata {
 
   /// File size in bytes.
   final int sizeBytes;
+
+  /// Compression state of this entry.
+  final CompressionState compressionState;
+
+  /// When compression was started (null if not compressing).
+  final DateTime? compressionStartedAt;
 
   /// When the entry was first created.
   final DateTime createdAt;
@@ -61,8 +77,21 @@ class CacheEntryMetadata {
       chapterIndex: json['chapterIndex'] as int,
       engineType: json['engineType'] as String,
       audioDurationMs: json['audioDurationMs'] as int,
+      compressionState: _parseCompressionState(json['compressionState'] as String?),
+      compressionStartedAt: json['compressionStartedAt'] != null
+          ? DateTime.parse(json['compressionStartedAt'] as String)
+          : null,
     );
   }
+
+  static CompressionState _parseCompressionState(String? value) {
+    if (value == null) return CompressionState.wav;
+    return CompressionState.values.firstWhere(
+      (s) => s.toString() == 'CompressionState.$value',
+      orElse: () => CompressionState.wav,
+    );
+  }
+
 
   /// Convert to JSON for persistence.
   Map<String, dynamic> toJson() => {
@@ -77,11 +106,15 @@ class CacheEntryMetadata {
         'chapterIndex': chapterIndex,
         'engineType': engineType,
         'audioDurationMs': audioDurationMs,
+        'compressionState': compressionState.name,
+        'compressionStartedAt': compressionStartedAt?.toIso8601String(),
       };
 
   CacheEntryMetadata copyWith({
     DateTime? lastAccessed,
     int? accessCount,
+    CompressionState? compressionState,
+    DateTime? compressionStartedAt,
   }) =>
       CacheEntryMetadata(
         key: key,
@@ -95,6 +128,8 @@ class CacheEntryMetadata {
         chapterIndex: chapterIndex,
         engineType: engineType,
         audioDurationMs: audioDurationMs,
+        compressionState: compressionState ?? this.compressionState,
+        compressionStartedAt: compressionStartedAt ?? this.compressionStartedAt,
       );
 }
 
