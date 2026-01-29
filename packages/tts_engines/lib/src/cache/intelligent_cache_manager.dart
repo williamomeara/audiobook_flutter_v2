@@ -174,20 +174,42 @@ class IntelligentCacheManager implements AudioCache {
   }
 
   /// Get cache usage statistics.
+  /// 
+  /// Uses filesystem scan for compression counts (more accurate than DB)
+  /// because DB state can become stale during background compression.
   Future<CacheUsageStats> getUsageStats() async {
-    // Use storage backend for efficient aggregation
+    // Use storage backend for book/voice aggregation
     final byBook = await _storage.getSizeByBook();
     final byVoice = await _storage.getSizeByVoice();
-    final compressedCount = await _storage.getCompressedCount();
+    
+    // Scan filesystem for accurate compression counts
+    // DB compression_state can be stale if entries weren't updated properly
+    int m4aCount = 0;
+    int wavCount = 0;
+    if (await _cacheDir.exists()) {
+      await for (final entity in _cacheDir.list()) {
+        if (entity is File) {
+          final path = entity.path;
+          if (path.endsWith('.m4a')) {
+            m4aCount++;
+          } else if (path.endsWith('.wav')) {
+            wavCount++;
+          }
+        }
+      }
+    }
 
     final totalHits = _hits + _misses;
     final hitRate = totalHits > 0 ? _hits / totalHits : 0.0;
+    
+    // Total entry count from filesystem (more accurate)
+    final entryCount = m4aCount + wavCount;
 
     return CacheUsageStats(
       totalSizeBytes: await getTotalSize(),
       quotaSizeBytes: _quotaSettings.maxSizeBytes,
-      entryCount: _metadata.length,
-      compressedCount: compressedCount,
+      entryCount: entryCount,
+      compressedCount: m4aCount,
       byBook: byBook,
       byVoice: byVoice,
       hitRate: hitRate,
