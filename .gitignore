@@ -4,8 +4,9 @@
 *.pyc
 *.swp
 .DS_Store
-SCREENSHOT*
-screenshot*
+# Ignore screenshot files at root, but not in assets/store/
+/SCREENSHOT*
+/screenshot*
 .atom/
 .build/
 .buildlog/
