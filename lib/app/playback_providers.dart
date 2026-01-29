@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:core_domain/core_domain.dart';
@@ -9,6 +10,7 @@ import 'package:tts_engines/tts_engines.dart';
 
 import 'app_paths.dart';
 import 'audio_service_handler.dart';
+import 'cache/cache_reconciliation_service.dart';
 import 'config/config_providers.dart';
 import 'config/runtime_playback_config.dart' as app_config show PrefetchMode;
 import 'database/database.dart';
@@ -176,6 +178,9 @@ final audioCacheProvider = FutureProvider<AudioCache>((ref) async {
 /// Provides quota control, eviction scoring, and usage stats.
 /// Uses SQLite for cache metadata storage (migrated from JSON).
 /// Uses ref.read to avoid cascading rebuilds during initialization.
+///
+/// Includes automatic cache reconciliation on startup and periodic reconciliation
+/// to ensure disk files and database entries stay in sync.
 final intelligentCacheManagerProvider = FutureProvider<IntelligentCacheManager>((ref) async {
   final paths = await ref.read(appPathsProvider.future);
   final settings = ref.read(settingsProvider);
@@ -194,7 +199,23 @@ final intelligentCacheManagerProvider = FutureProvider<IntelligentCacheManager>(
 
   await manager.initialize();
 
-  ref.onDispose(() => manager.dispose());
+  // Run startup reconciliation to sync disk files with database
+  final reconciliation = CacheReconciliationService(cache: manager);
+  final result = await reconciliation.reconcile();
+
+  developer.log(
+    '📦 Cache reconciliation: ${result.summary}',
+    name: 'CacheManager',
+  );
+
+  // Start periodic reconciliation (every 6 hours while app is running)
+  reconciliation.startPeriodic(interval: const Duration(hours: 6));
+
+  ref.onDispose(() {
+    reconciliation.dispose();
+    manager.dispose();
+  });
+
   return manager;
 });
 

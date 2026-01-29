@@ -156,8 +156,9 @@ class SynthesisPool {
             );
           }
         } else if (result.success && result.outputFile != null) {
-          // TODO: registerEntry should be called by the caller who has book/chapter metadata
-          // For now, markUsed will at least update access time
+          // Note: This pool is legacy - the main synthesis flow uses SynthesisCoordinator
+          // which handles full cache registration. markUsed here provides basic tracking,
+          // and CacheReconciliationService handles any orphan files on startup.
           await _cache.markUsed(cacheKey);
           completer.complete(File(result.outputFile!));
         } else {

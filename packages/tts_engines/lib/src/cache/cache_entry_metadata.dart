@@ -111,14 +111,16 @@ class CacheEntryMetadata {
       };
 
   CacheEntryMetadata copyWith({
+    String? key,
+    int? sizeBytes,
     DateTime? lastAccessed,
     int? accessCount,
     CompressionState? compressionState,
     DateTime? compressionStartedAt,
   }) =>
       CacheEntryMetadata(
-        key: key,
-        sizeBytes: sizeBytes,
+        key: key ?? this.key,
+        sizeBytes: sizeBytes ?? this.sizeBytes,
         createdAt: createdAt,
         lastAccessed: lastAccessed ?? this.lastAccessed,
         accessCount: accessCount ?? this.accessCount,

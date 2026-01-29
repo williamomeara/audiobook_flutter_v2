@@ -195,7 +195,7 @@ class IntelligentCacheManager implements AudioCache {
     );
   }
 
-  /// Register a new cache entry with metadata.
+  @override
   Future<void> registerEntry({
     required CacheKey key,
     required int sizeBytes,
@@ -912,6 +912,30 @@ class IntelligentCacheManager implements AudioCache {
       );
       return null;
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Reconciliation support methods
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Get all metadata entries (for reconciliation).
+  Map<String, CacheEntryMetadata> getAllMetadata() {
+    return Map.unmodifiable(_metadata);
+  }
+
+  /// Remove a single entry by key (for reconciliation - ghost entry cleanup).
+  Future<void> removeEntry(String key) async {
+    _metadata.remove(key);
+    await _storage.removeEntries([key]);
+  }
+
+  /// Register an orphan entry discovered during reconciliation.
+  ///
+  /// This is used to add entries for files that exist on disk
+  /// but don't have database entries.
+  Future<void> registerOrphanEntry(CacheEntryMetadata entry) async {
+    _metadata[entry.key] = entry;
+    await _storage.upsertEntry(entry);
   }
 
   /// Dispose resources.

@@ -651,8 +651,12 @@ class SynthesisCoordinator {
         wasFromCache: false,
       );
 
-      // Register the cache entry with metadata for proper cache tracking
-      // This ensures synthesis stats, compression tracking, and cache management work correctly
+      // Register the cache entry with metadata (write-through pattern)
+      // This is the primary write path for cache metadata, ensuring:
+      // - Full metadata (bookId, chapterIndex, segmentIndex) is captured
+      // - Compression tracking works correctly
+      // - Cache eviction has accurate scoring data
+      // Note: CacheReconciliationService handles edge cases (crashes, orphans)
       try {
         final fileSize = await result.file.length();
         await cache.registerEntry(
