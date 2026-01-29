@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+// sqflite_dev is in dev_dependencies - only available in debug builds
+// ignore: depend_on_referenced_packages
+import 'package:sqflite_dev/sqflite_dev.dart';
 
 import 'migrations/cache_migration_service.dart';
 import 'migrations/json_migration_service.dart';
@@ -47,7 +50,18 @@ class AppDatabase {
       onUpgrade: _onUpgrade,
       onOpen: _onOpen,
       onConfigure: _onConfigure,
-    );
+    ).then((db) {
+      // Register with sqflite_dev workbench for database inspection (debug only)
+      // Uses port 8081 to avoid conflicts with other services
+      if (kDebugMode) {
+        db.enableWorkbench(
+          webDebug: true,
+          webDebugName: 'eist_audiobook',
+          webDebugPort: 8081,
+        );
+      }
+      return db;
+    });
   }
 
   /// Configure database connection settings before opening.

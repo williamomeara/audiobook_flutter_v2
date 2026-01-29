@@ -81,6 +81,7 @@ dev_dependencies:
     sdk: flutter
   flutter_launcher_icons: ^0.11.0
   sqflite_common_ffi: ^2.3.3  # For in-memory database testing
+  sqflite_dev: ^1.0.8
 
 flutter:
   uses-material-design: true
