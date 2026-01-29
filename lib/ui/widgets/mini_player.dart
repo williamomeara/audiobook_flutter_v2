@@ -89,6 +89,7 @@ class MiniPlayer extends ConsumerWidget {
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
                             color: colors.text,
+                            decoration: TextDecoration.none, // Remove debug underline
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -99,6 +100,7 @@ class MiniPlayer extends ConsumerWidget {
                           style: TextStyle(
                             fontSize: 12,
                             color: colors.textSecondary,
+                            decoration: TextDecoration.none, // Remove debug underline
                           ),
                         ),
                       ],
