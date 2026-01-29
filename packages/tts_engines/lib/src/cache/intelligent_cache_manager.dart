@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:developer' as developer;
 
 import 'package:core_domain/core_domain.dart';
@@ -766,6 +767,108 @@ class IntelligentCacheManager implements AudioCache {
   
   String _filenameForKey(CacheKey key) {
     return key.toFilename();
+  }
+
+  /// Compress a single cache entry by filename in background without blocking.
+  /// 
+  /// This method runs compression in an isolate to avoid UI jank.
+  /// Atomically updates metadata to ensure consistency.
+  /// 
+  /// [filename] should be just the filename (e.g., "kokoro_af_1_00_hash.wav"),
+  /// not the full path.
+  /// 
+  /// Returns true if compression was performed and successful.
+  /// Returns false if file doesn't exist, is already compressed, or is pinned.
+  Future<bool> compressEntryByFilenameInBackground(String filename) async {
+    // Skip if not in metadata
+    if (!_metadata.containsKey(filename)) return false;
+    
+    // Skip if already compressed
+    if (filename.endsWith('.m4a') || filename.endsWith('.aac')) return false;
+    
+    // Skip if pinned (in use by prefetch)
+    if (_pinnedFiles.contains(filename)) return false;
+    
+    final wavFile = File('${_cacheDir.path}/$filename');
+    if (!await wavFile.exists()) return false;
+    
+    try {
+      // Run compression in background isolate
+      final m4aFile = await Isolate.run(
+        () => _compressFileIsolate(wavFile.path),
+      );
+      
+      if (m4aFile == null) return false;
+      
+      // Update metadata atomically
+      final oldMeta = _metadata[filename]!;
+      _metadata.remove(filename);
+      await _storage.removeEntry(filename);
+      
+      final m4aKey = filename.replaceAll('.wav', '.m4a');
+      final m4aStat = await m4aFile.stat();
+      
+      final newEntry = CacheEntryMetadata(
+        key: m4aKey,
+        sizeBytes: m4aStat.size,
+        createdAt: oldMeta.createdAt,
+        lastAccessed: oldMeta.lastAccessed,
+        accessCount: oldMeta.accessCount,
+        bookId: oldMeta.bookId,
+        voiceId: oldMeta.voiceId,
+        segmentIndex: oldMeta.segmentIndex,
+        chapterIndex: oldMeta.chapterIndex,
+        engineType: oldMeta.engineType,
+        audioDurationMs: oldMeta.audioDurationMs,
+      );
+      _metadata[m4aKey] = newEntry;
+      await _storage.upsertEntry(newEntry);
+      
+      developer.log(
+        '✅ Background compressed $filename → $m4aKey',
+        name: 'IntelligentCacheManager',
+      );
+      
+      return true;
+    } catch (e) {
+      developer.log(
+        '❌ Background compression failed for $filename: $e',
+        name: 'IntelligentCacheManager',
+      );
+      return false;
+    }
+  }
+  
+  /// Compress a single cache entry in background without blocking.
+  /// 
+  /// This method runs compression in an isolate to avoid UI jank.
+  /// Atomically updates metadata to ensure consistency.
+  /// 
+  /// Returns true if compression was performed and successful.
+  /// Returns false if file doesn't exist, is already compressed, or is pinned.
+  Future<bool> compressEntryInBackground(CacheKey key) async {
+    final filename = key.toFilename();
+    return compressEntryByFilenameInBackground(filename);
+  }
+  
+  /// Static method to compress file in isolate (cannot use instance methods).
+  static Future<File?> _compressFileIsolate(String wavPath) async {
+    final wavFile = File(wavPath);
+    if (!await wavFile.exists()) return null;
+    
+    try {
+      final compressionService = AacCompressionService();
+      return await compressionService.compressFile(
+        wavFile,
+        deleteOriginal: true,
+      );
+    } catch (e) {
+      developer.log(
+        '❌ Isolate compression failed: $e',
+        name: 'IntelligentCacheManager',
+      );
+      return null;
+    }
   }
 
   /// Dispose resources.

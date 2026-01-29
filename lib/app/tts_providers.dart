@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:developer' as developer;
 
@@ -253,9 +254,6 @@ final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
   final supertonic = await ref.read(supertonicAdapterProvider.future);
   final settings = ref.read(settingsProvider);
 
-  // Create compression service for on-the-fly compression
-  final compressionService = AacCompressionService();
-
   return RoutingEngine(
     cache: cache,
     kokoroEngine: kokoro,
@@ -266,26 +264,27 @@ final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
             // Only compress WAV files
             if (!filePath.endsWith('.wav')) return;
             
-            final wavFile = File(filePath);
-            if (!await wavFile.exists()) return;
+            // Extract just the filename from the full path
+            final filename = filePath.split('/').last;
             
             try {
-              final result = await compressionService.compressFile(
-                wavFile,
-                deleteOriginal: true,
+              // Fire-and-forget: compress in background without awaiting
+              // This ensures synthesis callback completes immediately
+              // and compression runs asynchronously in an isolate
+              unawaited(
+                cache.compressEntryByFilenameInBackground(filename),
               );
-              if (result != null) {
-                developer.log(
-                  '🗜️ Compressed on-the-fly: ${wavFile.path} → ${result.path}',
-                  name: 'TtsProviders',
-                );
-              }
-            } catch (e) {
+              
               developer.log(
-                '⚠️ On-the-fly compression failed: $e',
+                '📝 Scheduled background compression for: $filename',
                 name: 'TtsProviders',
               );
-              // Don't throw - WAV is still valid
+            } catch (e) {
+              developer.log(
+                '⚠️ Background compression scheduling failed: $e',
+                name: 'TtsProviders',
+              );
+              // Don't throw - WAV is still valid, compression is best-effort
             }
           }
         : null,
