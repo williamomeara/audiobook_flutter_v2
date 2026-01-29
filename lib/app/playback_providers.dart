@@ -547,6 +547,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           // Mark segment as listened (fire and forget - don't block playback)
           segmentProgressDao.markListened(bookId, chapterIndex, segmentIndex).then((_) {
             PlaybackLogger.debug('[PlaybackProvider] Marked segment $segmentIndex as listened');
+            // Invalidate progress providers so time remaining updates in UI
+            ref.invalidate(bookProgressSummaryProvider(bookId));
+            ref.invalidate(chapterProgressProvider('$bookId:$chapterIndex'));
           }).catchError((e) {
             PlaybackLogger.error('[PlaybackProvider] Failed to mark segment listened: $e');
           });
