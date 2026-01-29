@@ -6,7 +6,6 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:downloads/downloads.dart';
 import 'package:core_domain/core_domain.dart';
-import 'package:playback/playback.dart';
 
 import 'app_paths.dart';
 import 'playback_providers.dart';
@@ -39,10 +38,13 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     _manifestService = await _loadManifest();
     _queue = DownloadQueue(maxConcurrent: 1);
     
-    // Listen for playback state changes to handle deferred controller refresh
-    ref.listen(playbackStateProvider, (prev, next) {
-      _onPlaybackStateChanged(prev, next);
-    });
+    // NOTE: We intentionally do NOT listen to playbackStateProvider here.
+    // Doing so creates a circular dependency:
+    //   playbackControllerProvider → routingEngine → adapters → granularDownloadManager
+    //   → playbackStateProvider → playbackControllerProvider
+    //
+    // Instead, the deferred controller refresh (when downloads complete during playback)
+    // is checked explicitly by the UI when playback stops via checkPendingControllerRefresh().
 
     ref.onDispose(() {
       _assetManager.dispose();
@@ -53,13 +55,17 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     return await _buildInitialState();
   }
   
-  /// Handles playback state changes to trigger deferred controller refresh.
-  void _onPlaybackStateChanged(PlaybackState? prev, PlaybackState next) {
-    // If we have a pending refresh and playback just stopped, do the refresh
-    if (_pendingControllerRefresh && !next.isPlaying && (prev?.isPlaying ?? false)) {
-      debugPrint('[GranularDownloadManager] Playback stopped, performing deferred controller refresh');
-      _pendingControllerRefresh = false;
-      ref.invalidate(playbackControllerProvider);
+  /// Check if there's a pending controller refresh and perform it if playback has stopped.
+  /// Call this from the UI when the user stops playback manually.
+  void checkPendingControllerRefresh() {
+    if (_pendingControllerRefresh) {
+      final playbackAsync = ref.read(playbackControllerProvider);
+      final isPlaying = playbackAsync.value?.isPlaying ?? false;
+      if (!isPlaying) {
+        debugPrint('[GranularDownloadManager] Performing deferred controller refresh');
+        _pendingControllerRefresh = false;
+        ref.invalidate(playbackControllerProvider);
+      }
     }
   }
 
@@ -81,9 +87,12 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     final cores = <String, CoreDownloadState>{};
     final voices = <String, VoiceDownloadState>{};
 
+    debugPrint('[GranularDownloadManager] Building initial state...');
+    
     // Build core states from manifest
     for (final core in _manifestService.allCores) {
       final isInstalled = await _isCoreInstalled(core.id);
+      debugPrint('[GranularDownloadManager] Core ${core.id} (${core.engineType}): installed=$isInstalled');
       cores[core.id] = CoreDownloadState(
         coreId: core.id,
         displayName: core.displayName,

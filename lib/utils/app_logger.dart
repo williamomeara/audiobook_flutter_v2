@@ -130,6 +130,7 @@ class PlaybackLogger {
 
   static void info(String message) => AppLogger.info(message, name: _name);
   static void debug(String message) => AppLogger.debug(message, name: _name);
+  static void warning(String message) => AppLogger.info('[WARN] $message', name: _name);
   static void error(String message, {Object? error}) =>
       AppLogger.error(message, name: _name, error: error);
 }

@@ -81,10 +81,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Invalidate chapter progress cache when app resumes to ensure
+    // Invalidate caches when app resumes to ensure
     // "Continue Listening" button reflects latest playback progress
     if (state == AppLifecycleState.resumed) {
       ref.invalidate(bookChapterProgressProvider(widget.bookId));
+      ref.invalidate(primaryPositionProvider(widget.bookId));
     }
   }
 
@@ -667,7 +668,9 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
 
                           return GestureDetector(
                             onTap: () {
-                              // Navigate to specific chapter
+                              // Always navigate to PlaybackScreen
+                              // If audio is playing a different chapter, PlaybackScreen
+                              // will enter "preview mode" (showing text with mini player)
                               // If it's the current chapter with a primary position, use that segment
                               // Otherwise start at segment 0
                               final segment =

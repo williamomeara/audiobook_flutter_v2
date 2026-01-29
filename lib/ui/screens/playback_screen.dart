@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:playback/playback.dart' hide SegmentReadinessTracker;
 
-import '../../app/database/daos/chapter_position_dao.dart';
 import '../../app/library_controller.dart';
 import '../../app/listening_actions_notifier.dart';
 import '../../app/playback_providers.dart';
@@ -45,6 +45,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   bool _initialized = false;
   int _currentChapterIndex = 0;
+
+  // Preview mode: viewing a chapter different from what's playing
+  // When true, we show the mini player instead of full controls
+  bool _isPreviewMode = false;
+  List<Segment>? _previewSegments; // Segments loaded for preview display
+  int? _activePlaybackChapter; // Chapter that's actually playing (for preview mode reference)
 
   // Scroll controller for text view
   final ScrollController _scrollController = ScrollController();
@@ -114,6 +120,48 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
       }
     }
     _lastWindowSize = newSize;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Save position when app goes to background or screen locks.
+    // This prevents position loss if the app is killed while in background.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _savePositionOnBackground();
+    }
+  }
+
+  /// Save the current position when app goes to background.
+  /// Only saves in active mode (not preview mode) to avoid
+  /// accidentally updating position while just browsing.
+  void _savePositionOnBackground() {
+    if (_isPreviewMode) return;
+
+    final playbackState = ref.read(playbackStateProvider);
+    final currentChapterIndex = _currentChapterIndex;
+
+    final queueLength = playbackState.queue.length;
+    if (queueLength == 0) return;
+
+    final segmentIndex = playbackState.currentIndex.clamp(0, queueLength - 1);
+
+    developer.log(
+      '[PlaybackScreen] Saving position on background: chapter $currentChapterIndex, segment $segmentIndex',
+    );
+
+    // Save to both tables for consistency
+    ref
+        .read(libraryProvider.notifier)
+        .updateProgress(widget.bookId, currentChapterIndex, segmentIndex);
+
+    ref
+        .read(listeningActionsProvider.notifier)
+        .saveChapterPosition(
+          bookId: widget.bookId,
+          chapterIndex: currentChapterIndex,
+          segmentIndex: segmentIndex,
+        );
   }
 
   void _updateSystemUI(bool isLandscape) {
@@ -189,7 +237,12 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
 
   /// Auto-save progress to SQLite periodically.
   /// Prevents progress loss on crash or unexpected termination.
+  /// Saves both book-level progress (reading_progress) and per-chapter position
+  /// (chapter_positions) so users can resume from where they left off in each chapter.
   void _autoSaveProgress() {
+    // Don't save in preview mode - we're just browsing
+    if (_isPreviewMode) return;
+
     final playbackState = ref.read(playbackStateProvider);
     final currentChapterIndex = _currentChapterIndex;
 
@@ -207,9 +260,22 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
 
     _lastSavedSegmentIndex = segmentIndex;
 
+    // Save book-level progress (reading_progress table)
     ref
         .read(libraryProvider.notifier)
         .updateProgress(widget.bookId, currentChapterIndex, segmentIndex);
+
+    // Also save per-chapter position so returning to this chapter resumes here.
+    // Uses saveChapterPosition which preserves the primary flag - this way the
+    // "Continue Listening" button continues to work correctly while also
+    // remembering where the user was in each chapter.
+    ref
+        .read(listeningActionsProvider.notifier)
+        .saveChapterPosition(
+          bookId: widget.bookId,
+          chapterIndex: currentChapterIndex,
+          segmentIndex: segmentIndex,
+        );
 
     developer.log(
       '[PlaybackScreen] Auto-saved progress: chapter $currentChapterIndex, segment $segmentIndex',
@@ -249,6 +315,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
 
       if (!_autoScrollEnabled) return;
       if (_showCover) return; // Don't scroll when showing cover
+      if (_isPreviewMode) return; // Don't auto-scroll in preview mode
 
       if (currentIndex >= 0 && currentIndex != _lastAutoScrolledIndex) {
         _lastAutoScrolledIndex = currentIndex;
@@ -336,11 +403,31 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     if (currentChapterIndex >= book.chapters.length - 1) return;
 
     // Auto-advance to next chapter
-    _autoAdvanceToNextChapter(book, currentChapterIndex + 1);
+    _autoAdvanceToNextChapter(book, currentChapterIndex, currentChapterIndex + 1);
   }
 
   /// Automatically advance to next chapter (does NOT reset sleep timer).
-  Future<void> _autoAdvanceToNextChapter(Book book, int newChapterIndex) async {
+  ///
+  /// This saves the completed chapter's position at the end (for returning later)
+  /// and updates the primary position to the new chapter (for "Continue Listening").
+  Future<void> _autoAdvanceToNextChapter(
+    Book book,
+    int completedChapterIndex,
+    int newChapterIndex,
+  ) async {
+    final playbackState = ref.read(playbackStateProvider);
+    final completedSegmentIndex =
+        playbackState.queue.isNotEmpty
+            ? playbackState.queue.length - 1  // End of chapter
+            : 0;
+
+    // Save completed chapter position at the end (for when user returns to it)
+    await ref.read(listeningActionsProvider.notifier).saveChapterPosition(
+          bookId: widget.bookId,
+          chapterIndex: completedChapterIndex,
+          segmentIndex: completedSegmentIndex,
+        );
+
     setState(() => _currentChapterIndex = newChapterIndex);
 
     await ref
@@ -350,6 +437,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           chapterIndex: newChapterIndex,
           startSegmentIndex: 0,
           autoPlay: true, // Continue playing
+        );
+
+    // Update primary position to the new chapter (for "Continue Listening")
+    await ref.read(listeningActionsProvider.notifier).saveCurrentPosition(
+          bookId: widget.bookId,
+          chapterIndex: newChapterIndex,
+          segmentIndex: 0,
         );
   }
 
@@ -458,8 +552,125 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
       return;
     }
 
+    // Check if audio is already playing a DIFFERENT chapter
+    final currentState = ref.read(playbackStateProvider);
+    final hasActivePlayback = currentState.queue.isNotEmpty &&
+        currentState.bookId == widget.bookId;
+    final activeChapter = hasActivePlayback
+        ? currentState.queue.first.chapterIndex
+        : null;
+
+    if (hasActivePlayback && activeChapter != chapterIndex) {
+      // PREVIEW MODE: User is viewing a different chapter than what's playing
+      PlaybackLogger.debug(
+        '[PlaybackScreen] Entering preview mode: viewing chapter $chapterIndex, playing chapter $activeChapter',
+      );
+      _activePlaybackChapter = activeChapter;
+      await _enterPreviewMode(book, chapterIndex);
+    } else if (hasActivePlayback && activeChapter == chapterIndex) {
+      // Same chapter is already loaded
+      PlaybackLogger.debug(
+        '[PlaybackScreen] Chapter $chapterIndex already loaded, skipping reload',
+      );
+      // Just seek to the correct segment if needed
+      if (segmentIndex != currentState.currentIndex &&
+          segmentIndex < currentState.queue.length) {
+        await ref.read(playbackControllerProvider.notifier).seekToTrack(
+          segmentIndex,
+          play: currentState.isPlaying,
+        );
+      }
+    } else {
+      // No active playback or different book - normal load
+      await _loadChapterWithRetry(
+        book: book,
+        chapterIndex: chapterIndex,
+        segmentIndex: segmentIndex,
+      );
+    }
+
+    // If user navigated to a specific chapter (via deep link / book details / segment tap),
+    // save it as the primary position (only in active mode, not preview mode).
+    if (widget.initialChapter != null && !_isPreviewMode) {
+      await ref
+          .read(listeningActionsProvider.notifier)
+          .saveCurrentPosition(
+            bookId: widget.bookId,
+            chapterIndex: chapterIndex,
+            segmentIndex: segmentIndex,
+          );
+      PlaybackLogger.debug(
+        '[PlaybackScreen] Set primary position to chapter $chapterIndex, segment $segmentIndex',
+      );
+    }
+  }
+
+  /// Enter preview mode - load segments for display but don't switch audio
+  Future<void> _enterPreviewMode(Book book, int chapterIndex) async {
+    final segments = await ref
+        .read(libraryProvider.notifier)
+        .getSegmentsForChapter(book.id, chapterIndex);
+
+    if (mounted) {
+      setState(() {
+        _isPreviewMode = true;
+        _previewSegments = segments;
+      });
+    }
+  }
+
+  /// Exit preview mode and switch audio to this chapter
+  Future<void> _exitPreviewModeAndPlay(int segmentIndex) async {
+    final library = ref.read(libraryProvider).value;
+    if (library == null) return;
+
+    final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
+    if (book == null) return;
+
+    // Save as primary position
+    await ref.read(listeningActionsProvider.notifier).saveCurrentPosition(
+          bookId: widget.bookId,
+          chapterIndex: _currentChapterIndex,
+          segmentIndex: segmentIndex,
+        );
+
+    // Load and start playing the chapter
+    await ref
+        .read(playbackControllerProvider.notifier)
+        .loadChapter(
+          book: book,
+          chapterIndex: _currentChapterIndex,
+          startSegmentIndex: segmentIndex,
+          autoPlay: true,
+        );
+
+    if (mounted) {
+      setState(() {
+        _isPreviewMode = false;
+        _previewSegments = null;
+        _activePlaybackChapter = null;
+      });
+    }
+  }
+
+  /// Load chapter with retry logic to handle race conditions.
+  ///
+  /// On first app launch, there can be a race condition where:
+  /// 1. loadChapter is called and updates state
+  /// 2. playbackControllerProvider gets invalidated (e.g., by download manager init)
+  /// 3. New provider builds with empty state, discarding the loaded chapter
+  ///
+  /// This method detects when the queue is empty after loading and retries once.
+  Future<void> _loadChapterWithRetry({
+    required Book book,
+    required int chapterIndex,
+    required int segmentIndex,
+    int retryCount = 0,
+  }) async {
+    const maxRetries = 1;
+
     final notifier = ref.read(playbackControllerProvider.notifier);
-    PlaybackLogger.debug('[PlaybackScreen] Calling loadChapter...');
+    PlaybackLogger.debug('[PlaybackScreen] Calling loadChapter (attempt ${retryCount + 1})...');
 
     try {
       await notifier.loadChapter(
@@ -468,8 +679,33 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
         startSegmentIndex: segmentIndex,
         autoPlay: false,
       );
+
+      // Verify the queue was actually populated
+      // Give a small delay for state to propagate
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final state = ref.read(playbackStateProvider);
+      if (state.queue.isEmpty && retryCount < maxRetries) {
+        PlaybackLogger.warning(
+          '[PlaybackScreen] Queue is empty after loadChapter - likely due to provider invalidation. Retrying...',
+        );
+
+        // Wait a bit longer for provider to stabilize
+        await Future.delayed(const Duration(milliseconds: 200));
+
+        // Ensure controller is ready again
+        await ref.read(playbackControllerProvider.future);
+
+        return _loadChapterWithRetry(
+          book: book,
+          chapterIndex: chapterIndex,
+          segmentIndex: segmentIndex,
+          retryCount: retryCount + 1,
+        );
+      }
+
       PlaybackLogger.info(
-        '[PlaybackScreen] loadChapter completed successfully',
+        '[PlaybackScreen] loadChapter completed successfully (queue has ${state.queue.length} tracks)',
       );
     } catch (e, st) {
       PlaybackLogger.error('[PlaybackScreen] ERROR in loadChapter: $e');
@@ -541,15 +777,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     AppHaptics.medium(); // Chapter change feedback
     final newChapterIndex = currentChapterIndex + 1;
 
-    // Use ListeningActionsNotifier to handle position saving and browsing mode
+    // Save current chapter position before jumping
+    await ref.read(listeningActionsProvider.notifier).saveChapterPosition(
+          bookId: widget.bookId,
+          chapterIndex: currentChapterIndex,
+          segmentIndex: currentSegmentIndex,
+        );
+
+    // Get resume position for target chapter
     final targetSegment = await ref
         .read(listeningActionsProvider.notifier)
-        .jumpToChapter(
-          bookId: widget.bookId,
-          currentChapter: currentChapterIndex,
-          currentSegment: currentSegmentIndex,
-          targetChapter: newChapterIndex,
-        );
+        .getResumePosition(widget.bookId, newChapterIndex);
 
     setState(() => _currentChapterIndex = newChapterIndex);
 
@@ -560,6 +798,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           chapterIndex: newChapterIndex,
           startSegmentIndex: targetSegment,
           autoPlay: playbackState.isPlaying,
+        );
+
+    // Next/previous is sequential navigation - update primary to new chapter
+    await ref.read(listeningActionsProvider.notifier).saveCurrentPosition(
+          bookId: widget.bookId,
+          chapterIndex: newChapterIndex,
+          segmentIndex: targetSegment,
         );
   }
 
@@ -589,15 +834,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     AppHaptics.medium(); // Chapter change feedback
     final newChapterIndex = currentChapterIndex - 1;
 
-    // Use ListeningActionsNotifier to handle position saving and browsing mode
+    // Save current chapter position before jumping
+    await ref.read(listeningActionsProvider.notifier).saveChapterPosition(
+          bookId: widget.bookId,
+          chapterIndex: currentChapterIndex,
+          segmentIndex: currentSegmentIndex,
+        );
+
+    // Get resume position for target chapter
     final targetSegment = await ref
         .read(listeningActionsProvider.notifier)
-        .jumpToChapter(
-          bookId: widget.bookId,
-          currentChapter: currentChapterIndex,
-          currentSegment: currentSegmentIndex,
-          targetChapter: newChapterIndex,
-        );
+        .getResumePosition(widget.bookId, newChapterIndex);
 
     setState(() => _currentChapterIndex = newChapterIndex);
 
@@ -608,6 +855,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           chapterIndex: newChapterIndex,
           startSegmentIndex: targetSegment,
           autoPlay: playbackState.isPlaying,
+        );
+
+    // Next/previous is sequential navigation - update primary to new chapter
+    await ref.read(listeningActionsProvider.notifier).saveCurrentPosition(
+          bookId: widget.bookId,
+          chapterIndex: newChapterIndex,
+          segmentIndex: targetSegment,
         );
   }
 
@@ -707,19 +961,31 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
   }
 
   void _saveProgressAndPop() {
-    final playbackState = ref.read(playbackStateProvider);
-    final currentChapterIndex = _currentChapterIndex;
+    // Don't save progress in preview mode
+    if (!_isPreviewMode) {
+      final playbackState = ref.read(playbackStateProvider);
+      final currentChapterIndex = _currentChapterIndex;
 
-    // Only save valid segment index (when queue is loaded)
-    final queueLength = playbackState.queue.length;
-    final segmentIndex =
-        queueLength > 0
-            ? playbackState.currentIndex.clamp(0, queueLength - 1)
-            : 0;
+      // Only save valid segment index (when queue is loaded)
+      final queueLength = playbackState.queue.length;
+      final segmentIndex =
+          queueLength > 0
+              ? playbackState.currentIndex.clamp(0, queueLength - 1)
+              : 0;
 
-    ref
-        .read(libraryProvider.notifier)
-        .updateProgress(widget.bookId, currentChapterIndex, segmentIndex);
+      // Save to both tables for consistency
+      ref
+          .read(libraryProvider.notifier)
+          .updateProgress(widget.bookId, currentChapterIndex, segmentIndex);
+
+      ref
+          .read(listeningActionsProvider.notifier)
+          .saveChapterPosition(
+            bookId: widget.bookId,
+            chapterIndex: currentChapterIndex,
+            segmentIndex: segmentIndex,
+          );
+    }
     context.pop();
   }
 
@@ -769,8 +1035,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
             final queue = playbackState.queue;
             final queueLength = queue.length;
 
-            // Show loading state if queue hasn't been loaded yet
-            final isLoading = queueLength == 0;
+            // Show loading state if queue hasn't been loaded yet (and not in preview mode)
+            final isLoading = queueLength == 0 && !_isPreviewMode;
 
             final currentIndex =
                 isLoading
@@ -803,7 +1069,9 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                       sleepTimerMinutes: _sleepTimerMinutes,
                       sleepTimeRemainingSeconds: _sleepTimeRemainingSeconds,
                       onBack: _saveProgressAndPop,
-                      onSegmentTap: _seekToSegment,
+                      onSegmentTap: _isPreviewMode
+                          ? _exitPreviewModeAndPlay
+                          : _seekToSegment,
                       onAutoScrollDisabled:
                           () => setState(() => _autoScrollEnabled = false),
                       onJumpToCurrent: _jumpToCurrent,
@@ -816,7 +1084,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                           () => _showSleepTimerPicker(context, colors),
                       onPreviousChapter: _previousChapter,
                       onNextChapter: _nextChapter,
-                      onSnapBack: _snapBackToPrimary,
+                      onSnapBack: () {},
                       errorBannerBuilder:
                           (error) => _buildErrorBanner(colors, error),
                     )
@@ -824,9 +1092,13 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                       book: book,
                       chapter: chapter,
                       playbackState: playbackState,
-                      queue: queue,
-                      currentIndex: currentIndex,
-                      queueLength: queueLength,
+                      queue: _isPreviewMode
+                          ? _buildPreviewQueue()
+                          : queue,
+                      currentIndex: _isPreviewMode ? -1 : currentIndex,
+                      queueLength: _isPreviewMode
+                          ? (_previewSegments?.length ?? 0)
+                          : queueLength,
                       chapterIdx: chapterIdx,
                       isLoading: isLoading,
                       showCover: _showCover,
@@ -838,19 +1110,22 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                       onBack: _saveProgressAndPop,
                       onToggleView:
                           () => setState(() => _showCover = !_showCover),
-                      onSegmentTap: _seekToSegment,
+                      onSegmentTap: _isPreviewMode
+                          ? _exitPreviewModeAndPlay
+                          : _seekToSegment,
                       onAutoScrollDisabled:
                           () => setState(() => _autoScrollEnabled = false),
                       onJumpToCurrent: _jumpToCurrent,
-                      playbackControlsBuilder:
-                          () => _buildPlaybackControls(
-                            colors,
-                            playbackState,
-                            currentIndex,
-                            queueLength,
-                            chapterIdx,
-                            book.chapters.length,
-                          ),
+                      playbackControlsBuilder: () => _isPreviewMode
+                          ? _buildPreviewModeControls(colors, book)
+                          : _buildPlaybackControls(
+                              colors,
+                              playbackState,
+                              currentIndex,
+                              queueLength,
+                              chapterIdx,
+                              book.chapters.length,
+                            ),
                       errorBannerBuilder:
                           (error) => _buildErrorBanner(colors, error),
                     );
@@ -881,6 +1156,201 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           },
         ),
       ),
+    );
+  }
+
+  /// Build a queue from preview segments for display purposes
+  List<AudioTrack> _buildPreviewQueue() {
+    final segments = _previewSegments;
+    if (segments == null) return [];
+
+    return segments
+        .map((s) => AudioTrack(
+              id: 'preview_${s.index}',
+              text: s.text,
+              chapterIndex: _currentChapterIndex,
+              segmentIndex: s.index,
+              estimatedDuration: s.estimatedDuration,
+            ))
+        .toList();
+  }
+
+  /// Build controls for preview mode - shows mini player instead of full controls
+  Widget _buildPreviewModeControls(AppThemeColors colors, Book book) {
+    final playbackState = ref.watch(playbackStateProvider);
+
+    // Find the book for the currently playing chapter
+    final playingChapterIndex = _activePlaybackChapter ?? 0;
+    final playingChapter = playingChapterIndex < book.chapters.length
+        ? book.chapters[playingChapterIndex]
+        : null;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // "Tap to play" hint
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: colors.border, width: 1)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.touch_app, size: 16, color: colors.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Tap any paragraph to start playing from there',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Mini player showing what's currently playing
+        GestureDetector(
+          onTap: () {
+            // Navigate to the currently playing chapter
+            if (_activePlaybackChapter != null) {
+              setState(() {
+                _currentChapterIndex = _activePlaybackChapter!;
+                _isPreviewMode = false;
+                _previewSegments = null;
+                _activePlaybackChapter = null;
+              });
+            }
+          },
+          child: Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewPadding.bottom,
+            ),
+            decoration: BoxDecoration(
+              color: colors.card,
+              border: Border(
+                top: BorderSide(color: colors.border, width: 1),
+              ),
+            ),
+            child: SizedBox(
+              height: 64,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    // Book cover thumbnail
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: book.coverImagePath != null &&
+                                File(book.coverImagePath!).existsSync()
+                            ? Image.file(
+                                File(book.coverImagePath!),
+                                fit: BoxFit.cover,
+                              )
+                            : Container(
+                                color: colors.primary.withValues(alpha: 0.1),
+                                child: Icon(Icons.book, color: colors.primary),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Now playing info
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                playbackState.isPlaying
+                                    ? Icons.equalizer
+                                    : Icons.pause_circle_outline,
+                                size: 14,
+                                color: colors.primary,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Now Playing',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: colors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            playingChapter?.title ?? 'Chapter ${playingChapterIndex + 1}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: colors.text,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Play/Pause button
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _togglePlay,
+                        borderRadius: BorderRadius.circular(24),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(
+                            playbackState.isPlaying
+                                ? Icons.pause
+                                : Icons.play_arrow,
+                            size: 28,
+                            color: colors.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // Go to playing chapter
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          if (_activePlaybackChapter != null) {
+                            setState(() {
+                              _currentChapterIndex = _activePlaybackChapter!;
+                              _isPreviewMode = false;
+                              _previewSegments = null;
+                              _activePlaybackChapter = null;
+                            });
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(24),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(
+                            Icons.chevron_right,
+                            size: 24,
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -989,94 +1459,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     }
   }
 
-  /// Return to the last played position.
-  Future<void> _snapBackToPrimary() async {
-    final result = await ref
-        .read(listeningActionsProvider.notifier)
-        .returnToLastPlayed(widget.bookId);
-    if (result == null) return;
-
-    final library = ref.read(libraryProvider).value;
-    if (library == null) return;
-
-    final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
-    if (book == null) return;
-
-    setState(() => _currentChapterIndex = result.chapterIndex);
-
-    await ref
-        .read(playbackControllerProvider.notifier)
-        .loadChapter(
-          book: book,
-          chapterIndex: result.chapterIndex,
-          startSegmentIndex: result.segmentIndex,
-          autoPlay: ref.read(playbackStateProvider).isPlaying,
-        );
-
-    developer.log(
-      '[PlaybackScreen] Returned to last played: chapter ${result.chapterIndex}, segment ${result.segmentIndex}',
-    );
-  }
-
-  /// Build the banner showing last played position.
-  Widget _buildSnapBackBanner(AppThemeColors colors) {
-    final primaryAsync = ref.watch(primaryPositionProvider(widget.bookId));
-    final currentIndex = _currentChapterIndex;
-
-    // Only show banner if we're not already at the last played position
-    return primaryAsync.when(
-      data: (primary) {
-        if (primary == null || primary.chapterIndex == currentIndex) {
-          return const SizedBox.shrink();
-        }
-
-        return _buildLastPlayedBanner(colors, primary);
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-    );
-  }
-
-  /// Build the last played position banner.
-  Widget _buildLastPlayedBanner(AppThemeColors colors, ChapterPosition primary) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: colors.accent.withValues(alpha: 0.1),
-        border: Border(
-          bottom: BorderSide(
-            color: colors.accent.withValues(alpha: 0.3),
-            width: 1,
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.history, size: 18, color: colors.accent),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Last played: Chapter ${primary.chapterIndex + 1}',
-              style: TextStyle(fontSize: 13, color: colors.textSecondary),
-            ),
-          ),
-          TextButton.icon(
-            onPressed: _snapBackToPrimary,
-            icon: Icon(Icons.play_arrow, size: 18, color: colors.accent),
-            label: Text('Resume', style: TextStyle(color: colors.accent)),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 4,
-              ),
-              visualDensity: VisualDensity.compact,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPlaybackControls(
     AppThemeColors colors,
     PlaybackState playbackState,
@@ -1097,9 +1479,6 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Snap-back banner (shown when browsing from a different chapter)
-        _buildSnapBackBanner(colors),
-
         Container(
           decoration: BoxDecoration(
             border: Border(top: BorderSide(color: colors.border, width: 1)),

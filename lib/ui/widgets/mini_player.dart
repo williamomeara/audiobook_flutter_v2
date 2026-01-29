@@ -21,14 +21,9 @@ class MiniPlayer extends ConsumerWidget {
     final libraryAsync = ref.watch(libraryProvider);
     final colors = Theme.of(context).extension<AppThemeColors>()!;
 
-    // Don't show if nothing is playing
-    if (!playbackState.isPlaying) {
-      return const SizedBox.shrink();
-    }
-
-    // Don't show if no book is loaded
+    // Don't show if no active playback session (no book loaded or empty queue)
     final bookId = playbackState.bookId;
-    if (bookId == null) {
+    if (bookId == null || playbackState.queue.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -39,10 +34,14 @@ class MiniPlayer extends ConsumerWidget {
         final book = library.books.where((b) => b.id == bookId).firstOrNull;
         if (book == null) return const SizedBox.shrink();
 
+        // Get bottom safe area padding for system navigation bar
+        final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+
         return GestureDetector(
           onTap: () => context.push('/playback/$bookId'),
           child: Container(
-            height: 64,
+            // Add bottom padding to lift mini-player above system navigation bar
+            padding: EdgeInsets.only(bottom: bottomPadding),
             decoration: BoxDecoration(
               color: colors.background,
               border: Border(
@@ -56,27 +55,29 @@ class MiniPlayer extends ConsumerWidget {
                 ),
               ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  // Book cover thumbnail
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: book.coverImagePath != null && File(book.coverImagePath!).existsSync()
-                          ? Image.file(File(book.coverImagePath!), fit: BoxFit.cover)
-                          : Container(
-                              color: colors.primary.withOpacity(0.1),
-                              child: Icon(Icons.book, color: colors.primary),
-                            ),
+            child: SizedBox(
+              height: 64,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    // Book cover thumbnail
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: book.coverImagePath != null && File(book.coverImagePath!).existsSync()
+                            ? Image.file(File(book.coverImagePath!), fit: BoxFit.cover)
+                            : Container(
+                                color: colors.primary.withOpacity(0.1),
+                                child: Icon(Icons.book, color: colors.primary),
+                              ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
+                    const SizedBox(width: 12),
 
-                  // Title and progress
+                    // Title and progress
                   Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -148,6 +149,7 @@ class MiniPlayer extends ConsumerWidget {
                 ],
               ),
             ),
+          ),
           ),
         );
       },

@@ -86,6 +86,36 @@ class ListeningActionsNotifier extends Notifier<void> {
     ref.invalidate(primaryPositionProvider(bookId));
   }
 
+  /// Save the current chapter position for resume purposes.
+  ///
+  /// Unlike saveCurrentPosition, this does NOT update the primary position.
+  /// Used for auto-saving chapter positions so users can resume where they
+  /// left off when returning to a chapter.
+  ///
+  /// Note: If no position exists for this chapter yet, creates one as non-primary.
+  /// If a position already exists, updates its segment but preserves its primary status.
+  Future<void> saveChapterPosition({
+    required String bookId,
+    required int chapterIndex,
+    required int segmentIndex,
+  }) async {
+    final dao = await ref.read(chapterPositionDaoProvider.future);
+
+    // Check if a position already exists for this chapter
+    final existingPosition = await dao.getChapterPosition(bookId, chapterIndex);
+
+    // Save position, preserving existing primary status or defaulting to false
+    await dao.savePosition(
+      bookId: bookId,
+      chapterIndex: chapterIndex,
+      segmentIndex: segmentIndex,
+      isPrimary: existingPosition?.isPrimary ?? false,
+    );
+
+    // Invalidate chapter positions cache (but not primary - we didn't change it)
+    ref.invalidate(chapterPositionsProvider(bookId));
+  }
+
   /// Get the resume position for a chapter.
   ///
   /// Returns the saved segment index for the chapter, or 0 if no position saved.

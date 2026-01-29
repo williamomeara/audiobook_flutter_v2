@@ -12,7 +12,6 @@ import 'audio_service_handler.dart';
 import 'config/config_providers.dart';
 import 'config/runtime_playback_config.dart' as app_config show PrefetchMode;
 import 'database/database.dart';
-import 'granular_download_manager.dart';
 import 'library_controller.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
@@ -242,17 +241,10 @@ final segmentProgressDaoProvider = FutureProvider<SegmentProgressDao>((ref) asyn
 // Browsing Mode Notifier (Last Listened Location Feature)
 // ===========================================================================
 
-/// Tracks browsing mode state for each book.
-/// 
-/// Browsing mode is entered when the user manually jumps to a different chapter
-/// (not through auto-advance). While in browsing mode:
-/// - The primary position is preserved as the snap-back target
-/// - A "Back to Chapter X" button appears in the playback UI
-/// 
-/// Browsing mode exits when:
-/// - User taps the snap-back button
-/// - User listens for 30+ seconds (auto-promotion)
-/// - User explicitly commits to the new position
+/// Tracks whether the user is browsing chapters (viewing text) while audio plays.
+///
+/// This is a simple boolean state - no timers needed.
+/// The user explicitly commits to a new position by tapping a segment.
 class BrowsingModeNotifier extends Notifier<Map<String, bool>> {
   @override
   Map<String, bool> build() => {};
@@ -269,16 +261,12 @@ class BrowsingModeNotifier extends Notifier<Map<String, bool>> {
   void exitBrowsingMode(String bookId) {
     state = {...state, bookId: false};
   }
-
-  /// Toggle browsing mode for a book.
-  void setBrowsingMode(String bookId, bool value) {
-    state = {...state, bookId: value};
-  }
 }
 
 /// Provider for browsing mode state.
-/// Use `ref.watch(browsingModeNotifierProvider).isBrowsing(bookId)` to check.
-final browsingModeNotifierProvider = NotifierProvider<BrowsingModeNotifier, Map<String, bool>>(
+/// Use `ref.watch(browsingModeNotifierProvider.notifier).isBrowsing(bookId)` to check.
+final browsingModeNotifierProvider =
+    NotifierProvider<BrowsingModeNotifier, Map<String, bool>>(
   BrowsingModeNotifier.new,
 );
 
@@ -445,58 +433,6 @@ final audioServiceHandlerProvider = FutureProvider<AudioServiceHandler>((ref) as
   return await initAudioService();
 });
 
-/// Resolves voice ID with fallback if selected voice is unavailable.
-/// 
-/// If the selected voice is not in the list of ready voices, falls back to:
-/// 1. The first available voice from the same engine type
-/// 2. Any available voice
-/// 3. VoiceIds.none if no voices are available
-String _resolveVoiceWithFallback(Ref ref) {
-  final selectedVoice = ref.read(settingsProvider).selectedVoice;
-  
-  // If no voice selected, return none
-  if (selectedVoice == VoiceIds.none) {
-    return VoiceIds.none;
-  }
-  
-  // Get ready voice IDs from download manager
-  final downloadState = ref.read(granularDownloadManagerProvider);
-  final readyVoiceIds = downloadState.maybeWhen(
-    data: (state) => state.readyVoices.map((v) => v.voiceId).toSet(),
-    orElse: () => <String>{},
-  );
-  
-  // If selected voice is available, use it
-  if (readyVoiceIds.contains(selectedVoice)) {
-    return selectedVoice;
-  }
-  
-  // Voice not available - try to find a fallback
-  PlaybackLogger.info('[VoiceResolver] Selected voice "$selectedVoice" not available, looking for fallback');
-  
-  // Extract engine type from voice ID (e.g., "supertonic_m5" -> "supertonic")
-  final selectedEngine = selectedVoice.split('_').firstOrNull ?? '';
-  
-  // Try to find a voice from the same engine
-  for (final voiceId in readyVoiceIds) {
-    if (voiceId.startsWith('${selectedEngine}_')) {
-      PlaybackLogger.info('[VoiceResolver] Falling back to "$voiceId" (same engine)');
-      return voiceId;
-    }
-  }
-  
-  // Fall back to any available voice
-  if (readyVoiceIds.isNotEmpty) {
-    final fallback = readyVoiceIds.first;
-    PlaybackLogger.info('[VoiceResolver] Falling back to "$fallback" (any available)');
-    return fallback;
-  }
-  
-  // No voices available
-  PlaybackLogger.info('[VoiceResolver] No voices available, returning none');
-  return VoiceIds.none;
-}
-
 /// Provider for the playback controller.
 /// Creates a single instance of the controller for the app.
 final playbackControllerProvider =
@@ -510,6 +446,11 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   StreamSubscription<PlaybackState>? _stateSub;
   JustAudioOutput? _audioOutput;
   AudioServiceHandler? _audioServiceHandler;
+  
+  /// Current selected voice, updated by listener when user changes voice.
+  /// Used by the voiceIdResolver callback to avoid calling ref.read() which
+  /// can cause CircularDependencyError.
+  String _currentVoice = VoiceIds.none;
 
   @override
   FutureOr<PlaybackState> build() async {
@@ -542,13 +483,19 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       PlaybackLogger.info('[PlaybackProvider] Creating audio output...');
       _audioOutput = JustAudioOutput();
 
+      // Initialize current voice from settings (will be kept in sync by listener below)
+      _currentVoice = ref.read(settingsProvider).selectedVoice;
+
       PlaybackLogger.info('[PlaybackProvider] Creating AudiobookPlaybackController...');
       _controller = AudiobookPlaybackController(
         engine: engine,
         cache: cache,
         audioOutput: _audioOutput,
-        // Voice selection with fallback if selected voice unavailable
-        voiceIdResolver: (_) => _resolveVoiceWithFallback(ref),
+        // Voice selection - return the current voice stored in _currentVoice.
+        // This avoids calling ref.read() in the callback which can cause
+        // CircularDependencyError. The _currentVoice is kept in sync by the
+        // listener below when user changes voice.
+        voiceIdResolver: (_) => _currentVoice,
         resourceMonitor: resourceMonitor,
         onStateChange: (newState) {
           // Update Riverpod state when controller state changes
@@ -589,7 +536,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       });
       
       // Listen for voice changes to notify controller (clears synthesis queue)
+      // Also update _currentVoice so the voiceIdResolver always has the latest value
       ref.listen(settingsProvider.select((s) => s.selectedVoice), (prev, next) {
+        _currentVoice = next;  // Keep _currentVoice in sync
         if (prev != null && prev != next && _controller != null) {
           PlaybackLogger.info('[PlaybackProvider] Voice changed: $prev -> $next');
           _controller!.notifyVoiceChanged();

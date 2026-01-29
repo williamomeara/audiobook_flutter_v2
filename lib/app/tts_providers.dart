@@ -199,6 +199,14 @@ final piperAdapterProvider = FutureProvider<PiperAdapter?>((ref) async {
   final piperCores = granularState.cores.values.where((c) => c.engineType == 'piper');
   final isReady = piperCores.any((c) => c.isReady);
   
+  // Debug: Log the state of Piper cores
+  developer.log(
+    '[piperAdapterProvider] Piper cores count: ${piperCores.length}, '
+    'any ready: $isReady, '
+    'statuses: ${piperCores.map((c) => "${c.coreId}:${c.status}").join(", ")}',
+    name: 'TtsProviders',
+  );
+  
   if (!isReady) return null;
 
   final nativeApi = ref.read(ttsNativeApiProvider);
