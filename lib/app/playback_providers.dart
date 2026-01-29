@@ -537,13 +537,27 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       
       // Listen for voice changes to notify controller (clears synthesis queue)
       // Also update _currentVoice so the voiceIdResolver always has the latest value
-      ref.listen(settingsProvider.select((s) => s.selectedVoice), (prev, next) {
-        _currentVoice = next;  // Keep _currentVoice in sync
-        if (prev != null && prev != next && _controller != null) {
-          PlaybackLogger.info('[PlaybackProvider] Voice changed: $prev -> $next');
-          _controller!.notifyVoiceChanged();
-        }
-      });
+      // Use fireImmediately to sync _currentVoice in case settings already loaded
+      // from SQLite before this listener was set up (race condition fix)
+      ref.listen(
+        settingsProvider.select((s) => s.selectedVoice),
+        (prev, next) {
+          final previousVoice = _currentVoice;
+          _currentVoice = next;  // Keep _currentVoice in sync
+          
+          // Only notify controller if voice actually changed AND controller exists
+          // Check against previousVoice (not prev) because prev might be the initial
+          // callback value which doesn't reflect what we actually had stored
+          if (previousVoice != VoiceIds.none && previousVoice != next && _controller != null) {
+            PlaybackLogger.info('[PlaybackProvider] Voice changed: $previousVoice -> $next');
+            _controller!.notifyVoiceChanged();
+          } else if (previousVoice == VoiceIds.none && next != VoiceIds.none) {
+            // Voice was loaded from settings (initial sync) - just log, no need to notify
+            PlaybackLogger.info('[PlaybackProvider] Voice synced from settings: $next');
+          }
+        },
+        fireImmediately: true,  // Sync voice immediately in case settings already loaded
+      );
       
       // Connect audio output player to audio service for system media controls
       await _connectAudioService();
