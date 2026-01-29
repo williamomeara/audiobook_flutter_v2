@@ -1,3 +1,8 @@
+/// Marker prefix for figure placeholders in text.
+/// Format: [FIGURE:{imagePath}:{altText}]
+const String figurePlaceholderPrefix = '[FIGURE:';
+const String figurePlaceholderSuffix = ']';
+
 /// Classifies the type of content in a segment.
 /// 
 /// Used for type-aware rendering and optional TTS skip behavior.

@@ -142,6 +142,7 @@ List<InlineSpan> buildSegmentSpans({
         isActive: isActive,
         isDarkMode: isDarkMode,
         onTap: () => onSegmentTap(index),
+        onSkip: onSkipSegment != null ? () => onSkipSegment(index) : null,
         segmentKey: isActive ? activeSegmentKey : null,
       ));
       continue;
@@ -207,11 +208,16 @@ WidgetSpan _buildFigureBlockSpan({
   required bool isActive,
   required bool isDarkMode,
   required VoidCallback onTap,
+  VoidCallback? onSkip,
   GlobalKey? segmentKey,
 }) {
-  // Extract caption from [Figure: caption] marker
-  final captionMatch = RegExp(r'\[Figure:\s*(.*?)\]', caseSensitive: false).firstMatch(item.text);
-  final caption = captionMatch?.group(1)?.trim() ?? item.metadata?['caption'] as String? ?? '';
+  // Extract caption from metadata (set by segmenter) or from item text
+  final caption = item.metadata?['altText'] as String? ?? 
+                  item.metadata?['caption'] as String? ?? 
+                  item.text;
+  
+  // Get imagePath from metadata (set by segmenter)
+  final imagePath = item.metadata?['imagePath'] as String?;
   
   return WidgetSpan(
     alignment: PlaceholderAlignment.middle,
@@ -220,9 +226,11 @@ WidgetSpan _buildFigureBlockSpan({
       width: double.infinity,
       child: FigureBlockWidget(
         caption: caption,
+        imagePath: imagePath,
         isDarkMode: isDarkMode,
         isActive: isActive,
         onTap: onTap,
+        onSkip: onSkip,
       ),
     ),
   );

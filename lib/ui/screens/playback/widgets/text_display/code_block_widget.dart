@@ -1,9 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/github.dart';
-import 'package:core_domain/core_domain.dart';
 
 /// Widget for rendering code blocks with syntax highlighting.
 /// 
@@ -309,7 +310,10 @@ class _SkipButton extends StatelessWidget {
   }
 }
 
-/// Widget for figure/image placeholders.
+/// Widget for figure/image display.
+/// 
+/// Shows the actual image when imagePath is provided and the file exists,
+/// otherwise shows a placeholder icon.
 class FigureBlockWidget extends StatelessWidget {
   const FigureBlockWidget({
     super.key,
@@ -317,10 +321,15 @@ class FigureBlockWidget extends StatelessWidget {
     required this.isDarkMode,
     required this.isActive,
     required this.onTap,
+    this.imagePath,
+    this.onSkip,
   });
   
-  /// The figure caption (from [Figure: caption] marker).
+  /// The figure caption (from alt text or placeholder).
   final String caption;
+  
+  /// Path to the extracted image file.
+  final String? imagePath;
   
   /// Whether to use dark mode styling.
   final bool isDarkMode;
@@ -330,6 +339,15 @@ class FigureBlockWidget extends StatelessWidget {
   
   /// Called when tapped for navigation.
   final VoidCallback onTap;
+  
+  /// Called when user wants to skip this figure.
+  final VoidCallback? onSkip;
+  
+  /// Check if the image file exists.
+  bool get _imageExists {
+    if (imagePath == null || imagePath!.isEmpty) return false;
+    return File(imagePath!).existsSync();
+  }
   
   @override
   Widget build(BuildContext context) {
@@ -344,7 +362,6 @@ class FigureBlockWidget extends StatelessWidget {
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: bgColor,
           borderRadius: BorderRadius.circular(8),
@@ -354,33 +371,105 @@ class FigureBlockWidget extends StatelessWidget {
           ),
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(
-              Icons.image_outlined,
-              size: 48,
-              color: isDarkMode ? Colors.grey.shade600 : Colors.grey.shade400,
+            // Header with figure label and skip button
+            _buildHeader(context),
+            // Image or placeholder
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: _imageExists 
+                  ? _buildImage() 
+                  : _buildPlaceholder(),
             ),
-            const SizedBox(height: 8),
-            Text(
-              caption.isNotEmpty ? caption : 'Figure',
-              style: TextStyle(
-                fontSize: 13,
-                fontStyle: FontStyle.italic,
-                color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
+            // Caption
+            if (caption.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: Text(
+                  caption,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                    color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '(Image not available in TTS mode)',
-              style: TextStyle(
-                fontSize: 11,
-                color: isDarkMode ? Colors.grey.shade600 : Colors.grey.shade500,
-              ),
-            ),
           ],
         ),
       ),
+    );
+  }
+  
+  Widget _buildHeader(BuildContext context) {
+    final headerColor = isDarkMode 
+        ? const Color(0xFF2D2D2D) 
+        : const Color(0xFFE8E8E8);
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: headerColor,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(7),
+          topRight: Radius.circular(7),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.image,
+            size: 14,
+            color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'FIGURE',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
+            ),
+          ),
+          const Spacer(),
+          if (onSkip != null)
+            _SkipButton(onTap: onSkip!, isDarkMode: isDarkMode),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildImage() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.file(
+        File(imagePath!),
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) {
+          return _buildPlaceholder();
+        },
+      ),
+    );
+  }
+  
+  Widget _buildPlaceholder() {
+    return Column(
+      children: [
+        Icon(
+          Icons.image_not_supported_outlined,
+          size: 48,
+          color: isDarkMode ? Colors.grey.shade600 : Colors.grey.shade400,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Image not available',
+          style: TextStyle(
+            fontSize: 12,
+            color: isDarkMode ? Colors.grey.shade600 : Colors.grey.shade500,
+          ),
+        ),
+      ],
     );
   }
 }

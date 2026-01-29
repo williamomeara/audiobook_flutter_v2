@@ -1,12 +1,28 @@
 import '../models/segment.dart';
 import 'text_normalizer.dart';
 
+/// Internal helper class for splitting text around figures.
+class _TextChunk {
+  const _TextChunk({
+    required this.text,
+    this.isFigure = false,
+    this.imagePath,
+    this.altText,
+  });
+  
+  final String text;
+  final bool isFigure;
+  final String? imagePath;
+  final String? altText;
+}
+
 /// Segments text into synthesis-friendly chunks.
 ///
 /// Segments are designed to:
 /// - Be short enough for efficient synthesis
 /// - Break at natural pause points (sentences)
 /// - Avoid cutting words or awkward breaks
+/// - Recognize and preserve figure placeholders as separate segments
 class TextSegmenter {
   TextSegmenter._();
 
@@ -21,6 +37,11 @@ class TextSegmenter {
 
   /// Minimum characters for a valid segment.
   static const int minLength = 10;
+  
+  /// Pattern to match figure placeholders: [FIGURE:{path}:{alt}]
+  static final RegExp _figurePattern = RegExp(
+    r'\[FIGURE:([^:]+):([^\]]*)\]',
+  );
 
   /// Segment text into a list of segments.
   ///
@@ -28,11 +49,88 @@ class TextSegmenter {
   /// [maxLength] - Target maximum characters per segment (default ~100, ~20 words).
   ///               Sentences are kept whole unless they exceed maxLongSentenceLength.
   ///
-  /// Returns a list of [Segment] objects.
+  /// Returns a list of [Segment] objects, including figure segments with proper type.
   static List<Segment> segment(
     String text, {
     int maxLength = defaultMaxLength,
   }) {
+    // First, split text into chunks around figure placeholders
+    final chunks = _splitAroundFigures(text);
+    
+    final segments = <Segment>[];
+    var segmentIndex = 0;
+    
+    for (final chunk in chunks) {
+      if (chunk.isFigure) {
+        // Create a figure segment with metadata
+        segments.add(Segment(
+          text: chunk.altText ?? 'Image',
+          index: segmentIndex++,
+          type: SegmentType.figure,
+          metadata: {
+            'imagePath': chunk.imagePath,
+            'altText': chunk.altText ?? 'Image',
+          },
+        ));
+      } else {
+        // Segment normal text
+        final textSegments = _segmentText(chunk.text, maxLength, segmentIndex);
+        for (final seg in textSegments) {
+          segments.add(seg);
+          segmentIndex++;
+        }
+      }
+    }
+    
+    // Re-index all segments to ensure continuous indices
+    return segments.asMap().entries.map((e) => 
+      e.value.copyWith(index: e.key)
+    ).toList();
+  }
+  
+  /// Split text into chunks, separating figure placeholders from regular text.
+  static List<_TextChunk> _splitAroundFigures(String text) {
+    final chunks = <_TextChunk>[];
+    var lastEnd = 0;
+    
+    for (final match in _figurePattern.allMatches(text)) {
+      // Add text before this figure (if any)
+      if (match.start > lastEnd) {
+        final beforeText = text.substring(lastEnd, match.start).trim();
+        if (beforeText.isNotEmpty) {
+          chunks.add(_TextChunk(text: beforeText));
+        }
+      }
+      
+      // Add the figure
+      chunks.add(_TextChunk(
+        text: match.group(0) ?? '',
+        isFigure: true,
+        imagePath: match.group(1),
+        altText: match.group(2),
+      ));
+      
+      lastEnd = match.end;
+    }
+    
+    // Add remaining text after last figure (if any)
+    if (lastEnd < text.length) {
+      final afterText = text.substring(lastEnd).trim();
+      if (afterText.isNotEmpty) {
+        chunks.add(_TextChunk(text: afterText));
+      }
+    }
+    
+    // If no figures found, return the whole text as a single chunk
+    if (chunks.isEmpty && text.trim().isNotEmpty) {
+      chunks.add(_TextChunk(text: text));
+    }
+    
+    return chunks;
+  }
+  
+  /// Segment a chunk of regular text (no figures).
+  static List<Segment> _segmentText(String text, int maxLength, int startIndex) {
     final normalized = TextNormalizer.normalize(text);
     if (normalized.isEmpty) return const [];
 
@@ -40,7 +138,7 @@ class TextSegmenter {
     final sentences = _splitIntoSentences(normalized);
 
     var currentChunk = StringBuffer();
-    var segmentIndex = 0;
+    var segmentIndex = startIndex;
 
     for (final sentence in sentences) {
       // If adding this sentence would exceed max length AND current chunk is not empty
@@ -48,9 +146,9 @@ class TextSegmenter {
       if (currentChunk.isNotEmpty && 
           currentChunk.length + sentence.length + 1 > maxLength) {
         // Save current chunk
-        final text = currentChunk.toString().trim();
-        if (text.length >= minLength) {
-          segments.add(Segment(text: text, index: segmentIndex++));
+        final chunkText = currentChunk.toString().trim();
+        if (chunkText.length >= minLength) {
+          segments.add(Segment(text: chunkText, index: segmentIndex++));
         }
         currentChunk.clear();
       }
@@ -59,9 +157,9 @@ class TextSegmenter {
       // This is the only case where we break mid-sentence
       if (sentence.length > maxLongSentenceLength) {
         if (currentChunk.isNotEmpty) {
-          final text = currentChunk.toString().trim();
-          if (text.length >= minLength) {
-            segments.add(Segment(text: text, index: segmentIndex++));
+          final chunkText = currentChunk.toString().trim();
+          if (chunkText.length >= minLength) {
+            segments.add(Segment(text: chunkText, index: segmentIndex++));
           }
           currentChunk.clear();
         }
@@ -81,9 +179,9 @@ class TextSegmenter {
 
     // Add remaining content
     if (currentChunk.isNotEmpty) {
-      final text = currentChunk.toString().trim();
-      if (text.length >= minLength) {
-        segments.add(Segment(text: text, index: segmentIndex));
+      final chunkText = currentChunk.toString().trim();
+      if (chunkText.length >= minLength) {
+        segments.add(Segment(text: chunkText, index: segmentIndex));
       }
     }
 
