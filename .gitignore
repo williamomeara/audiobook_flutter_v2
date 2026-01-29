@@ -60,3 +60,4 @@ packages/platform_ios_tts/ios/Frameworks/onnxruntime.xcframework/**/*.a
 # packages/platform_ios_tts/ios/Assets/supertonic_coreml/
 local_dev/appium_tests/
 local_dev/
+key.properties
