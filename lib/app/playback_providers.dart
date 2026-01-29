@@ -561,7 +561,13 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         // Trigger compression after cache entry is registered
         // This is the key callback that ensures entries exist in metadata
         // before compression is attempted (fixes timing issue)
+        // Only compress if the setting is enabled
         onEntryRegistered: (filename) async {
+          final shouldCompress = ref.read(settingsProvider).compressOnSynthesize;
+          if (!shouldCompress) {
+            PlaybackLogger.debug('[PlaybackProvider] Entry registered (compression disabled): $filename');
+            return;
+          }
           PlaybackLogger.debug('[PlaybackProvider] Entry registered, triggering compression: $filename');
           await intelligentCache.compressEntryByFilenameInBackground(filename);
         },
