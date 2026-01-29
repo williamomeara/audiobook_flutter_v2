@@ -12,7 +12,6 @@ import 'audio_service_handler.dart';
 import 'config/config_providers.dart';
 import 'config/runtime_playback_config.dart' as app_config show PrefetchMode;
 import 'database/database.dart';
-import 'granular_download_manager.dart';
 import 'library_controller.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
@@ -210,6 +209,13 @@ final progressDaoProvider = FutureProvider<ProgressDao>((ref) async {
   return ProgressDao(db);
 });
 
+/// Provider for the chapter position DAO (per-chapter resume).
+/// Tracks listening positions within each chapter for snap-back functionality.
+final chapterPositionDaoProvider = FutureProvider<ChapterPositionDao>((ref) async {
+  final db = await AppDatabase.instance;
+  return ChapterPositionDao(db);
+});
+
 /// Provider for last played timestamp of a book.
 /// Returns DateTime or null if never played.
 /// Parameter: bookId
@@ -226,6 +232,84 @@ final segmentProgressDaoProvider = FutureProvider<SegmentProgressDao>((ref) asyn
   final db = await AppDatabase.instance;
   return SegmentProgressDao(db);
 });
+
+// ===========================================================================
+// Chapter Position Providers (Last Listened Location Feature)
+// ===========================================================================
+
+// ===========================================================================
+// Browsing Mode Notifier (Last Listened Location Feature)
+// ===========================================================================
+
+/// Tracks whether the user is browsing chapters (viewing text) while audio plays.
+///
+/// This is a simple boolean state - no timers needed.
+/// The user explicitly commits to a new position by tapping a segment.
+class BrowsingModeNotifier extends Notifier<Map<String, bool>> {
+  @override
+  Map<String, bool> build() => {};
+
+  /// Check if browsing mode is active for a book.
+  bool isBrowsing(String bookId) => state[bookId] ?? false;
+
+  /// Enter browsing mode for a book.
+  void enterBrowsingMode(String bookId) {
+    state = {...state, bookId: true};
+  }
+
+  /// Exit browsing mode for a book.
+  void exitBrowsingMode(String bookId) {
+    state = {...state, bookId: false};
+  }
+}
+
+/// Provider for browsing mode state.
+/// Use `ref.watch(browsingModeNotifierProvider.notifier).isBrowsing(bookId)` to check.
+final browsingModeNotifierProvider =
+    NotifierProvider<BrowsingModeNotifier, Map<String, bool>>(
+  BrowsingModeNotifier.new,
+);
+
+/// Convenience provider to check if a specific book is in browsing mode.
+/// Parameter: bookId
+/// Returns: true if browsing mode is active for this book
+final isBrowsingProvider = Provider.family<bool, String>((ref, bookId) {
+  final browsingState = ref.watch(browsingModeNotifierProvider);
+  return browsingState[bookId] ?? false;
+});
+
+/// Primary listening position for a book (snap-back target).
+/// 
+/// The primary position is where the user was actively listening before
+/// they started browsing other chapters. This is the target for the
+/// "Back to Chapter X" snap-back feature.
+/// 
+/// Returns null if:
+/// - No position has been saved yet
+/// - User hasn't started any chapter navigation
+/// 
+/// Parameter: bookId
+final primaryPositionProvider = FutureProvider.family<ChapterPosition?, String>(
+  (ref, bookId) async {
+    final dao = await ref.watch(chapterPositionDaoProvider.future);
+    return dao.getPrimaryPosition(bookId);
+  },
+);
+
+/// All chapter positions for a book, keyed by chapter index.
+/// 
+/// Each position represents where the user last stopped in that chapter.
+/// Used for:
+/// - Resuming from the correct position when returning to a chapter
+/// - Showing position indicators in the chapter list
+/// 
+/// Parameter: bookId
+final chapterPositionsProvider = FutureProvider.family<Map<int, ChapterPosition>, String>(
+  (ref, bookId) async {
+    final dao = await ref.watch(chapterPositionDaoProvider.future);
+    return dao.getAllPositions(bookId);
+  },
+);
 
 /// Provider for chapter progress for all chapters in a book.
 /// 
@@ -349,58 +433,6 @@ final audioServiceHandlerProvider = FutureProvider<AudioServiceHandler>((ref) as
   return await initAudioService();
 });
 
-/// Resolves voice ID with fallback if selected voice is unavailable.
-/// 
-/// If the selected voice is not in the list of ready voices, falls back to:
-/// 1. The first available voice from the same engine type
-/// 2. Any available voice
-/// 3. VoiceIds.none if no voices are available
-String _resolveVoiceWithFallback(Ref ref) {
-  final selectedVoice = ref.read(settingsProvider).selectedVoice;
-  
-  // If no voice selected, return none
-  if (selectedVoice == VoiceIds.none) {
-    return VoiceIds.none;
-  }
-  
-  // Get ready voice IDs from download manager
-  final downloadState = ref.read(granularDownloadManagerProvider);
-  final readyVoiceIds = downloadState.maybeWhen(
-    data: (state) => state.readyVoices.map((v) => v.voiceId).toSet(),
-    orElse: () => <String>{},
-  );
-  
-  // If selected voice is available, use it
-  if (readyVoiceIds.contains(selectedVoice)) {
-    return selectedVoice;
-  }
-  
-  // Voice not available - try to find a fallback
-  PlaybackLogger.info('[VoiceResolver] Selected voice "$selectedVoice" not available, looking for fallback');
-  
-  // Extract engine type from voice ID (e.g., "supertonic_m5" -> "supertonic")
-  final selectedEngine = selectedVoice.split('_').firstOrNull ?? '';
-  
-  // Try to find a voice from the same engine
-  for (final voiceId in readyVoiceIds) {
-    if (voiceId.startsWith('${selectedEngine}_')) {
-      PlaybackLogger.info('[VoiceResolver] Falling back to "$voiceId" (same engine)');
-      return voiceId;
-    }
-  }
-  
-  // Fall back to any available voice
-  if (readyVoiceIds.isNotEmpty) {
-    final fallback = readyVoiceIds.first;
-    PlaybackLogger.info('[VoiceResolver] Falling back to "$fallback" (any available)');
-    return fallback;
-  }
-  
-  // No voices available
-  PlaybackLogger.info('[VoiceResolver] No voices available, returning none');
-  return VoiceIds.none;
-}
-
 /// Provider for the playback controller.
 /// Creates a single instance of the controller for the app.
 final playbackControllerProvider =
@@ -414,6 +446,11 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   StreamSubscription<PlaybackState>? _stateSub;
   JustAudioOutput? _audioOutput;
   AudioServiceHandler? _audioServiceHandler;
+  
+  /// Current selected voice, updated by listener when user changes voice.
+  /// Used by the voiceIdResolver callback to avoid calling ref.read() which
+  /// can cause CircularDependencyError.
+  String _currentVoice = VoiceIds.none;
 
   @override
   FutureOr<PlaybackState> build() async {
@@ -446,13 +483,19 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       PlaybackLogger.info('[PlaybackProvider] Creating audio output...');
       _audioOutput = JustAudioOutput();
 
+      // Initialize current voice from settings (will be kept in sync by listener below)
+      _currentVoice = ref.read(settingsProvider).selectedVoice;
+
       PlaybackLogger.info('[PlaybackProvider] Creating AudiobookPlaybackController...');
       _controller = AudiobookPlaybackController(
         engine: engine,
         cache: cache,
         audioOutput: _audioOutput,
-        // Voice selection with fallback if selected voice unavailable
-        voiceIdResolver: (_) => _resolveVoiceWithFallback(ref),
+        // Voice selection - return the current voice stored in _currentVoice.
+        // This avoids calling ref.read() in the callback which can cause
+        // CircularDependencyError. The _currentVoice is kept in sync by the
+        // listener below when user changes voice.
+        voiceIdResolver: (_) => _currentVoice,
         resourceMonitor: resourceMonitor,
         onStateChange: (newState) {
           // Update Riverpod state when controller state changes
@@ -493,7 +536,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       });
       
       // Listen for voice changes to notify controller (clears synthesis queue)
+      // Also update _currentVoice so the voiceIdResolver always has the latest value
       ref.listen(settingsProvider.select((s) => s.selectedVoice), (prev, next) {
+        _currentVoice = next;  // Keep _currentVoice in sync
         if (prev != null && prev != next && _controller != null) {
           PlaybackLogger.info('[PlaybackProvider] Voice changed: $prev -> $next');
           _controller!.notifyVoiceChanged();

@@ -17,7 +17,7 @@ import 'segment_tile.dart';
 /// - Visual distinction for past, current, and future segments
 /// - Synthesis status indicators
 /// - Optional book cover background
-/// - Auto-scroll with "Resume" button when disabled
+/// - Auto-scroll with "Jump to Audio" button when disabled
 class TextDisplayView extends ConsumerStatefulWidget {
   const TextDisplayView({
     super.key,
@@ -129,7 +129,7 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
   }
 }
 
-/// Button to resume auto-scroll and jump to current segment.
+/// Button to jump to current audio position.
 class _JumpToCurrentButton extends StatelessWidget {
   const _JumpToCurrentButton({
     required this.onTap,
@@ -156,7 +156,7 @@ class _JumpToCurrentButton extends StatelessWidget {
               Icon(Icons.my_location, size: 18, color: colors.primaryForeground),
               const SizedBox(width: 8),
               Text(
-                'Resume auto-scroll',
+                'Jump to Audio',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,

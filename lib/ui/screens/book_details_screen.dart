@@ -16,8 +16,10 @@ import '../theme/app_colors.dart';
 enum BookProgressState {
   /// Book has no listening progress (0%)
   notStarted,
+
   /// Book has some progress (1-99%)
   inProgress,
+
   /// Book is fully listened to (100%)
   complete,
 }
@@ -28,11 +30,11 @@ BookProgressState deriveBookProgressState(
   int totalChapters,
 ) {
   if (totalChapters == 0) return BookProgressState.notStarted;
-  
+
   // Check if any chapter has been started
   final anyStarted = chapterProgress.values.any((p) => p?.hasStarted ?? false);
   if (!anyStarted) return BookProgressState.notStarted;
-  
+
   // Check if all chapters are complete
   int completeCount = 0;
   for (int i = 0; i < totalChapters; i++) {
@@ -40,9 +42,9 @@ BookProgressState deriveBookProgressState(
       completeCount++;
     }
   }
-  
+
   if (completeCount == totalChapters) return BookProgressState.complete;
-  
+
   return BookProgressState.inProgress;
 }
 
@@ -55,25 +57,43 @@ class BookDetailsScreen extends ConsumerStatefulWidget {
   ConsumerState<BookDetailsScreen> createState() => _BookDetailsScreenState();
 }
 
-class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
+class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
+    with WidgetsBindingObserver {
   bool _showAllChapters = false;
   String _chapterSearchQuery = '';
   final TextEditingController _searchController = TextEditingController();
-  
+
   // Track which chapters we've already notified about
   final Set<int> _notifiedChapters = {};
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Invalidate caches when app resumes to ensure
+    // "Continue Listening" button reflects latest playback progress
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(bookChapterProgressProvider(widget.bookId));
+      ref.invalidate(primaryPositionProvider(widget.bookId));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final libraryAsync = ref.watch(libraryProvider);
-    
+
     // Listen for synthesis completion events
     final allSynthState = ref.watch(chapterSynthesisProvider);
     _checkForCompletedSynthesis(allSynthState, context);
@@ -82,32 +102,55 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
       backgroundColor: colors.background,
       body: libraryAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, st) => Center(
-          child: Text('Error loading book', style: TextStyle(color: colors.danger)),
-        ),
+        error:
+            (e, st) => Center(
+              child: Text(
+                'Error loading book',
+                style: TextStyle(color: colors.danger),
+              ),
+            ),
         data: (library) {
-          final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
+          final book =
+              library.books.where((b) => b.id == widget.bookId).firstOrNull;
           if (book == null) {
             return Center(
-              child: Text('Book not found', style: TextStyle(color: colors.textSecondary)),
+              child: Text(
+                'Book not found',
+                style: TextStyle(color: colors.textSecondary),
+              ),
             );
           }
 
           // Watch per-segment listening progress for all chapters
-          final chapterProgressAsync = ref.watch(bookChapterProgressProvider(book.id));
+          final chapterProgressAsync = ref.watch(
+            bookChapterProgressProvider(book.id),
+          );
           final chapterProgressMap = chapterProgressAsync.when(
             data: (data) => data,
             loading: () => <int, ChapterProgress?>{},
             error: (_, __) => <int, ChapterProgress?>{},
           );
 
+          // Watch primary position to show "last listened" badge on chapter list
+          final primaryPositionAsync = ref.watch(
+            primaryPositionProvider(book.id),
+          );
+          final primaryPosition = primaryPositionAsync.when(
+            data: (data) => data,
+            loading: () => null,
+            error: (_, __) => null,
+          );
+
           final coverPath = book.coverImagePath;
           final chapters = book.chapters;
-          
+
           // Derive book progress state from chapter progress data
-          final bookProgressState = deriveBookProgressState(chapterProgressMap, chapters.length);
+          final bookProgressState = deriveBookProgressState(
+            chapterProgressMap,
+            chapters.length,
+          );
           final hasProgress = bookProgressState != BookProgressState.notStarted;
-          
+
           // Calculate chapter-based progress based on COMPLETED chapters (not just current position)
           // This ensures marking future chapters as listened updates the progress bar
           int completedChaptersCount = 0;
@@ -116,34 +159,40 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
               completedChaptersCount++;
             }
           }
-          final chapterProgress = chapters.isNotEmpty 
-              ? completedChaptersCount / chapters.length 
-              : 0.0;
+          final chapterProgress =
+              chapters.isNotEmpty
+                  ? completedChaptersCount / chapters.length
+                  : 0.0;
           final chapterProgressPercent = (chapterProgress * 100).round();
-          
+
           // Filter chapters by search query (for books with 10+ chapters)
           final hasSearch = chapters.length >= 10;
           List<dynamic> filteredChapters;
           if (hasSearch && _chapterSearchQuery.isNotEmpty) {
             final query = _chapterSearchQuery.toLowerCase();
-            filteredChapters = chapters.where((ch) => 
-              ch.title.toLowerCase().contains(query)
-            ).toList();
+            filteredChapters =
+                chapters
+                    .where((ch) => ch.title.toLowerCase().contains(query))
+                    .toList();
           } else {
             filteredChapters = chapters;
           }
-          
+
           // Apply show all/collapse logic (only when not actively searching)
-          final displayedChapters = (_chapterSearchQuery.isNotEmpty || _showAllChapters) 
-              ? filteredChapters 
-              : filteredChapters.take(6).toList();
+          final displayedChapters =
+              (_chapterSearchQuery.isNotEmpty || _showAllChapters)
+                  ? filteredChapters
+                  : filteredChapters.take(6).toList();
 
           return SafeArea(
             child: Column(
               children: [
                 // Header
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
                       _CircleButton(
@@ -161,9 +210,15 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                       ),
                       const Spacer(),
                       _CircleButton(
-                        icon: book.isFavorite ? Icons.favorite : Icons.favorite_border,
+                        icon:
+                            book.isFavorite
+                                ? Icons.favorite
+                                : Icons.favorite_border,
                         iconColor: book.isFavorite ? colors.primary : null,
-                        onTap: () => ref.read(libraryProvider.notifier).toggleFavorite(book.id),
+                        onTap:
+                            () => ref
+                                .read(libraryProvider.notifier)
+                                .toggleFavorite(book.id),
                       ),
                     ],
                   ),
@@ -205,19 +260,25 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                   ),
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(12),
-                                    child: coverPath != null && File(coverPath).existsSync()
-                                        ? Image.file(
-                                            File(coverPath),
-                                            width: 140,
-                                            height: 200,
-                                            fit: BoxFit.cover,
-                                          )
-                                        : Container(
-                                            width: 140,
-                                            height: 200,
-                                            color: colors.border,
-                                            child: Icon(Icons.book, size: 48, color: colors.textTertiary),
-                                          ),
+                                    child:
+                                        coverPath != null &&
+                                                File(coverPath).existsSync()
+                                            ? Image.file(
+                                              File(coverPath),
+                                              width: 140,
+                                              height: 200,
+                                              fit: BoxFit.cover,
+                                            )
+                                            : Container(
+                                              width: 140,
+                                              height: 200,
+                                              color: colors.border,
+                                              child: Icon(
+                                                Icons.book,
+                                                size: 48,
+                                                color: colors.textTertiary,
+                                              ),
+                                            ),
                                   ),
                                 ),
                                 // Progress ring badge
@@ -233,7 +294,9 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         shape: BoxShape.circle,
                                         boxShadow: [
                                           BoxShadow(
-                                            color: Colors.black.withOpacity(0.12),
+                                            color: Colors.black.withOpacity(
+                                              0.12,
+                                            ),
                                             blurRadius: 8,
                                             offset: const Offset(0, 2),
                                           ),
@@ -248,13 +311,19 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                             child: CircularProgressIndicator(
                                               value: chapterProgress,
                                               strokeWidth: 3,
-                                              backgroundColor: colors.primary.withOpacity(0.15),
+                                              backgroundColor: colors.primary
+                                                  .withOpacity(0.15),
                                               color: colors.primary,
                                             ),
                                           ),
                                           // Show different icon/text based on completion state
-                                          if (bookProgressState == BookProgressState.complete)
-                                            Icon(Icons.check, size: 18, color: colors.primary)
+                                          if (bookProgressState ==
+                                              BookProgressState.complete)
+                                            Icon(
+                                              Icons.check,
+                                              size: 18,
+                                              color: colors.primary,
+                                            )
                                           else
                                             Text(
                                               '$chapterProgressPercent%',
@@ -300,7 +369,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Icon(Icons.menu_book, size: 16, color: colors.primary),
+                                      Icon(
+                                        Icons.menu_book,
+                                        size: 16,
+                                        color: colors.primary,
+                                      ),
                                       const SizedBox(width: 6),
                                       Text(
                                         '${book.chapters.length} Chapters',
@@ -311,8 +384,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                       ),
                                     ],
                                   ),
-                                  // Note: Listening progress stats moved to Chapters section header
 
+                                  // Note: Listening progress stats moved to Chapters section header
                                 ],
                               ),
                             ),
@@ -326,8 +399,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                bookProgressState == BookProgressState.complete 
-                                    ? 'Complete' 
+                                bookProgressState == BookProgressState.complete
+                                    ? 'Complete'
                                     : 'Reading Progress',
                                 style: TextStyle(
                                   fontSize: 14,
@@ -372,19 +445,41 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                           child: SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
-                              onPressed: () => context.push('/playback/${widget.bookId}'),
+                              onPressed: () {
+                                // Navigate to playback with primary position if available
+                                final path = '/playback/${widget.bookId}';
+                                if (primaryPosition != null) {
+                                  context.push(
+                                    '$path?chapter=${primaryPosition.chapterIndex}&segment=${primaryPosition.segmentIndex}',
+                                  );
+                                } else {
+                                  context.push(path);
+                                }
+                              },
                               // Button icon and text based on book progress state
-                              icon: Icon(switch (bookProgressState) {
-                                BookProgressState.notStarted => Icons.play_circle_outline,
-                                BookProgressState.inProgress => Icons.play_circle_fill,
-                                BookProgressState.complete => Icons.replay,
-                              }),
+                              // If there's an active listening position, always show "Continue Listening"
+                              icon: Icon(
+                                primaryPosition != null
+                                    ? Icons.play_circle_fill
+                                    : switch (bookProgressState) {
+                                        BookProgressState.notStarted =>
+                                          Icons.play_circle_outline,
+                                        BookProgressState.inProgress =>
+                                          Icons.play_circle_fill,
+                                        BookProgressState.complete => Icons.replay,
+                                      },
+                              ),
                               label: Text(
-                                switch (bookProgressState) {
-                                  BookProgressState.notStarted => 'Start Listening',
-                                  BookProgressState.inProgress => 'Continue Listening',
-                                  BookProgressState.complete => 'Listen Again',
-                                },
+                                // If actively listening (primaryPosition exists), show "Continue Listening"
+                                primaryPosition != null
+                                    ? 'Continue Listening'
+                                    : switch (bookProgressState) {
+                                        BookProgressState.notStarted =>
+                                          'Start Listening',
+                                        BookProgressState.inProgress =>
+                                          'Continue Listening',
+                                        BookProgressState.complete => 'Listen Again',
+                                      },
                                 style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
@@ -393,7 +488,9 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: colors.primary,
                                 foregroundColor: colors.primaryForeground,
-                                padding: const EdgeInsets.symmetric(vertical: 18),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 18,
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -402,7 +499,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                             ),
                           ),
                         ),
-                        
+
                         // Last played timestamp
                         _buildLastPlayedTimestamp(book.id, colors),
                         const SizedBox(height: 32),
@@ -422,10 +519,16 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                   ),
                                 ),
                                 // Show synthesis status if any chapters are being prepared
-                                if (_hasActiveSynthesis(allSynthState, book.id)) ...[
+                                if (_hasActiveSynthesis(
+                                  allSynthState,
+                                  book.id,
+                                )) ...[
                                   const SizedBox(width: 8),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: colors.primary.withAlpha(25),
                                       borderRadius: BorderRadius.circular(12),
@@ -457,7 +560,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                             ),
                             Row(
                               children: [
-                                Icon(Icons.headphones, size: 16, color: colors.textTertiary),
+                                Icon(
+                                  Icons.headphones,
+                                  size: 16,
+                                  color: colors.textTertiary,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   '${_countListenedChapters(chapterProgressMap)}/${book.chapters.length} listened',
@@ -470,29 +577,48 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                             ),
                           ],
                         ),
-                        
+
                         // Chapter search (for books with 10+ chapters)
                         if (hasSearch) ...[
                           const SizedBox(height: 12),
                           TextField(
                             controller: _searchController,
-                            onChanged: (value) => setState(() => _chapterSearchQuery = value),
+                            onChanged:
+                                (value) =>
+                                    setState(() => _chapterSearchQuery = value),
                             decoration: InputDecoration(
                               hintText: 'Search chapters...',
-                              hintStyle: TextStyle(color: colors.textTertiary, fontSize: 14),
-                              prefixIcon: Icon(Icons.search, color: colors.textTertiary, size: 20),
-                              suffixIcon: _chapterSearchQuery.isNotEmpty
-                                  ? IconButton(
-                                      icon: Icon(Icons.clear, color: colors.textTertiary, size: 20),
-                                      onPressed: () {
-                                        _searchController.clear();
-                                        setState(() => _chapterSearchQuery = '');
-                                      },
-                                    )
-                                  : null,
+                              hintStyle: TextStyle(
+                                color: colors.textTertiary,
+                                fontSize: 14,
+                              ),
+                              prefixIcon: Icon(
+                                Icons.search,
+                                color: colors.textTertiary,
+                                size: 20,
+                              ),
+                              suffixIcon:
+                                  _chapterSearchQuery.isNotEmpty
+                                      ? IconButton(
+                                        icon: Icon(
+                                          Icons.clear,
+                                          color: colors.textTertiary,
+                                          size: 20,
+                                        ),
+                                        onPressed: () {
+                                          _searchController.clear();
+                                          setState(
+                                            () => _chapterSearchQuery = '',
+                                          );
+                                        },
+                                      )
+                                      : null,
                               filled: true,
                               fillColor: colors.card,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide.none,
@@ -508,54 +634,76 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                         ...displayedChapters.map((chapter) {
                           // Get the original index from the full chapters list
                           final index = chapters.indexOf(chapter);
-                          final isCurrentChapter = index == book.progress.chapterIndex;
-                          
+                          // Use primary position for "current chapter" indicator (badge, highlighting)
+                          // Falls back to book.progress if no primary position is set
+                          final currentChapterIndex =
+                              primaryPosition?.chapterIndex ??
+                              book.progress.chapterIndex;
+                          final isCurrentChapter = index == currentChapterIndex;
+
                           // Get per-segment listening progress for this chapter
                           // This is the single source of truth for chapter completion
                           final segmentProgress = chapterProgressMap[index];
-                          final listenedPercent = segmentProgress?.percentComplete ?? 0.0;
-                          final hasListeningProgress = segmentProgress?.hasStarted ?? false;
-                          final isListeningComplete = segmentProgress?.isComplete ?? false;
+                          final listenedPercent =
+                              segmentProgress?.percentComplete ?? 0.0;
+                          final hasListeningProgress =
+                              segmentProgress?.hasStarted ?? false;
+                          final isListeningComplete =
+                              segmentProgress?.isComplete ?? false;
 
                           // Watch synthesis state for this chapter
-                          final synthKey = (bookId: book.id, chapterIndex: index);
-                          final synthState = ref.watch(chapterSynthesisStateProvider(synthKey));
-                          final isSynthesizing = synthState?.status == ChapterSynthesisStatus.synthesizing;
-                          final isSynthComplete = synthState?.status == ChapterSynthesisStatus.complete;
+                          final synthKey = (
+                            bookId: book.id,
+                            chapterIndex: index,
+                          );
+                          final synthState = ref.watch(
+                            chapterSynthesisStateProvider(synthKey),
+                          );
+                          final isSynthesizing =
+                              synthState?.status ==
+                              ChapterSynthesisStatus.synthesizing;
+                          final isSynthComplete =
+                              synthState?.status ==
+                              ChapterSynthesisStatus.complete;
 
                           return GestureDetector(
                             onTap: () {
-                              // Only update progress if changing chapters
-                              // If clicking the current chapter, preserve segment position
-                              if (!isCurrentChapter) {
-                                ref.read(libraryProvider.notifier).updateProgress(
-                                  widget.bookId,
-                                  index,
-                                  0,
-                                );
-                              }
-                              context.push('/playback/${widget.bookId}');
+                              // Always navigate to PlaybackScreen
+                              // If audio is playing a different chapter, PlaybackScreen
+                              // will enter "preview mode" (showing text with mini player)
+                              // If it's the current chapter with a primary position, use that segment
+                              // Otherwise start at segment 0
+                              final segment =
+                                  (isCurrentChapter && primaryPosition != null)
+                                      ? primaryPosition.segmentIndex
+                                      : 0;
+                              context.push(
+                                '/playback/${widget.bookId}?chapter=$index&segment=$segment',
+                              );
                             },
-                            onLongPress: () => _showChapterMenu(
-                              context,
-                              book,
-                              index,
-                              chapter,
-                              synthState,
-                              segmentProgress,
-                            ),
+                            onLongPress:
+                                () => _showChapterMenu(
+                                  context,
+                                  book,
+                                  index,
+                                  chapter,
+                                  synthState,
+                                  segmentProgress,
+                                ),
                             child: Container(
                               margin: const EdgeInsets.only(bottom: 8),
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: isCurrentChapter 
-                                    ? colors.primary.withAlpha(15)
-                                    : colors.card,
+                                color:
+                                    isCurrentChapter
+                                        ? colors.primary.withAlpha(15)
+                                        : colors.card,
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: isCurrentChapter 
-                                      ? colors.primary.withAlpha(100)
-                                      : Colors.transparent,
+                                  color:
+                                      isCurrentChapter
+                                          ? colors.primary.withAlpha(100)
+                                          : Colors.transparent,
                                   width: 1.5,
                                 ),
                               ),
@@ -563,9 +711,13 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   // "CONTINUE HERE" chip for current chapter
-                                  if (isCurrentChapter && !isListeningComplete) ...[
+                                  if (isCurrentChapter &&
+                                      !isListeningComplete) ...[
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
                                       margin: const EdgeInsets.only(bottom: 8),
                                       decoration: BoxDecoration(
                                         color: colors.primary,
@@ -590,28 +742,50 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         width: 32,
                                         height: 32,
                                         decoration: BoxDecoration(
-                                          color: (isListeningComplete || isCurrentChapter)
-                                              ? colors.primary
-                                              : Colors.transparent,
-                                          border: !(isListeningComplete || isCurrentChapter)
-                                              ? Border.all(color: colors.border, width: 1.5)
-                                              : null,
+                                          color:
+                                              (isListeningComplete ||
+                                                      isCurrentChapter)
+                                                  ? colors.primary
+                                                  : Colors.transparent,
+                                          border:
+                                              !(isListeningComplete ||
+                                                      isCurrentChapter)
+                                                  ? Border.all(
+                                                    color: colors.border,
+                                                    width: 1.5,
+                                                  )
+                                                  : null,
                                           shape: BoxShape.circle,
                                         ),
                                         child: Center(
                                           // Current chapter always shows play icon
-                                          child: isCurrentChapter
-                                              ? Icon(Icons.play_arrow, size: 16, color: colors.primaryForeground)
-                                              : isListeningComplete
-                                                  ? Icon(Icons.check, size: 16, color: colors.primaryForeground)
+                                          child:
+                                              isCurrentChapter
+                                                  ? Icon(
+                                                    Icons.play_arrow,
+                                                    size: 16,
+                                                    color:
+                                                        colors
+                                                            .primaryForeground,
+                                                  )
+                                                  : isListeningComplete
+                                                  ? Icon(
+                                                    Icons.check,
+                                                    size: 16,
+                                                    color:
+                                                        colors
+                                                            .primaryForeground,
+                                                  )
                                                   : Text(
-                                                      '${index + 1}',
-                                                      style: TextStyle(
-                                                        fontSize: 13,
-                                                        fontWeight: FontWeight.w600,
-                                                        color: colors.textSecondary,
-                                                      ),
+                                                    '${index + 1}',
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color:
+                                                          colors.textSecondary,
                                                     ),
+                                                  ),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
@@ -621,7 +795,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                           style: TextStyle(
                                             fontSize: 16,
                                             color: colors.text,
-                                            fontWeight: isCurrentChapter ? FontWeight.w600 : FontWeight.normal,
+                                            fontWeight:
+                                                isCurrentChapter
+                                                    ? FontWeight.w600
+                                                    : FontWeight.normal,
                                           ),
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
@@ -632,15 +809,19 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           // Chapter duration (when available)
-                                          if (segmentProgress != null && segmentProgress.durationMs > 0)
+                                          if (segmentProgress != null &&
+                                              segmentProgress.durationMs > 0)
                                             Text(
-                                              _formatChapterDuration(segmentProgress.duration),
+                                              _formatChapterDuration(
+                                                segmentProgress.duration,
+                                              ),
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: colors.textTertiary,
                                               ),
                                             ),
-                                          if (segmentProgress != null && segmentProgress.durationMs > 0)
+                                          if (segmentProgress != null &&
+                                              segmentProgress.durationMs > 0)
                                             const SizedBox(width: 8),
                                           // Status icon
                                           if (isSynthesizing)
@@ -650,11 +831,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                                 SizedBox(
                                                   width: 14,
                                                   height: 14,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    value: synthState?.progress,
-                                                    color: colors.primary,
-                                                  ),
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        value:
+                                                            synthState
+                                                                ?.progress,
+                                                        color: colors.primary,
+                                                      ),
                                                 ),
                                                 const SizedBox(width: 6),
                                                 Text(
@@ -672,10 +856,18 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
                                                 if (isListeningComplete) ...[
-                                                  Icon(Icons.check_circle, size: 14, color: colors.primary),
+                                                  Icon(
+                                                    Icons.check_circle,
+                                                    size: 14,
+                                                    color: colors.primary,
+                                                  ),
                                                   const SizedBox(width: 4),
                                                 ],
-                                                Icon(Icons.cloud_done, size: 16, color: colors.accent),
+                                                Icon(
+                                                  Icons.cloud_done,
+                                                  size: 16,
+                                                  color: colors.accent,
+                                                ),
                                                 const SizedBox(width: 4),
                                                 Text(
                                                   'Ready',
@@ -687,31 +879,27 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                               ],
                                             )
                                           else if (isListeningComplete)
-                                            Icon(Icons.check_circle, size: 18, color: colors.primary)
-                                          else if (hasListeningProgress)
-                                            Stack(
-                                              alignment: Alignment.center,
-                                              children: [
-                                                SizedBox(
-                                                  width: 18,
-                                                  height: 18,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    value: listenedPercent,
-                                                    backgroundColor: colors.border,
-                                                    color: colors.primary,
-                                                  ),
-                                                ),
-                                              ],
+                                            Icon(
+                                              Icons.check_circle,
+                                              size: 18,
+                                              color: colors.primary,
                                             )
-                                          else
-                                            Icon(Icons.circle_outlined, size: 18, color: colors.textTertiary),
+                                          // No circle indicator for partial listening progress -
+                                          // the linear bar below handles this to avoid confusion
+                                          // with the circular download/synthesis indicator
+                                          else if (!hasListeningProgress)
+                                            Icon(
+                                              Icons.circle_outlined,
+                                              size: 18,
+                                              color: colors.textTertiary,
+                                            ),
                                         ],
                                       ),
                                     ],
                                   ),
                                   // Listening progress bar (per-segment)
-                                  if (hasListeningProgress && !isListeningComplete) ...[
+                                  if (hasListeningProgress &&
+                                      !isListeningComplete) ...[
                                     const SizedBox(height: 8),
                                     Padding(
                                       padding: const EdgeInsets.only(left: 44),
@@ -719,7 +907,9 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         height: 4,
                                         decoration: BoxDecoration(
                                           color: colors.background,
-                                          borderRadius: BorderRadius.circular(2),
+                                          borderRadius: BorderRadius.circular(
+                                            2,
+                                          ),
                                         ),
                                         child: FractionallySizedBox(
                                           alignment: Alignment.centerLeft,
@@ -727,7 +917,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                           child: Container(
                                             decoration: BoxDecoration(
                                               color: colors.primary,
-                                              borderRadius: BorderRadius.circular(2),
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
                                             ),
                                           ),
                                         ),
@@ -743,17 +934,24 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                                         height: 4,
                                         decoration: BoxDecoration(
                                           color: colors.background,
-                                          borderRadius: BorderRadius.circular(2),
+                                          borderRadius: BorderRadius.circular(
+                                            2,
+                                          ),
                                         ),
                                         child: FractionallySizedBox(
                                           alignment: Alignment.centerLeft,
-                                          widthFactor: synthState?.progress ?? 0,
+                                          widthFactor:
+                                              synthState?.progress ?? 0,
                                           child: Container(
                                             decoration: BoxDecoration(
                                               gradient: LinearGradient(
-                                                colors: [colors.primary, colors.accent],
+                                                colors: [
+                                                  colors.primary,
+                                                  colors.accent,
+                                                ],
                                               ),
-                                              borderRadius: BorderRadius.circular(2),
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
                                             ),
                                           ),
                                         ),
@@ -770,7 +968,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                         if (chapters.length > 6 && _chapterSearchQuery.isEmpty)
                           Center(
                             child: TextButton(
-                              onPressed: () => setState(() => _showAllChapters = !_showAllChapters),
+                              onPressed:
+                                  () => setState(
+                                    () => _showAllChapters = !_showAllChapters,
+                                  ),
                               child: Text(
                                 _showAllChapters
                                     ? 'Show Less'
@@ -783,7 +984,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                             ),
                           ),
                         // Show "no results" when searching with no matches
-                        if (_chapterSearchQuery.isNotEmpty && displayedChapters.isEmpty)
+                        if (_chapterSearchQuery.isNotEmpty &&
+                            displayedChapters.isEmpty)
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 24),
                             child: Center(
@@ -813,7 +1015,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   String _formatChapterDuration(Duration duration) {
     final hours = duration.inHours;
     final minutes = duration.inMinutes % 60;
-    
+
     if (hours > 0) {
       return '${hours}h${minutes > 0 ? ' ${minutes}m' : ''}';
     } else if (minutes > 0) {
@@ -826,13 +1028,13 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   /// Build the "Last played X ago" widget.
   Widget _buildLastPlayedTimestamp(String bookId, AppThemeColors colors) {
     final lastPlayedAsync = ref.watch(lastPlayedAtProvider(bookId));
-    
+
     return lastPlayedAsync.when(
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
       data: (lastPlayed) {
         if (lastPlayed == null) return const SizedBox.shrink();
-        
+
         final relativeTime = _formatRelativeTime(lastPlayed);
         return Padding(
           padding: const EdgeInsets.only(top: 12),
@@ -844,10 +1046,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                 const SizedBox(width: 4),
                 Text(
                   'Last played $relativeTime',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: colors.textTertiary,
-                  ),
+                  style: TextStyle(fontSize: 13, color: colors.textTertiary),
                 ),
               ],
             ),
@@ -861,7 +1060,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   String _formatRelativeTime(DateTime dateTime) {
     final now = DateTime.now();
     final diff = now.difference(dateTime);
-    
+
     if (diff.inMinutes < 1) {
       return 'just now';
     } else if (diff.inMinutes < 60) {
@@ -889,7 +1088,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   /// Shows individual segments for each completed chapter, allowing non-contiguous
   /// completion (e.g., chapters 1, 2, and 5 are complete but 3, 4 are not).
   Widget _buildProgressBarWithChapterMarkers({
-    required double progress, // Not used for fill anymore, kept for API compatibility
+    required double
+    progress, // Not used for fill anymore, kept for API compatibility
     required int chapterCount,
     required int currentChapter,
     required Map<int, ChapterProgress?> chapterProgressMap,
@@ -897,14 +1097,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   }) {
     // Don't show markers for very few chapters or too many (would be cluttered)
     final showMarkers = chapterCount >= 3 && chapterCount <= 50;
-    
+
     return SizedBox(
       height: 16, // Extra height for markers
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
           final chapterWidth = width / chapterCount;
-          
+
           return Stack(
             clipBehavior: Clip.none,
             children: [
@@ -923,17 +1123,22 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
               ),
               // Per-chapter fill segments (allows non-contiguous completion)
               ...List.generate(chapterCount, (index) {
-                final isComplete = chapterProgressMap[index]?.isComplete ?? false;
+                final isComplete =
+                    chapterProgressMap[index]?.isComplete ?? false;
                 if (!isComplete) return const SizedBox.shrink();
-                
+
                 final segmentStart = index * chapterWidth;
                 // First segment needs left rounded corner, last needs right
                 final isFirst = index == 0;
                 final isLast = index == chapterCount - 1;
                 // Check if adjacent segments are also complete for corner radius
-                final prevComplete = index > 0 && (chapterProgressMap[index - 1]?.isComplete ?? false);
-                final nextComplete = index < chapterCount - 1 && (chapterProgressMap[index + 1]?.isComplete ?? false);
-                
+                final prevComplete =
+                    index > 0 &&
+                    (chapterProgressMap[index - 1]?.isComplete ?? false);
+                final nextComplete =
+                    index < chapterCount - 1 &&
+                    (chapterProgressMap[index + 1]?.isComplete ?? false);
+
                 return Positioned(
                   top: 4,
                   left: segmentStart,
@@ -943,8 +1148,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                     decoration: BoxDecoration(
                       color: colors.primary,
                       borderRadius: BorderRadius.horizontal(
-                        left: (isFirst || !prevComplete) ? const Radius.circular(4) : Radius.zero,
-                        right: (isLast || !nextComplete) ? const Radius.circular(4) : Radius.zero,
+                        left:
+                            (isFirst || !prevComplete)
+                                ? const Radius.circular(4)
+                                : Radius.zero,
+                        right:
+                            (isLast || !nextComplete)
+                                ? const Radius.circular(4)
+                                : Radius.zero,
                       ),
                     ),
                   ),
@@ -955,7 +1166,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                 ...List.generate(chapterCount - 1, (index) {
                   final markerPosition = (index + 1) / chapterCount;
                   // Marker is "complete" if the chapter to its LEFT is complete
-                  final isChapterComplete = chapterProgressMap[index]?.isComplete ?? false;
+                  final isChapterComplete =
+                      chapterProgressMap[index]?.isComplete ?? false;
                   return Positioned(
                     top: 2,
                     left: (width * markerPosition) - 1,
@@ -963,9 +1175,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
                       width: 2,
                       height: 12,
                       decoration: BoxDecoration(
-                        color: isChapterComplete 
-                            ? colors.primaryForeground.withAlpha(150)
-                            : colors.border,
+                        color:
+                            isChapterComplete
+                                ? colors.primaryForeground.withAlpha(150)
+                                : colors.border,
                         borderRadius: BorderRadius.circular(1),
                       ),
                     ),
@@ -983,41 +1196,50 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   }
 
   /// Check if any chapters for this book are currently being synthesized.
-  bool _hasActiveSynthesis(AllChapterSynthesisState allSynthState, String bookId) {
-    return allSynthState.jobs.entries.any((e) =>
-        e.key.bookId == bookId && e.value.status == ChapterSynthesisStatus.synthesizing);
+  bool _hasActiveSynthesis(
+    AllChapterSynthesisState allSynthState,
+    String bookId,
+  ) {
+    return allSynthState.jobs.entries.any(
+      (e) =>
+          e.key.bookId == bookId &&
+          e.value.status == ChapterSynthesisStatus.synthesizing,
+    );
   }
 
   /// Check for newly completed synthesis jobs and show notification.
-  void _checkForCompletedSynthesis(AllChapterSynthesisState allSynthState, BuildContext context) {
+  void _checkForCompletedSynthesis(
+    AllChapterSynthesisState allSynthState,
+    BuildContext context,
+  ) {
     // Only check jobs for the current book
     for (final entry in allSynthState.jobs.entries) {
       final key = entry.key;
       final state = entry.value;
-      
+
       if (key.bookId != widget.bookId) continue;
-      
+
       // Check if this chapter just completed and we haven't notified yet
-      if (state.status == ChapterSynthesisStatus.complete && 
+      if (state.status == ChapterSynthesisStatus.complete &&
           !_notifiedChapters.contains(key.chapterIndex)) {
         _notifiedChapters.add(key.chapterIndex);
-        
+
         // Show notification using post-frame callback to avoid build conflicts
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Chapter ${key.chapterIndex + 1} ready for offline playback'),
+              content: Text(
+                'Chapter ${key.chapterIndex + 1} ready for offline playback',
+              ),
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 3),
               action: SnackBarAction(
                 label: 'Play',
                 onPressed: () {
-                  ref.read(libraryProvider.notifier).updateProgress(
-                    widget.bookId,
-                    key.chapterIndex,
-                    0,
-                  );
+                  ref
+                      .read(libraryProvider.notifier)
+                      .updateProgress(widget.bookId, key.chapterIndex, 0);
                   context.push('/playback/${widget.bookId}');
                 },
               ),
@@ -1037,140 +1259,164 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
     ChapterProgress? chapterProgress,
   ) {
     final colors = context.appColors;
-    final isSynthesizing = synthState?.status == ChapterSynthesisStatus.synthesizing;
+    final isSynthesizing =
+        synthState?.status == ChapterSynthesisStatus.synthesizing;
     final isListeningComplete = chapterProgress?.isComplete ?? false;
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: colors.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Handle
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colors.textTertiary.withAlpha(77),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+      builder:
+          (ctx) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Handle
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.textTertiary.withAlpha(77),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Chapter title
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      chapter.title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: colors.text,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Prepare chapter option
+                  if (isSynthesizing)
+                    ListTile(
+                      leading: Icon(
+                        Icons.stop_circle_outlined,
+                        color: colors.danger,
+                      ),
+                      title: Text(
+                        'Cancel Preparation',
+                        style: TextStyle(color: colors.text),
+                      ),
+                      subtitle: Text(
+                        '${synthState?.progressPercent ?? 0}% complete',
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        ref
+                            .read(chapterSynthesisProvider.notifier)
+                            .cancelSynthesis(book.id, chapterIndex);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Cancelled preparation')),
+                        );
+                      },
+                    )
+                  else
+                    ListTile(
+                      leading: Icon(
+                        Icons.cloud_download_outlined,
+                        color: colors.primary,
+                      ),
+                      title: Text(
+                        'Prepare Chapter',
+                        style: TextStyle(color: colors.text),
+                      ),
+                      subtitle: Text(
+                        'Pre-synthesize for smooth playback',
+                        style: TextStyle(color: colors.textTertiary),
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _startChapterSynthesis(book, chapterIndex, chapter);
+                      },
+                    ),
+
+                  // Mark as listened/unlistened (uses per-segment progress tracking)
+                  ListTile(
+                    leading: Icon(
+                      isListeningComplete
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: colors.primary,
+                    ),
+                    title: Text(
+                      isListeningComplete
+                          ? 'Mark as Unlistened'
+                          : 'Mark as Listened',
+                      style: TextStyle(color: colors.text),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      final dao = await ref.read(
+                        segmentProgressDaoProvider.future,
+                      );
+                      if (isListeningComplete) {
+                        // Clear progress
+                        await dao.clearChapterProgress(
+                          widget.bookId,
+                          chapterIndex,
+                        );
+                      } else {
+                        // Get total segments count for this chapter
+                        final segments = await ref
+                            .read(libraryProvider.notifier)
+                            .getSegmentsForChapter(widget.bookId, chapterIndex);
+                        if (segments.isNotEmpty) {
+                          await dao.markChapterListened(
+                            widget.bookId,
+                            chapterIndex,
+                            segments.length,
+                          );
+                        }
+                      }
+                      // Invalidate the provider to refresh UI
+                      ref.invalidate(
+                        bookChapterProgressProvider(widget.bookId),
+                      );
+                    },
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              
-              // Chapter title
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  chapter.title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: colors.text,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              // Prepare chapter option
-              if (isSynthesizing)
-                ListTile(
-                  leading: Icon(Icons.stop_circle_outlined, color: colors.danger),
-                  title: Text(
-                    'Cancel Preparation',
-                    style: TextStyle(color: colors.text),
-                  ),
-                  subtitle: Text(
-                    '${synthState?.progressPercent ?? 0}% complete',
-                    style: TextStyle(color: colors.textTertiary),
-                  ),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    ref.read(chapterSynthesisProvider.notifier).cancelSynthesis(
-                      book.id,
-                      chapterIndex,
-                    );
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Cancelled preparation')),
-                    );
-                  },
-                )
-              else
-                ListTile(
-                  leading: Icon(Icons.cloud_download_outlined, color: colors.primary),
-                  title: Text(
-                    'Prepare Chapter',
-                    style: TextStyle(color: colors.text),
-                  ),
-                  subtitle: Text(
-                    'Pre-synthesize for smooth playback',
-                    style: TextStyle(color: colors.textTertiary),
-                  ),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _startChapterSynthesis(book, chapterIndex, chapter);
-                  },
-                ),
-              
-              // Mark as listened/unlistened (uses per-segment progress tracking)
-              ListTile(
-                leading: Icon(
-                  isListeningComplete
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                  color: colors.primary,
-                ),
-                title: Text(
-                  isListeningComplete
-                      ? 'Mark as Unlistened'
-                      : 'Mark as Listened',
-                  style: TextStyle(color: colors.text),
-                ),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  final dao = await ref.read(segmentProgressDaoProvider.future);
-                  if (isListeningComplete) {
-                    // Clear progress
-                    await dao.clearChapterProgress(widget.bookId, chapterIndex);
-                  } else {
-                    // Get total segments count for this chapter
-                    final segments = await ref.read(libraryProvider.notifier)
-                        .getSegmentsForChapter(widget.bookId, chapterIndex);
-                    if (segments.isNotEmpty) {
-                      await dao.markChapterListened(widget.bookId, chapterIndex, segments.length);
-                    }
-                  }
-                  // Invalidate the provider to refresh UI
-                  ref.invalidate(bookChapterProgressProvider(widget.bookId));
-                },
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
-  void _startChapterSynthesis(dynamic book, int chapterIndex, dynamic chapter) async {
+  void _startChapterSynthesis(
+    dynamic book,
+    int chapterIndex,
+    dynamic chapter,
+  ) async {
     // Capture context and scaffold messenger before async gaps
     final ctx = context;
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     // Get the voice ID from settings
     final settings = ref.read(settingsProvider);
-    final voiceId = settings.selectedVoice.isNotEmpty
-        ? settings.selectedVoice
-        : 'supertonic_m5';
+    final voiceId =
+        settings.selectedVoice.isNotEmpty
+            ? settings.selectedVoice
+            : 'supertonic_m5';
 
     // Load pre-segmented content from SQLite (no runtime segmentation)
     final tracks = await _loadChapterTracks(book.id, chapterIndex);
-    
+
     if (tracks.isEmpty) {
       scaffoldMessenger.showSnackBar(
         SnackBar(content: Text('No content to synthesize')),
@@ -1179,10 +1425,9 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
     }
 
     // Show confirmation with estimate
-    final estimate = ref.read(chapterSynthesisProvider.notifier).getEstimate(
-      tracks: tracks,
-      voiceId: voiceId,
-    );
+    final estimate = ref
+        .read(chapterSynthesisProvider.notifier)
+        .getEstimate(tracks: tracks, voiceId: voiceId);
 
     final confirmed = await showDialog<bool>(
       // ignore: use_build_context_synchronously
@@ -1191,10 +1436,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
         final colors = dialogCtx.appColors;
         return AlertDialog(
           backgroundColor: colors.card,
-          title: Text(
-            'Prepare Chapter?',
-            style: TextStyle(color: colors.text),
-          ),
+          title: Text('Prepare Chapter?', style: TextStyle(color: colors.text)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1206,7 +1448,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Icon(Icons.timer_outlined, size: 18, color: colors.textTertiary),
+                  Icon(
+                    Icons.timer_outlined,
+                    size: 18,
+                    color: colors.textTertiary,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     estimate?.timeDisplay ?? 'Unknown',
@@ -1217,7 +1463,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(Icons.storage_outlined, size: 18, color: colors.textTertiary),
+                  Icon(
+                    Icons.storage_outlined,
+                    size: 18,
+                    color: colors.textTertiary,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     estimate?.storageDisplay ?? 'Unknown',
@@ -1230,7 +1480,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogCtx, false),
-              child: Text('Cancel', style: TextStyle(color: colors.textTertiary)),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: colors.textTertiary),
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.pop(dialogCtx, true),
@@ -1244,12 +1497,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
     if (confirmed != true) return;
 
     // Start synthesis
-    ref.read(chapterSynthesisProvider.notifier).startSynthesis(
-      bookId: book.id,
-      chapterIndex: chapterIndex,
-      tracks: tracks,
-      voiceId: voiceId,
-    );
+    ref
+        .read(chapterSynthesisProvider.notifier)
+        .startSynthesis(
+          bookId: book.id,
+          chapterIndex: chapterIndex,
+          tracks: tracks,
+          voiceId: voiceId,
+        );
 
     if (!mounted) return;
     scaffoldMessenger.showSnackBar(
@@ -1258,17 +1513,27 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen> {
   }
 
   /// Load pre-segmented content from SQLite and convert to AudioTracks.
-  Future<List<AudioTrack>> _loadChapterTracks(String bookId, int chapterIndex) async {
+  Future<List<AudioTrack>> _loadChapterTracks(
+    String bookId,
+    int chapterIndex,
+  ) async {
     final libraryController = ref.read(libraryProvider.notifier);
-    final segments = await libraryController.getSegmentsForChapter(bookId, chapterIndex);
+    final segments = await libraryController.getSegmentsForChapter(
+      bookId,
+      chapterIndex,
+    );
 
-    return segments.map((segment) => AudioTrack(
-      id: IdGenerator.audioTrackId(bookId, chapterIndex, segment.index),
-      text: segment.text,
-      chapterIndex: chapterIndex,
-      segmentIndex: segment.index,
-      estimatedDuration: segment.estimatedDuration,
-    )).toList();
+    return segments
+        .map(
+          (segment) => AudioTrack(
+            id: IdGenerator.audioTrackId(bookId, chapterIndex, segment.index),
+            text: segment.text,
+            chapterIndex: chapterIndex,
+            segmentIndex: segment.index,
+            estimatedDuration: segment.estimatedDuration,
+          ),
+        )
+        .toList();
   }
 }
 
@@ -1291,10 +1556,7 @@ class _CircleButton extends StatelessWidget {
       child: Container(
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: colors.card,
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: colors.card, shape: BoxShape.circle),
         child: Icon(icon, size: 20, color: iconColor ?? colors.text),
       ),
     );

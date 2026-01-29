@@ -30,33 +30,44 @@ class SleepTimerControl extends StatelessWidget {
   }
   
   Widget _buildNormal(AppThemeColors colors) {
+    final timerLabel = _formatTimerLabel(timerMinutes);
+    final tooltip = remainingSeconds != null
+        ? 'Sleep timer: $timerLabel (${_formatRemainingTime(remainingSeconds!)} remaining)'
+        : 'Sleep timer: $timerLabel';
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(Icons.timer_outlined, size: 16, color: colors.textSecondary),
         const SizedBox(width: 8),
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: colors.controlBackground,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: colors.border),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _formatTimerLabel(timerMinutes),
-                    style: TextStyle(fontSize: 13, color: colors.text),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.arrow_drop_down, size: 16, color: colors.textSecondary),
-                ],
+        Semantics(
+          button: true,
+          onTap: onTap,
+          label: 'Sleep timer',
+          tooltip: tooltip,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: colors.controlBackground,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      timerLabel,
+                      style: TextStyle(fontSize: 13, color: colors.text),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_drop_down, size: 16, color: colors.textSecondary),
+                  ],
+                ),
               ),
             ),
           ),
@@ -73,31 +84,42 @@ class SleepTimerControl extends StatelessWidget {
   }
   
   Widget _buildCompact(AppThemeColors colors) {
+    final timerLabelCompact = _formatTimerLabelCompact(timerMinutes);
+    final tooltip = remainingSeconds != null
+        ? 'Sleep timer: $timerLabelCompact (${_formatRemainingTime(remainingSeconds!)} remaining)'
+        : 'Sleep timer: $timerLabelCompact';
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: colors.controlBackground,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: colors.border),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.timer_outlined, size: 14, color: colors.textSecondary),
-                  const SizedBox(width: 4),
-                  Text(
-                    _formatTimerLabelCompact(timerMinutes),
-                    style: TextStyle(fontSize: 11, color: colors.text),
-                  ),
-                ],
+        Semantics(
+          button: true,
+          onTap: onTap,
+          label: 'Sleep timer',
+          tooltip: tooltip,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: colors.controlBackground,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.timer_outlined, size: 14, color: colors.textSecondary),
+                    const SizedBox(width: 4),
+                    Text(
+                      timerLabelCompact,
+                      style: TextStyle(fontSize: 11, color: colors.text),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

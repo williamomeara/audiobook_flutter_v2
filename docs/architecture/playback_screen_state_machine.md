@@ -1,5 +1,8 @@
 # Playback Screen State Machine
 
+> **Last Audit:** January 2026  
+> **Status:** ✅ Verified - All transitions match implementation
+
 This document describes the state machine governing the playback screen UI and its interactions with the underlying playback controller.
 
 ## Overview

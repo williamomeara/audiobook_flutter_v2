@@ -5,28 +5,35 @@ import '../../../../theme/app_colors.dart';
 class PreviousChapterButton extends StatelessWidget {
   final bool enabled;
   final VoidCallback? onTap;
-  
+
   const PreviousChapterButton({
     super.key,
     required this.enabled,
     required this.onTap,
   });
-  
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
-    
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(24),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(
-            Icons.skip_previous,
-            size: 24,
-            color: enabled ? colors.text : colors.textTertiary,
+
+    return Semantics(
+      enabled: enabled,
+      button: true,
+      onTap: enabled ? onTap : null,
+      label: 'Previous chapter',
+      tooltip: enabled ? 'Go to previous chapter' : 'No previous chapter',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              Icons.skip_previous,
+              size: 24,
+              color: enabled ? colors.text : colors.textTertiary,
+            ),
           ),
         ),
       ),
@@ -49,17 +56,24 @@ class NextChapterButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(24),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(
-            Icons.skip_next,
-            size: 24,
-            color: enabled ? colors.text : colors.textTertiary,
+    return Semantics(
+      enabled: enabled,
+      button: true,
+      onTap: enabled ? onTap : null,
+      label: 'Next chapter',
+      tooltip: enabled ? 'Go to next chapter' : 'No next chapter',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              Icons.skip_next,
+              size: 24,
+              color: enabled ? colors.text : colors.textTertiary,
+            ),
           ),
         ),
       ),

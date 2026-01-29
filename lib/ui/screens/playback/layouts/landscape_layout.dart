@@ -15,7 +15,7 @@ class LandscapeLayoutConstants {
 }
 
 /// Landscape layout for the playback screen.
-/// 
+///
 /// Shows:
 /// - Main content area (left, with right padding for controls)
 /// - Vertical controls on right side
@@ -50,9 +50,10 @@ class LandscapeLayout extends ConsumerWidget {
     required this.onShowSleepTimerPicker,
     required this.onPreviousChapter,
     required this.onNextChapter,
+    required this.onSnapBack,
     required this.errorBannerBuilder,
   });
-  
+
   final Book book;
   final PlaybackState playbackState;
   final List<AudioTrack> queue;
@@ -68,7 +69,7 @@ class LandscapeLayout extends ConsumerWidget {
   final GlobalKey activeSegmentKey;
   final int? sleepTimerMinutes;
   final int? sleepTimeRemainingSeconds;
-  
+
   // Callbacks
   final VoidCallback onBack;
   final void Function(int) onSegmentTap;
@@ -82,14 +83,15 @@ class LandscapeLayout extends ConsumerWidget {
   final VoidCallback onShowSleepTimerPicker;
   final VoidCallback onPreviousChapter;
   final VoidCallback onNextChapter;
-  
+  final VoidCallback onSnapBack;
+
   // Builder for error banner
   final Widget Function(String error) errorBannerBuilder;
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
-    
+
     return SafeArea(
       child: Stack(
         children: [
@@ -99,7 +101,7 @@ class LandscapeLayout extends ConsumerWidget {
             bottom: LandscapeLayoutConstants.bottomBarHeight,
             child: Column(
               children: [
-                if (playbackState.error != null) 
+                if (playbackState.error != null)
                   errorBannerBuilder(playbackState.error!),
                 if (isLoading)
                   Expanded(
@@ -109,28 +111,32 @@ class LandscapeLayout extends ConsumerWidget {
                         children: [
                           CircularProgressIndicator(color: colors.primary),
                           const SizedBox(height: 16),
-                          Text('Loading chapter...', style: TextStyle(color: colors.textSecondary)),
+                          Text(
+                            'Loading chapter...',
+                            style: TextStyle(color: colors.textSecondary),
+                          ),
                         ],
                       ),
                     ),
                   )
                 else
                   Expanded(
-                    child: showCover
-                        ? CoverView(book: book)
-                        : TextDisplayView(
-                            bookId: bookId,
-                            chapterIndex: chapterIndex,
-                            queue: queue,
-                            currentIndex: currentIndex,
-                            book: book,
-                            onSegmentTap: onSegmentTap,
-                            scrollController: scrollController,
-                            autoScrollEnabled: autoScrollEnabled,
-                            onAutoScrollDisabled: onAutoScrollDisabled,
-                            onJumpToCurrent: onJumpToCurrent,
-                            activeSegmentKey: activeSegmentKey,
-                          ),
+                    child:
+                        showCover
+                            ? CoverView(book: book)
+                            : TextDisplayView(
+                              bookId: bookId,
+                              chapterIndex: chapterIndex,
+                              queue: queue,
+                              currentIndex: currentIndex,
+                              book: book,
+                              onSegmentTap: onSegmentTap,
+                              scrollController: scrollController,
+                              autoScrollEnabled: autoScrollEnabled,
+                              onAutoScrollDisabled: onAutoScrollDisabled,
+                              onJumpToCurrent: onJumpToCurrent,
+                              activeSegmentKey: activeSegmentKey,
+                            ),
                   ),
               ],
             ),
@@ -188,6 +194,7 @@ class LandscapeLayout extends ConsumerWidget {
                 onSegmentTap: onSegmentTap,
                 onPreviousChapter: onPreviousChapter,
                 onNextChapter: onNextChapter,
+                onSnapBack: onSnapBack,
               ),
             ),
         ],
@@ -211,7 +218,7 @@ class _LandscapeControls extends StatelessWidget {
     required this.onTogglePlay,
     required this.onShowSleepTimerPicker,
   });
-  
+
   final PlaybackState playbackState;
   final int currentIndex;
   final int queueLength;
@@ -223,11 +230,11 @@ class _LandscapeControls extends StatelessWidget {
   final VoidCallback onNextSegment;
   final VoidCallback onTogglePlay;
   final VoidCallback onShowSleepTimerPicker;
-  
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
-    
+
     return Container(
       width: LandscapeLayoutConstants.controlsWidth,
       decoration: BoxDecoration(
@@ -248,44 +255,44 @@ class _LandscapeControls extends StatelessWidget {
                   onIncrease: onIncreaseSpeed,
                   isVertical: true,
                 ),
-                
+
                 const SizedBox(height: 16),
-                
+
                 // Previous segment (up arrow)
                 PreviousSegmentButton(
                   enabled: currentIndex > 0,
                   onTap: onPreviousSegment,
                   isVertical: true,
                 ),
-                
+
                 const SizedBox(height: 6),
               ],
             ),
           ),
-          
+
           // Center section (fixed) - Play button
           PlayButton(
             isPlaying: playbackState.isPlaying,
             isBuffering: playbackState.isBuffering,
             onToggle: onTogglePlay,
           ),
-          
+
           // Bottom section (expandable) - down arrow + sleep timer
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 const SizedBox(height: 6),
-                
+
                 // Next segment (down arrow)
                 NextSegmentButton(
                   enabled: currentIndex < queueLength - 1,
                   onTap: onNextSegment,
                   isVertical: true,
                 ),
-                
+
                 const SizedBox(height: 16),
-                
+
                 // Sleep timer
                 SleepTimerControl(
                   timerMinutes: sleepTimerMinutes,
@@ -314,8 +321,9 @@ class _LandscapeBottomBar extends ConsumerWidget {
     required this.onSegmentTap,
     required this.onPreviousChapter,
     required this.onNextChapter,
+    required this.onSnapBack,
   });
-  
+
   final String bookId;
   final int chapterIndex;
   final int currentIndex;
@@ -325,18 +333,27 @@ class _LandscapeBottomBar extends ConsumerWidget {
   final void Function(int) onSegmentTap;
   final VoidCallback onPreviousChapter;
   final VoidCallback onNextChapter;
-  
+  final VoidCallback onSnapBack;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
-    
+
+    // Check for browsing mode
+    final isBrowsing = ref.watch(isBrowsingProvider(bookId));
+    final primaryAsync = ref.watch(primaryPositionProvider(bookId));
+
     // Get segment readiness for synthesis status display
     final readinessKey = '$bookId:$chapterIndex';
-    final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
+    final segmentReadinessAsync = ref.watch(
+      segmentReadinessStreamProvider(readinessKey),
+    );
     final segmentReadiness = segmentReadinessAsync.value ?? {};
-    
+
     return Container(
-      height: LandscapeLayoutConstants.bottomBarHeight + 16, // Extra height for slider thumb
+      height:
+          LandscapeLayoutConstants.bottomBarHeight +
+          16, // Extra height for slider thumb
       decoration: BoxDecoration(
         color: colors.background.withValues(alpha: 0.95),
         border: Border(top: BorderSide(color: colors.border, width: 1)),
@@ -361,9 +378,9 @@ class _LandscapeBottomBar extends ConsumerWidget {
                 ),
               ),
             ),
-            
+
             const SizedBox(width: 8),
-            
+
             // Segment seek slider (center, expanded)
             Expanded(
               child: Row(
@@ -376,12 +393,15 @@ class _LandscapeBottomBar extends ConsumerWidget {
                   Expanded(
                     child: SegmentSeekSlider(
                       // Key forces rebuild when readiness state changes
-                      key: ValueKey('slider_landscape_${segmentReadiness.hashCode}'),
+                      key: ValueKey(
+                        'slider_landscape_${segmentReadiness.hashCode}',
+                      ),
                       currentIndex: currentIndex,
                       totalSegments: queueLength,
                       colors: colors,
                       height: 4,
-                      showPreview: false, // No preview in landscape (limited space)
+                      showPreview:
+                          false, // No preview in landscape (limited space)
                       segmentReadiness: segmentReadiness,
                       onSeek: onSegmentTap,
                     ),
@@ -394,9 +414,29 @@ class _LandscapeBottomBar extends ConsumerWidget {
                 ],
               ),
             ),
-            
+
             const SizedBox(width: 8),
-            
+
+            // Snap-back button (shown when browsing)
+            if (isBrowsing &&
+                primaryAsync.hasValue &&
+                primaryAsync.value != null)
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onSnapBack,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.my_location,
+                      size: 20,
+                      color: colors.accent,
+                    ),
+                  ),
+                ),
+              ),
+
             // Next chapter (right side)
             Material(
               color: Colors.transparent,
@@ -408,7 +448,10 @@ class _LandscapeBottomBar extends ConsumerWidget {
                   child: Icon(
                     Icons.skip_next,
                     size: 24,
-                    color: chapterIdx < chapterCount - 1 ? colors.text : colors.textTertiary,
+                    color:
+                        chapterIdx < chapterCount - 1
+                            ? colors.text
+                            : colors.textTertiary,
                   ),
                 ),
               ),

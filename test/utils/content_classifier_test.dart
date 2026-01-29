@@ -414,21 +414,44 @@ void main() {
       });
     });
 
-    group('classify defaults to body matter', () {
-      test('returns body matter for unknown chapter', () {
+    group('classify short content heuristic', () {
+      test('returns front matter for short content without sentence structure', () {
+        // Short content (< 200 chars) without proper sentences is likely front matter
         final result = ContentClassifier.classify(
           filename: 'ch07.xhtml',
           title: 'The Journey Begins',
           contentSnippet: 'It was a dark and stormy night...',
         );
-        expect(result, equals(ContentType.bodyMatter));
+        expect(result, equals(ContentType.frontMatter));
       });
 
-      test('returns body matter for empty info', () {
+      test('returns front matter for empty content', () {
+        // Empty content is also considered short without sentences
         final result = ContentClassifier.classify(
           filename: '',
           title: '',
           contentSnippet: '',
+        );
+        expect(result, equals(ContentType.frontMatter));
+      });
+
+      test('returns body matter for short content WITH sentence structure', () {
+        // Short content with proper sentence structure is body matter
+        final result = ContentClassifier.classify(
+          filename: 'ch07.xhtml',
+          title: 'Chapter 7',
+          contentSnippet: 'It was a dark and stormy night. Sarah woke up suddenly.',
+        );
+        expect(result, equals(ContentType.bodyMatter));
+      });
+
+      test('returns body matter for content over 200 chars', () {
+        // Longer content defaults to body matter even without sentence structure
+        final longContent = 'A' * 250;
+        final result = ContentClassifier.classify(
+          filename: 'ch07.xhtml',
+          title: 'Unknown',
+          contentSnippet: longContent,
         );
         expect(result, equals(ContentType.bodyMatter));
       });

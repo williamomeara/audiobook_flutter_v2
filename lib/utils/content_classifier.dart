@@ -48,6 +48,11 @@ class ContentClassifier {
     RegExp(r'^half[\s-]?title', caseSensitive: false),
     RegExp(r'^dramatis\s*personae$', caseSensitive: false),
     RegExp(r'^list\s*of\s*characters$', caseSensitive: false),
+    // Gutenberg-specific patterns for title pages and subtitles
+    RegExp(r'^or,?\s*the\s+', caseSensitive: false),  // "or, the Modern Prometheus"
+    RegExp(r'^by\s+[a-z]', caseSensitive: false),     // "By Author Name"
+    RegExp(r'^a\s+novel\s*$', caseSensitive: false),  // "A Novel"
+    RegExp(r'^the\s+project\s+gutenberg', caseSensitive: false),
   ];
 
   // Title patterns for back matter
@@ -205,7 +210,17 @@ class ContentClassifier {
       if (pattern.hasMatch(snippet)) return ContentType.backMatter;
     }
 
-    // 5. Default to body matter
+    // 5. Very short content (< 200 chars) with no typical chapter indicators
+    //    is likely front matter (title pages, subtitles, etc.)
+    if (contentSnippet.length < 200) {
+      // Check if it looks like real content (has sentence structure)
+      final hasSentences = RegExp(r'[.!?]\s+[A-Z]').hasMatch(contentSnippet);
+      if (!hasSentences) {
+        return ContentType.frontMatter;
+      }
+    }
+
+    // 6. Default to body matter
     return ContentType.bodyMatter;
   }
 

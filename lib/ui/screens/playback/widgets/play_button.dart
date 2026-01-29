@@ -23,31 +23,41 @@ class PlayButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
 
-    return Material(
-      color: colors.primary,
-      shape: const CircleBorder(),
-      elevation: 2,
-      child: InkWell(
-        onTap: onToggle,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: size,
-          height: size,
-          alignment: Alignment.center,
-          child: isBuffering
-              ? SizedBox(
-                  width: size * 0.4,
-                  height: size * 0.4,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
+    final label = isBuffering ? 'Buffering' : (isPlaying ? 'Pause' : 'Play');
+    final tooltip = isBuffering ? 'Loading audio' : (isPlaying ? 'Pause playback' : 'Play audiobook');
+
+    return Semantics(
+      enabled: true,
+      button: true,
+      onTap: onToggle,
+      label: label,
+      tooltip: tooltip,
+      child: Material(
+        color: colors.primary,
+        shape: const CircleBorder(),
+        elevation: 2,
+        child: InkWell(
+          onTap: onToggle,
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: size,
+            height: size,
+            alignment: Alignment.center,
+            child: isBuffering
+                ? SizedBox(
+                    width: size * 0.4,
+                    height: size * 0.4,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colors.primaryForeground,
+                    ),
+                  )
+                : Icon(
+                    isPlaying ? Icons.pause : Icons.play_arrow,
+                    size: iconSize,
                     color: colors.primaryForeground,
                   ),
-                )
-              : Icon(
-                  isPlaying ? Icons.pause : Icons.play_arrow,
-                  size: iconSize,
-                  color: colors.primaryForeground,
-                ),
+          ),
         ),
       ),
     );

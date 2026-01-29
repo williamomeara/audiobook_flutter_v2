@@ -18,6 +18,7 @@ export 'app_database.dart';
 export 'daos/book_dao.dart';
 export 'daos/cache_dao.dart';
 export 'daos/chapter_dao.dart';
+export 'daos/chapter_position_dao.dart';
 export 'daos/completed_chapters_dao.dart';
 export 'daos/downloaded_voices_dao.dart';
 export 'daos/model_metrics_dao.dart';
