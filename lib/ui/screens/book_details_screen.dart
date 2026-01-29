@@ -365,25 +365,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                                   ),
                                   const SizedBox(height: 16),
 
-                                  // Stats - Chapters count only (listening stats shown in Chapters section)
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.menu_book,
-                                        size: 16,
-                                        color: colors.primary,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        '${book.chapters.length} Chapters',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: colors.textTertiary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                  // Stats - Chapters count and total duration
+                                  _BookStatsRow(bookId: book.id, chapterCount: chapters.length),
 
                                   // Note: Listening progress stats moved to Chapters section header
                                 ],
@@ -1559,6 +1542,94 @@ class _CircleButton extends StatelessWidget {
         decoration: BoxDecoration(color: colors.card, shape: BoxShape.circle),
         child: Icon(icon, size: 20, color: iconColor ?? colors.text),
       ),
+    );
+  }
+}
+
+/// Stats row showing chapters count and total duration.
+/// Duration is shown at 1x speed (actual audio length).
+class _BookStatsRow extends ConsumerWidget {
+  const _BookStatsRow({
+    required this.bookId,
+    required this.chapterCount,
+  });
+
+  final String bookId;
+  final int chapterCount;
+
+  /// Format duration as "Xh Ym" or "Xm" for shorter durations.
+  String _formatDuration(Duration duration) {
+    final totalMinutes = duration.inMinutes;
+    if (totalMinutes == 0) return '<1m';
+    if (totalMinutes < 60) {
+      return '${totalMinutes}m';
+    }
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    if (minutes == 0) return '${hours}h';
+    return '${hours}h ${minutes}m';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.appColors;
+    
+    // Get book progress summary for total duration (at 1x speed)
+    final summaryAsync = ref.watch(bookProgressSummaryProvider(bookId));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Chapter count
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.menu_book,
+              size: 16,
+              color: colors.primary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '$chapterCount Chapters',
+              style: TextStyle(
+                fontSize: 14,
+                color: colors.textTertiary,
+              ),
+            ),
+          ],
+        ),
+        // Total duration (at 1x speed)
+        summaryAsync.when(
+          data: (summary) {
+            if (summary.totalDurationMs == 0) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.schedule,
+                    size: 16,
+                    color: colors.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${_formatDuration(summary.totalDuration)} total',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: colors.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+          loading: () => const SizedBox.shrink(),
+          error: (_, __) => const SizedBox.shrink(),
+        ),
+      ],
     );
   }
 }
