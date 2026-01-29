@@ -714,14 +714,20 @@ class AudiobookPlaybackController implements PlaybackController {
     final endIndex = (currentIdx + maxTracks).clamp(0, _state.queue.length - 1);
     
     // Queue next segments at prefetch priority
-    unawaited(_synthesisCoordinator.queueRange(
-      tracks: _state.queue,
-      voiceId: voiceId,
-      playbackRate: _state.playbackRate,
-      startIndex: currentIdx + 1,
-      endIndex: endIndex,
-      priority: SynthesisPriority.prefetch,
-    ));
+    // Get bookId and chapterIndex from the current track (all queued tracks are from same chapter)
+    final currentTrack = _state.currentTrack;
+    if (currentTrack != null) {
+      unawaited(_synthesisCoordinator.queueRange(
+        tracks: _state.queue,
+        voiceId: voiceId,
+        playbackRate: _state.playbackRate,
+        startIndex: currentIdx + 1,
+        endIndex: endIndex,
+        bookId: currentTrack.bookId ?? 'unknown',
+        chapterIndex: currentTrack.chapterIndex,
+        priority: SynthesisPriority.prefetch,
+      ));
+    }
   }
   
   Future<void> _speakCurrent({required int opId}) async {
@@ -774,25 +780,32 @@ class AudiobookPlaybackController implements PlaybackController {
       );
 
       // Queue current segment at immediate priority
-      await _synthesisCoordinator.queueRange(
-        tracks: _state.queue,
-        voiceId: voiceId,
-        playbackRate: _state.playbackRate,
-        startIndex: _state.currentIndex,
-        endIndex: _state.currentIndex,
-        priority: SynthesisPriority.immediate,
-      );
-
-      // Also queue next segment at immediate priority for gapless
-      if (_state.currentIndex + 1 < _state.queue.length) {
+      final track = _state.currentTrack;
+      if (track != null) {
         await _synthesisCoordinator.queueRange(
           tracks: _state.queue,
           voiceId: voiceId,
           playbackRate: _state.playbackRate,
-          startIndex: _state.currentIndex + 1,
-          endIndex: _state.currentIndex + 1,
+          startIndex: _state.currentIndex,
+          endIndex: _state.currentIndex,
+          bookId: track.bookId ?? 'unknown',
+          chapterIndex: track.chapterIndex,
           priority: SynthesisPriority.immediate,
         );
+
+        // Also queue next segment at immediate priority for gapless
+        if (_state.currentIndex + 1 < _state.queue.length) {
+          await _synthesisCoordinator.queueRange(
+            tracks: _state.queue,
+            voiceId: voiceId,
+            playbackRate: _state.playbackRate,
+            startIndex: _state.currentIndex + 1,
+            endIndex: _state.currentIndex + 1,
+            bookId: track.bookId ?? 'unknown',
+            chapterIndex: track.chapterIndex,
+            priority: SynthesisPriority.immediate,
+          );
+        }
       }
 
       // Wait for current segment to be ready

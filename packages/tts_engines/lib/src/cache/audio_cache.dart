@@ -40,6 +40,18 @@ abstract interface class AudioCache {
   /// Mark a cache entry as recently used (for LRU).
   Future<void> markUsed(CacheKey key);
 
+  /// Register a new cache entry with metadata.
+  /// Called after synthesis completes to persist entry in the database.
+  Future<void> registerEntry({
+    required CacheKey key,
+    required int sizeBytes,
+    required String bookId,
+    required int segmentIndex,
+    required int chapterIndex,
+    required String engineType,
+    required int audioDurationMs,
+  });
+
   /// Prune cache if it exceeds budget.
   Future<void> pruneIfNeeded({CacheBudget budget = CacheBudget.defaultBudget});
 
@@ -253,6 +265,22 @@ class FileAudioCache implements AudioCache {
       }
     }
     return total;
+  }
+
+  @override
+  Future<void> registerEntry({
+    required CacheKey key,
+    required int sizeBytes,
+    required String bookId,
+    required int segmentIndex,
+    required int chapterIndex,
+    required String engineType,
+    required int audioDurationMs,
+  }) async {
+    // FileAudioCache doesn't use metadata storage
+    // (Only IntelligentCacheManager with database backend uses this)
+    // Just mark as used
+    await markUsed(key);
   }
 
   @override

@@ -215,6 +215,8 @@ class ChapterSynthesisNotifier extends Notifier<AllChapterSynthesisState> {
           voiceId: voiceId,
           playbackRate: 1.0, // Always synth at 1.0x
           segmentIndex: index,
+          bookId: bookId,
+          chapterIndex: chapterIndex,
         );
         
         // Wait for completion (with timeout)

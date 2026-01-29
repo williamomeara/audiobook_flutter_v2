@@ -247,6 +247,8 @@ class SynthesisCoordinator {
     required double playbackRate,
     required int startIndex,
     required int endIndex,
+    required String bookId,
+    required int chapterIndex,
     SynthesisPriority priority = SynthesisPriority.prefetch,
   }) async {
     if (_disposed) return;
@@ -327,6 +329,8 @@ class SynthesisCoordinator {
           segmentIndex: i,
           priority: priority,
           cacheKey: cacheKey,
+          bookId: bookId,
+          chapterIndex: chapterIndex,
         );
 
         _queue.add(request);
@@ -360,12 +364,16 @@ class SynthesisCoordinator {
     required String voiceId,
     required double playbackRate,
     required int segmentIndex,
+    required String bookId,
+    required int chapterIndex,
   }) async {
     await _queueSingleSegment(
       track: track,
       voiceId: voiceId,
       playbackRate: playbackRate,
       segmentIndex: segmentIndex,
+      bookId: bookId,
+      chapterIndex: chapterIndex,
       priority: SynthesisPriority.immediate,
     );
   }
@@ -380,6 +388,8 @@ class SynthesisCoordinator {
     required double playbackRate,
     required int segmentIndex,
     required SynthesisPriority priority,
+    required String bookId,
+    required int chapterIndex,
   }) async {
     if (_disposed) return;
 
@@ -442,6 +452,8 @@ class SynthesisCoordinator {
         segmentIndex: segmentIndex,
         priority: priority,
         cacheKey: cacheKey,
+        bookId: bookId,
+        chapterIndex: chapterIndex,
       );
 
       _queue.add(request);
@@ -638,6 +650,25 @@ class SynthesisCoordinator {
         durationMs: result.durationMs,
         wasFromCache: false,
       );
+
+      // Register the cache entry with metadata for proper cache tracking
+      // This ensures synthesis stats, compression tracking, and cache management work correctly
+      try {
+        final fileSize = await result.file.length();
+        await cache.registerEntry(
+          key: request.cacheKey,
+          sizeBytes: fileSize,
+          bookId: request.bookId,
+          segmentIndex: request.segmentIndex,
+          chapterIndex: request.chapterIndex,
+          engineType: _engineTypeForVoice(request.voiceId),
+          audioDurationMs: result.durationMs,
+        );
+      } catch (e) {
+        developer.log(
+          '[DEDUP] seg ${request.segmentIndex}: Failed to register cache entry: $e',
+        );
+      }
     } on TimeoutException catch (e) {
       _totalFailed++;
       developer.log(
@@ -806,5 +837,13 @@ class SynthesisCoordinator {
       error: error,
       isTimeout: isTimeout,
     ));
+  }
+
+  /// Determine engine type from voice ID.
+  String _engineTypeForVoice(String voiceId) {
+    if (voiceId.startsWith('kokoro')) return 'kokoro';
+    if (voiceId.startsWith('piper')) return 'piper';
+    if (voiceId.startsWith('supertonic')) return 'supertonic';
+    return 'unknown';
   }
 }

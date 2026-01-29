@@ -841,6 +841,8 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           startIndex: 0,
           endIndex: 1,
           playbackRate: synthRate,
+          bookId: book.id,
+          chapterIndex: nextChapterIndex,
           priority: SynthesisPriority.background,
         );
         

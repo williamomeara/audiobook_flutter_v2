@@ -12,6 +12,8 @@ void main() {
         segmentIndex: 0,
         priority: SynthesisPriority.immediate,
         cacheKey: _createCacheKey('text0'),
+        bookId: 'book1',
+        chapterIndex: 0,
       );
 
       final prefetchReq = SynthesisRequest(
@@ -21,6 +23,8 @@ void main() {
         segmentIndex: 1,
         priority: SynthesisPriority.prefetch,
         cacheKey: _createCacheKey('text1'),
+        bookId: 'book1',
+        chapterIndex: 0,
       );
 
       final backgroundReq = SynthesisRequest(
@@ -30,6 +34,8 @@ void main() {
         segmentIndex: 2,
         priority: SynthesisPriority.background,
         cacheKey: _createCacheKey('text2'),
+        bookId: 'book1',
+        chapterIndex: 0,
       );
 
       // Immediate should come before prefetch
@@ -49,6 +55,8 @@ void main() {
         priority: SynthesisPriority.prefetch,
         cacheKey: _createCacheKey('text0'),
         createdAt: DateTime(2024, 1, 1, 12, 0, 0),
+        bookId: 'book1',
+        chapterIndex: 0,
       );
 
       final laterReq = SynthesisRequest(
@@ -59,6 +67,8 @@ void main() {
         priority: SynthesisPriority.prefetch,
         cacheKey: _createCacheKey('text1'),
         createdAt: DateTime(2024, 1, 1, 12, 0, 1),
+        bookId: 'book1',
+        chapterIndex: 0,
       );
 
       // Earlier request should come first (negative comparison)
@@ -73,6 +83,8 @@ void main() {
         segmentIndex: 0,
         priority: SynthesisPriority.prefetch,
         cacheKey: _createCacheKey('text0'),
+        bookId: 'book1',
+        chapterIndex: 0,
       );
 
       // Should upgrade

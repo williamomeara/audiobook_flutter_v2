@@ -33,6 +33,8 @@ class SynthesisRequest implements Comparable<SynthesisRequest> {
     required this.segmentIndex,
     required this.priority,
     required this.cacheKey,
+    required this.bookId,
+    required this.chapterIndex,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -53,6 +55,12 @@ class SynthesisRequest implements Comparable<SynthesisRequest> {
 
   /// Cache key for deduplication and result storage.
   final CacheKey cacheKey;
+
+  /// Book ID for cache metadata registration.
+  final String bookId;
+
+  /// Chapter index for cache metadata registration.
+  final int chapterIndex;
 
   /// When this request was created (for FIFO within same priority).
   final DateTime createdAt;
@@ -80,5 +88,5 @@ class SynthesisRequest implements Comparable<SynthesisRequest> {
 
   @override
   String toString() =>
-      'SynthesisRequest(segment: $segmentIndex, priority: ${priority.name}, voice: $voiceId)';
+      'SynthesisRequest(book: $bookId, chapter: $chapterIndex, segment: $segmentIndex, priority: ${priority.name}, voice: $voiceId)';
 }
