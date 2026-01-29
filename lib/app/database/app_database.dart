@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import 'migrations/cache_migration_service.dart';
 import 'migrations/json_migration_service.dart';
 import 'migrations/migration_consolidated.dart';
+import 'migrations/migration_v7.dart';
 import 'migrations/settings_migration_service.dart';
 
 /// Singleton database instance for the Eist audiobook app.
@@ -21,7 +22,7 @@ import 'migrations/settings_migration_service.dart';
 class AppDatabase {
   static Database? _database;
   static const String _dbName = 'eist_audiobook.db';
-  static const int _dbVersion = 6;
+  static const int _dbVersion = 7;
 
   // Private constructor to prevent instantiation
   AppDatabase._();
@@ -82,13 +83,19 @@ class AppDatabase {
     // For v1.0 release with consolidated schema, upgrades start from version 6
     // Future migrations will be added here as new files (migration_v7.dart, etc.)
 
-    // Currently: no upgrades needed for pre-release versions
-    // Users with old test databases should delete and reinstall
     if (oldVersion < 6) {
       if (kDebugMode) {
         debugPrint('Pre-release database detected (version $oldVersion)');
         debugPrint('Please delete app data and reinstall for v1.0 release');
       }
+    }
+
+    // V6 -> V7: Add compression state tracking columns
+    if (oldVersion == 6 && newVersion >= 7) {
+      if (kDebugMode) {
+        debugPrint('📦 Running database migration V6 -> V7 (compression state tracking)');
+      }
+      await MigrationV7.up(db);
     }
   }
 
