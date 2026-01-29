@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:developer' as developer;
 
@@ -12,7 +11,6 @@ import 'package:platform_ios_tts/platform_ios_tts.dart' as ios;
 import 'app_paths.dart';
 import 'granular_download_manager.dart';
 import 'playback_providers.dart';
-import 'settings_controller.dart';
 
 /// Provider for TTS Native API (Pigeon-generated).
 /// Returns the platform-appropriate API (Android or iOS).
@@ -252,42 +250,17 @@ final ttsRoutingEngineProvider = FutureProvider<RoutingEngine>((ref) async {
   final kokoro = await ref.read(kokoroAdapterProvider.future);
   final piper = await ref.read(piperAdapterProvider.future);
   final supertonic = await ref.read(supertonicAdapterProvider.future);
-  final settings = ref.read(settingsProvider);
 
   return RoutingEngine(
     cache: cache,
     kokoroEngine: kokoro,
     piperEngine: piper,
     supertonicEngine: supertonic,
-    onSynthesisComplete: settings.compressOnSynthesize
-        ? (filePath) async {
-            // Only compress WAV files
-            if (!filePath.endsWith('.wav')) return;
-            
-            // Extract just the filename from the full path
-            final filename = filePath.split('/').last;
-            
-            try {
-              // Fire-and-forget: compress in background without awaiting
-              // This ensures synthesis callback completes immediately
-              // and compression runs asynchronously in an isolate
-              unawaited(
-                cache.compressEntryByFilenameInBackground(filename),
-              );
-              
-              developer.log(
-                '📝 Scheduled background compression for: $filename',
-                name: 'TtsProviders',
-              );
-            } catch (e) {
-              developer.log(
-                '⚠️ Background compression scheduling failed: $e',
-                name: 'TtsProviders',
-              );
-              // Don't throw - WAV is still valid, compression is best-effort
-            }
-          }
-        : null,
+    // Note: Compression is handled by onEntryRegistered callback in PlaybackController
+    // which fires AFTER registerEntry() so the entry exists in metadata.
+    // The onSynthesisComplete callback here would fire BEFORE registerEntry()
+    // so compression would fail (entry not in metadata yet). Removed dead code.
+    onSynthesisComplete: null,
   );
 });
 
