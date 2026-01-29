@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:developer' as developer;
 
 import 'package:core_domain/core_domain.dart';
@@ -772,10 +771,14 @@ class IntelligentCacheManager implements AudioCache {
     return key.toFilename();
   }
 
-  /// Compress a single cache entry by filename in background without blocking.
+  /// Compress a single cache entry by filename without blocking UI.
   /// 
-  /// This method runs compression in an isolate to avoid UI jank.
+  /// Uses native platform codecs (MediaCodec on Android, AVFoundation on iOS)
+  /// which run compression on a background thread, so this won't cause jank.
   /// Atomically updates metadata to ensure consistency.
+  /// 
+  /// NOTE: Platform channels only work on the main isolate, so we can't use
+  /// Isolate.run() here. The native encoders handle background threading.
   /// 
   /// [filename] should be just the filename (e.g., "kokoro_af_1_00_hash.wav"),
   /// not the full path.
@@ -841,20 +844,25 @@ class IntelligentCacheManager implements AudioCache {
         compressionStartedAt: DateTime.now(),
       );
       
-      print('[COMPRESSION] Marked as compressing, starting isolate...');
+      print('[COMPRESSION] Marked as compressing, starting native codec...');
       developer.log(
         '⏳ Starting background compression for: $filename',
         name: 'IntelligentCacheManager',
       );
       
-      // Step 2: Run compression in background isolate
-      final m4aFile = await Isolate.run(
-        () => _compressFileIsolate(wavFile.path),
+      // Step 2: Run compression using native platform codec
+      // NOTE: Do NOT use Isolate.run() here - platform channels (flutter_audio_toolkit)
+      // only work on the main isolate. The native MediaCodec/AVFoundation encoder
+      // already runs on a background thread, so this is still non-blocking.
+      final compressionService = AacCompressionService();
+      final m4aFile = await compressionService.compressFile(
+        wavFile,
+        deleteOriginal: true,
       );
       
       if (m4aFile == null) {
         // Compression failed - mark as failed in DB
-        print('[COMPRESSION] ❌ Isolate returned null for: $filename');
+        print('[COMPRESSION] ❌ Native codec returned null for: $filename');
         await _storage.updateCompressionState(
           filename,
           CompressionState.failed,
@@ -869,7 +877,7 @@ class IntelligentCacheManager implements AudioCache {
         return false;
       }
       
-      print('[COMPRESSION] ✅ Isolate succeeded for: $filename');
+      print('[COMPRESSION] ✅ Native codec succeeded for: $filename');
       // Step 3: Update metadata atomically (DB-first approach)
       final oldMeta = _metadata[filename]!;
       final m4aKey = filename.replaceAll('.wav', '.m4a');
@@ -921,7 +929,7 @@ class IntelligentCacheManager implements AudioCache {
   
   /// Compress a single cache entry in background without blocking.
   /// 
-  /// This method runs compression in an isolate to avoid UI jank.
+  /// Uses native platform codecs which handle background threading internally.
   /// Atomically updates metadata to ensure consistency.
   /// 
   /// Returns true if compression was performed and successful.
@@ -929,26 +937,6 @@ class IntelligentCacheManager implements AudioCache {
   Future<bool> compressEntryInBackground(CacheKey key) async {
     final filename = key.toFilename();
     return compressEntryByFilenameInBackground(filename);
-  }
-  
-  /// Static method to compress file in isolate (cannot use instance methods).
-  static Future<File?> _compressFileIsolate(String wavPath) async {
-    final wavFile = File(wavPath);
-    if (!await wavFile.exists()) return null;
-    
-    try {
-      final compressionService = AacCompressionService();
-      return await compressionService.compressFile(
-        wavFile,
-        deleteOriginal: true,
-      );
-    } catch (e) {
-      developer.log(
-        '❌ Isolate compression failed: $e',
-        name: 'IntelligentCacheManager',
-      );
-      return null;
-    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
