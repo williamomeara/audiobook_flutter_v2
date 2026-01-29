@@ -124,9 +124,6 @@ class IntelligentCacheManager implements AudioCache {
   /// Get the storage backend (for compression and other operations).
   CacheMetadataStorage get storage => _storage;
 
-  /// Get the cache directory.
-  Directory get directory => _cacheDir;
-
   /// Metadata for all cache entries.
   final Map<String, CacheEntryMetadata> _metadata = {};
 
