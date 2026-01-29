@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -1001,6 +1003,8 @@ class _CacheStorageRow extends ConsumerStatefulWidget {
 }
 
 class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
+  Timer? _refreshTimer;
+  
   @override
   void initState() {
     super.initState();
@@ -1008,6 +1012,18 @@ class _CacheStorageRowState extends ConsumerState<_CacheStorageRow> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.invalidate(cacheUsageStatsProvider);
     });
+    // Start periodic refresh every 5 seconds
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted) {
+        ref.invalidate(cacheUsageStatsProvider);
+      }
+    });
+  }
+  
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   @override
