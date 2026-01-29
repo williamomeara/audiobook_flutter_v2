@@ -13,3 +13,4 @@ export 'src/utils/text_normalizer.dart';
 export 'src/utils/cache_key_generator.dart';
 export 'src/utils/time_estimator.dart';
 export 'src/utils/id_generator.dart';
+export 'src/utils/segment_type_detector.dart';

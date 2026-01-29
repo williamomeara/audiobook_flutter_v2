@@ -65,6 +65,9 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
     final settings = ref.watch(settingsProvider);
     final showCoverBackground = settings.showBookCoverBackground && widget.book.coverImagePath != null;
     
+    // Determine dark mode from theme
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     // Watch segment readiness stream for opacity-based visualization
     final readinessKey = '${widget.bookId}:${widget.chapterIndex}';
     final segmentReadinessAsync = ref.watch(segmentReadinessStreamProvider(readinessKey));
@@ -78,6 +81,8 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
       colors: colors,
       activeSegmentKey: widget.activeSegmentKey,
       onSegmentTap: widget.onSegmentTap,
+      isDarkMode: isDarkMode,
+      // onSkipSegment: (index) => _handleSkipSegment(index),  // TODO: implement skip
     );
     
     return Stack(

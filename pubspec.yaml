@@ -50,6 +50,7 @@ dependencies:
   
   # UI components
   scrollable_positioned_list: ^0.3.8
+  flutter_highlight: ^0.7.0  # Code syntax highlighting for technical books
 
   # Permissions
   permission_handler: ^12.0.1

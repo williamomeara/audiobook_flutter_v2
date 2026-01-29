@@ -777,6 +777,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     );
     final segmentDuration = DateTime.now().difference(segmentStart);
     PlaybackLogger.info('[PlaybackProvider] Loaded ${segments.length} segments from SQLite in ${segmentDuration.inMilliseconds}ms');
+    
+    // Initialize type detector for code block detection
+    const typeDetector = SegmentTypeDetector();
 
     // Handle empty chapter - create a single "empty" track to show in UI
     if (segments.isEmpty) {
@@ -799,16 +802,19 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       return;
     }
 
-    // Convert segments to AudioTracks
+    // Convert segments to AudioTracks with type detection
     PlaybackLogger.info('[PlaybackProvider] Converting ${segments.length} segments to AudioTracks...');
     final tracks = segments.asMap().entries.map((entry) {
       final segment = entry.value;
+      final detection = typeDetector.detect(segment.text);
       return AudioTrack(
         id: IdGenerator.audioTrackId(book.id, chapterIndex, entry.key),
         text: segment.text,
         chapterIndex: chapterIndex,
         segmentIndex: entry.key,
         estimatedDuration: segment.estimatedDuration,
+        segmentType: detection.type,
+        metadata: detection.metadata,
       );
     }).toList();
 
@@ -928,6 +934,10 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           return;
         }
         
+        // Detect type for the presynth segment
+        const typeDetector = SegmentTypeDetector();
+        final detection = typeDetector.detect(firstSegmentText);
+        
         // Create an AudioTrack for the presynth segment
         final track = AudioTrack(
           id: '${book.id}_ch${nextChapterIndex}_seg0_presynth',
@@ -936,6 +946,8 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           segmentIndex: 0,
           bookId: book.id,
           title: nextChapter.title,
+          segmentType: detection.type,
+          metadata: detection.metadata,
         );
         
         // Queue through the coordinator with background priority

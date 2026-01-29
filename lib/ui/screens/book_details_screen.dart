@@ -1445,16 +1445,24 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
       bookId,
       chapterIndex,
     );
+    
+    // Use SegmentTypeDetector for runtime type detection
+    const detector = SegmentTypeDetector();
 
     return segments
         .map(
-          (segment) => AudioTrack(
+          (segment) {
+            final detection = detector.detect(segment.text);
+            return AudioTrack(
             id: IdGenerator.audioTrackId(bookId, chapterIndex, segment.index),
             text: segment.text,
             chapterIndex: chapterIndex,
             segmentIndex: segment.index,
             estimatedDuration: segment.estimatedDuration,
-          ),
+            segmentType: detection.type,
+            metadata: detection.metadata,
+          );
+          },
         )
         .toList();
   }

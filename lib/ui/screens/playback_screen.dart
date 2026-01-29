@@ -1163,15 +1163,23 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
   List<AudioTrack> _buildPreviewQueue() {
     final segments = _previewSegments;
     if (segments == null) return [];
+    
+    // Use SegmentTypeDetector for runtime type detection
+    const detector = SegmentTypeDetector();
 
     return segments
-        .map((s) => AudioTrack(
+        .map((s) {
+          final detection = detector.detect(s.text);
+          return AudioTrack(
               id: 'preview_${s.index}',
               text: s.text,
               chapterIndex: _currentChapterIndex,
               segmentIndex: s.index,
               estimatedDuration: s.estimatedDuration,
-            ))
+              segmentType: detection.type,
+              metadata: detection.metadata,
+            );
+        })
         .toList();
   }
 
