@@ -74,6 +74,11 @@ typedef SegmentAudioCompleteCallback = void Function(String bookId, int chapterI
 /// Callback to set play intent override for media controls.
 typedef PlayIntentOverrideCallback = void Function(bool override);
 
+/// Callback for when a cache entry is registered after synthesis.
+/// Used to trigger post-registration processing like compression.
+/// Parameter: filename (not full path) of the registered entry.
+typedef EntryRegisteredCallback = Future<void> Function(String filename);
+
 /// Implementation of PlaybackController with synthesis and buffering.
 class AudiobookPlaybackController implements PlaybackController {
   final Logger _logger = Logger('AudiobookPlaybackController');
@@ -89,6 +94,7 @@ class AudiobookPlaybackController implements PlaybackController {
     SegmentSynthesisCallback? onSegmentSynthesisStarted,
     SegmentAudioCompleteCallback? onSegmentAudioComplete,
     PlayIntentOverrideCallback? onPlayIntentOverride,
+    EntryRegisteredCallback? onEntryRegistered,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _resourceMonitor = resourceMonitor,
@@ -101,6 +107,7 @@ class AudiobookPlaybackController implements PlaybackController {
           engine: engine,
           cache: cache,
           maxQueueSize: PlaybackConfig.synthesisQueueMaxSize,
+          onEntryRegistered: onEntryRegistered,
         ) {
     _setupEventListeners();
   }

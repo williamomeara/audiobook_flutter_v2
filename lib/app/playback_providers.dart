@@ -491,6 +491,11 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       final cache = await ref.read(audioCacheProvider.future);
       PlaybackLogger.info('[PlaybackProvider] Audio cache loaded successfully');
 
+      // Get IntelligentCacheManager for compression callback
+      PlaybackLogger.info('[PlaybackProvider] Loading intelligent cache manager...');
+      final intelligentCache = await ref.read(intelligentCacheManagerProvider.future);
+      PlaybackLogger.info('[PlaybackProvider] Intelligent cache manager loaded successfully');
+
       // Resource monitor for battery-aware synthesis
       PlaybackLogger.info('[PlaybackProvider] Loading resource monitor...');
       final resourceMonitor = ref.read(resourceMonitorProvider);
@@ -549,6 +554,13 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         // Prevent play button flicker during segment transitions
         onPlayIntentOverride: (override) {
           _audioServiceHandler?.setPlayIntentOverride(override);
+        },
+        // Trigger compression after cache entry is registered
+        // This is the key callback that ensures entries exist in metadata
+        // before compression is attempted (fixes timing issue)
+        onEntryRegistered: (filename) async {
+          PlaybackLogger.debug('[PlaybackProvider] Entry registered, triggering compression: $filename');
+          await intelligentCache.compressEntryByFilenameInBackground(filename);
         },
       );
       PlaybackLogger.info('[PlaybackProvider] Controller created successfully');

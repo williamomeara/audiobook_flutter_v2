@@ -115,6 +115,7 @@ class SynthesisCoordinator {
     required this.engine,
     required this.cache,
     int? maxQueueSize,
+    this.onEntryRegistered,
   }) : _maxQueueSize = maxQueueSize ?? 100 {
     _startWorker();
   }
@@ -127,6 +128,11 @@ class SynthesisCoordinator {
 
   /// Maximum number of requests in queue (prevents memory issues).
   final int _maxQueueSize;
+
+  /// Callback invoked after a cache entry is successfully registered.
+  /// Used for post-registration processing like compression.
+  /// Receives the filename (not full path) of the registered entry.
+  final Future<void> Function(String filename)? onEntryRegistered;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Event Streams
@@ -668,6 +674,19 @@ class SynthesisCoordinator {
           engineType: _engineTypeForVoice(request.voiceId),
           audioDurationMs: result.durationMs,
         );
+
+        // Invoke callback for post-registration processing (e.g., compression)
+        // This happens AFTER registerEntry() so the entry exists in metadata
+        if (onEntryRegistered != null) {
+          final filename = request.cacheKey.toFilename();
+          try {
+            await onEntryRegistered!(filename);
+          } catch (e) {
+            developer.log(
+              '[DEDUP] seg ${request.segmentIndex}: onEntryRegistered callback failed: $e',
+            );
+          }
+        }
       } catch (e) {
         developer.log(
           '[DEDUP] seg ${request.segmentIndex}: Failed to register cache entry: $e',
