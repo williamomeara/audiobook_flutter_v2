@@ -881,6 +881,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                                     ],
                                   ),
                                   // Listening progress bar (per-segment)
+                                  // Only shown for playback progress, NOT for synthesis
                                   if (hasListeningProgress &&
                                       !isListeningComplete) ...[
                                     const SizedBox(height: 8),
@@ -908,39 +909,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                                       ),
                                     ),
                                   ],
-                                  // Synthesis progress bar
-                                  if (isSynthesizing) ...[
-                                    const SizedBox(height: 8),
-                                    Padding(
-                                      padding: const EdgeInsets.only(left: 44),
-                                      child: Container(
-                                        height: 4,
-                                        decoration: BoxDecoration(
-                                          color: colors.background,
-                                          borderRadius: BorderRadius.circular(
-                                            2,
-                                          ),
-                                        ),
-                                        child: FractionallySizedBox(
-                                          alignment: Alignment.centerLeft,
-                                          widthFactor:
-                                              synthState?.progress ?? 0,
-                                          child: Container(
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                colors: [
-                                                  colors.primary,
-                                                  colors.accent,
-                                                ],
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(2),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                                  // NOTE: Synthesis progress is shown via the circular indicator
+                                  // in the status area (with percentage), no horizontal bar needed
                                 ],
                               ),
                             ),
@@ -1190,7 +1160,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
     );
   }
 
-  /// Check for newly completed synthesis jobs and show notification.
+  /// Check for newly completed synthesis jobs.
+  /// (No longer shows notifications - completion is visible in the chapter list UI)
   void _checkForCompletedSynthesis(
     AllChapterSynthesisState allSynthState,
     BuildContext context,
@@ -1202,33 +1173,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
 
       if (key.bookId != widget.bookId) continue;
 
-      // Check if this chapter just completed and we haven't notified yet
+      // Track completed chapters (for internal state management)
       if (state.status == ChapterSynthesisStatus.complete &&
           !_notifiedChapters.contains(key.chapterIndex)) {
         _notifiedChapters.add(key.chapterIndex);
-
-        // Show notification using post-frame callback to avoid build conflicts
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Chapter ${key.chapterIndex + 1} ready for offline playback',
-              ),
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 3),
-              action: SnackBarAction(
-                label: 'Play',
-                onPressed: () {
-                  ref
-                      .read(libraryProvider.notifier)
-                      .updateProgress(widget.bookId, key.chapterIndex, 0);
-                  context.push('/playback/${widget.bookId}');
-                },
-              ),
-            ),
-          );
-        });
+        // No notification needed - the chapter card shows "Ready" status with cloud icon
       }
     }
   }
@@ -1305,9 +1254,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                         ref
                             .read(chapterSynthesisProvider.notifier)
                             .cancelSynthesis(book.id, chapterIndex);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Cancelled preparation')),
-                        );
+                        // No snackbar - the chapter card UI will show the cancelled state
                       },
                     )
                   else
@@ -1386,9 +1333,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
     int chapterIndex,
     dynamic chapter,
   ) async {
-    // Capture context and scaffold messenger before async gaps
+    // Capture context before async gaps
     final ctx = context;
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     // Get the voice ID from settings
     final settings = ref.read(settingsProvider);
@@ -1401,9 +1347,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
     final tracks = await _loadChapterTracks(book.id, chapterIndex);
 
     if (tracks.isEmpty) {
-      scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('No content to synthesize')),
-      );
+      // No content - nothing to do (UI will reflect this)
       return;
     }
 
@@ -1488,11 +1432,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
           tracks: tracks,
           voiceId: voiceId,
         );
-
-    if (!mounted) return;
-    scaffoldMessenger.showSnackBar(
-      SnackBar(content: Text('Preparing chapter...')),
-    );
+    // No snackbar - the chapter card UI shows "Preparing" indicator with progress
   }
 
   /// Load pre-segmented content from SQLite and convert to AudioTracks.
