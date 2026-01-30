@@ -602,6 +602,19 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
       PlaybackLogger.debug(
         '[PlaybackScreen] Set primary position to chapter $chapterIndex, segment $segmentIndex',
       );
+
+      // If a specific segment was provided, scroll to it
+      // (auto-scroll listener only triggers on state changes, not initial load)
+      if (widget.initialSegment != null && segmentIndex >= 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _scrollToActiveSegment();
+          }
+        });
+        PlaybackLogger.debug(
+          '[PlaybackScreen] Scrolling to initial segment $segmentIndex',
+        );
+      }
     }
   }
 
