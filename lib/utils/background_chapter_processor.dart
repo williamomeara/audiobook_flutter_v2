@@ -39,22 +39,39 @@ class ChapterProcessData {
   );
 }
 
+/// Payload for isolate communication including book metadata.
+class _IsolatePayload {
+  final List<ChapterProcessData> chapters;
+  final String? bookTitle;
+  
+  _IsolatePayload(this.chapters, this.bookTitle);
+}
+
 /// Run chapter processing pipeline in a background isolate.
 /// 
 /// This moves CPU-intensive text processing (boilerplate removal, 
 /// normalization, classification) off the main UI thread.
-Future<List<Chapter>> processChaptersInBackground(List<Chapter> rawChapters) async {
+/// 
+/// [bookTitle] - Optional book title to help detect repeated title prefixes.
+Future<List<Chapter>> processChaptersInBackground(
+  List<Chapter> rawChapters, {
+  String? bookTitle,
+}) async {
   if (rawChapters.isEmpty) return rawChapters;
 
   final chapterData = rawChapters.map(ChapterProcessData.fromChapter).toList();
+  final payload = _IsolatePayload(chapterData, bookTitle);
   
-  final resultData = await Isolate.run(() => _processChaptersIsolate(chapterData));
+  final resultData = await Isolate.run(() => _processChaptersIsolate(payload));
   
   return resultData.map((d) => d.toChapter()).toList();
 }
 
 /// Internal isolate function for chapter processing.
-List<ChapterProcessData> _processChaptersIsolate(List<ChapterProcessData> rawChapters) {
+List<ChapterProcessData> _processChaptersIsolate(_IsolatePayload payload) {
+  final rawChapters = payload.chapters;
+  final bookTitle = payload.bookTitle;
+  
   if (rawChapters.isEmpty) return rawChapters;
 
   // Build ChapterInfo for classification
@@ -75,7 +92,7 @@ List<ChapterProcessData> _processChaptersIsolate(List<ChapterProcessData> rawCha
 
   // Detect repeated prefixes and suffixes across chapters
   final chapterContents = bodyChapters.map((ch) => ch.content).toList();
-  final repeatedPrefix = BoilerplateRemover.detectRepeatedPrefix(chapterContents);
+  final repeatedPrefix = BoilerplateRemover.detectRepeatedPrefix(chapterContents, bookTitle: bookTitle);
   final repeatedSuffix = BoilerplateRemover.detectRepeatedSuffix(chapterContents);
 
   // Detect chapter-spanning boilerplate patterns
@@ -84,6 +101,15 @@ List<ChapterProcessData> _processChaptersIsolate(List<ChapterProcessData> rawCha
   // Clean and normalize each chapter
   bodyChapters = bodyChapters.map((chapter) {
     var content = chapter.content;
+
+    // Remove book title prefix from chapter content (e.g., "A Conjuring of Light Chapter 1...")
+    if (bookTitle != null) {
+      content = BoilerplateRemover.removeRepeatedTitleFromContent(
+        content, 
+        bookTitle, 
+        chapter.title,
+      );
+    }
 
     // Remove detected repeated prefix
     if (repeatedPrefix != null) {

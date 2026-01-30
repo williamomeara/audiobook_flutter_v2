@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:core_domain/core_domain.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -120,11 +122,40 @@ class LibraryRepository {
   Future<List<Segment>> getSegmentsForChapter(
       String bookId, int chapterIndex) async {
     final rows = await _segmentDao.getSegmentsForChapter(bookId, chapterIndex);
-    return rows.map((row) => Segment(
-      text: row['text'] as String,
-      index: row['segment_index'] as int,
-      estimatedDurationMs: row['estimated_duration_ms'] as int?,
-    )).toList();
+    return rows.map((row) {
+      // Parse segment type from string
+      final typeStr = row['segment_type'] as String? ?? 'text';
+      final type = _parseSegmentType(typeStr);
+      
+      // Parse metadata from JSON
+      final metadataJson = row['metadata_json'] as String?;
+      Map<String, dynamic>? metadata;
+      if (metadataJson != null && metadataJson.isNotEmpty) {
+        try {
+          metadata = jsonDecode(metadataJson) as Map<String, dynamic>;
+        } catch (e) {
+          // Ignore malformed JSON
+        }
+      }
+      
+      return Segment(
+        text: row['text'] as String,
+        index: row['segment_index'] as int,
+        estimatedDurationMs: row['estimated_duration_ms'] as int?,
+        type: type,
+        metadata: metadata,
+      );
+    }).toList();
+  }
+  
+  /// Parse segment type from database string value.
+  SegmentType _parseSegmentType(String value) {
+    switch (value) {
+      case 'figure': return SegmentType.figure;
+      case 'heading': return SegmentType.heading;
+      case 'quote': return SegmentType.quote;
+      default: return SegmentType.text;
+    }
   }
 
   /// Get a single segment's text (optimized for TTS).
@@ -186,6 +217,12 @@ class LibraryRepository {
         // Batch insert segments
         final batch = txn.batch();
         for (final segment in segments) {
+          // Encode metadata to JSON if present
+          String? metadataJson;
+          if (segment.metadata != null && segment.metadata!.isNotEmpty) {
+            metadataJson = jsonEncode(segment.metadata);
+          }
+          
           batch.insert('segments', {
             'book_id': book.id,
             'chapter_index': chapterIndex,
@@ -194,6 +231,8 @@ class LibraryRepository {
             'char_count': segment.text.length,
             'estimated_duration_ms':
                 segment.estimatedDurationMs ?? estimateDurationMs(segment.text),
+            'segment_type': segment.type.name,
+            'metadata_json': metadataJson,
           });
         }
         await batch.commit(noResult: true);

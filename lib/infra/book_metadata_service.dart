@@ -43,11 +43,49 @@ class BookMetadataService {
   }
 
   String _cleanTitle(String title) {
+    var result = title;
+    
     // Remove common suffixes like (Z-Library), [PDF], etc.
-    return title
+    result = result
         .replaceAll(RegExp(r'\s*\([^)]*(?:z-library|pdf|epub|kindle)[^)]*\)\s*', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\s*\[[^\]]*(?:pdf|epub|kindle)[^\]]*\]\s*', caseSensitive: false), '')
-        .trim();
+        .replaceAll(RegExp(r'\s*\[[^\]]*(?:pdf|epub|kindle)[^\]]*\]\s*', caseSensitive: false), '');
+    
+    // Handle underscore-separated patterns like "Title _Author Name_ _Z-Library_"
+    // Remove _Z-Library_, _libgen_, etc. with underscores
+    result = result.replaceAll(RegExp(r'\s*_z-library_', caseSensitive: false), '');
+    result = result.replaceAll(RegExp(r'\s*_libgen_', caseSensitive: false), '');
+    result = result.replaceAll(RegExp(r'\s*_epub_', caseSensitive: false), '');
+    result = result.replaceAll(RegExp(r'\s*_pdf_', caseSensitive: false), '');
+    
+    // Extract title before author in patterns like "Title _Author Name_"
+    // This captures the title before the first _Author_ pattern
+    final authorMatch = RegExp(r'^(.+?)\s+_[^_]+_').firstMatch(result);
+    if (authorMatch != null) {
+      result = authorMatch.group(1)!;
+    }
+    
+    // Replace remaining underscores with spaces
+    result = result.replaceAll('_', ' ');
+    
+    // Clean up extra whitespace
+    result = result.replaceAll(RegExp(r'\s+'), ' ').trim();
+    
+    return result;
+  }
+  
+  /// Extract author from filename pattern like "Title _Author Name_ _Z-Library_.epub"
+  String? extractAuthorFromTitle(String title) {
+    // Pattern: anything _Author Name_ anything
+    // But not _Z-Library_, _PDF_, etc.
+    final match = RegExp(r'_([^_]+)_(?:\s*_(?:z-library|pdf|epub|libgen)_)?\s*$', caseSensitive: false).firstMatch(title);
+    if (match != null) {
+      final candidate = match.group(1)!.trim();
+      // Filter out known non-author patterns
+      if (!RegExp(r'^(?:z-library|pdf|epub|libgen|kindle|azw|djvu)$', caseSensitive: false).hasMatch(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   String _cleanAuthor(String author) {

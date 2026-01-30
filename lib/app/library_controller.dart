@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:core_domain/core_domain.dart';
 
@@ -85,6 +86,16 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     return null;
   }
 
+  /// Finds an imported book by title (to prevent duplicates).
+  String? findByTitle(String title) {
+    final current = state.value;
+    if (current == null) return null;
+    for (final b in current.books) {
+      if (b.title == title) return b.id;
+    }
+    return null;
+  }
+
   /// Import an EPUB or PDF file into the app's book storage, parse it, and add to library.
   ///
   /// Returns the created (or existing) bookId.
@@ -103,7 +114,9 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       if (gutenbergId != null) {
         final existing = findByGutenbergId(gutenbergId);
         if (existing != null) {
-          state = AsyncValue.data(current.copyWith(isLoading: false));
+          // Book already exists - read current state for consistency
+          final earlyExitState = state.value ?? const LibraryState();
+          state = AsyncValue.data(earlyExitState.copyWith(isLoading: false));
           return existing;
         }
       }
@@ -128,7 +141,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       // Parse based on file type
       final String title;
       final String author;
-      final String? coverPath;
+      String? coverPath;  // Now mutable so we can update with API fallback
       final List<Chapter> chapters;
 
       if (isPdf) {
@@ -150,18 +163,47 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       // Try to look up better metadata from Google Books API
       String lookupTitle = title;
       String lookupAuthor = author;
+      
+      // For messy filenames, try to extract author from title pattern
+      final metadataService = BookMetadataService();
+      final isMessyFilename = _shouldLookupMetadata(title, author);
+      
+      if (isMessyFilename && author.toLowerCase().contains('unknown')) {
+        // Try extracting author from filename pattern like "Title _Author Name_ _Z-Library_"
+        final extractedAuthor = metadataService.extractAuthorFromTitle(title);
+        if (extractedAuthor != null) {
+          lookupAuthor = extractedAuthor;
+        }
+      }
+      
       // Always try Google Books lookup for better metadata
-      final metadata = await BookMetadataService().searchBook(title, author);
+      final metadata = await metadataService.searchBook(title, author);
       if (metadata != null) {
         // Use API data if we're confident enough
-        final isMessy = _shouldLookupMetadata(title, author);
-        final confidenceThreshold = isMessy ? 0.7 : 0.9; // Higher threshold for clean metadata
-        
+        // Lower threshold for messy filenames since we really need better data
+        final confidenceThreshold = isMessyFilename ? 0.5 : 0.9;
+
         // Calculate confidence score
-        final score = BookMetadataService().calculateConfidence(metadata, title, author);
+        final score = metadataService.calculateConfidence(metadata, title, author);
         if (score >= confidenceThreshold) {
           lookupTitle = metadata.title;
           lookupAuthor = metadata.authorsDisplay;
+        }
+
+        // If book file doesn't have a cover image, try to download from Google Books
+        if (coverPath == null && metadata.thumbnailUrl != null) {
+          try {
+            final downloadedCover = await _downloadCoverImage(
+              metadata.thumbnailUrl!,
+              bookId,
+            );
+            if (downloadedCover != null) {
+              coverPath = downloadedCover;
+            }
+          } catch (e) {
+            // Silently fail - not having a cover isn't critical
+            if (kDebugMode) debugPrint('Failed to download cover from Google Books: $e');
+          }
         }
       }
 
@@ -169,7 +211,7 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       // But prefer Google Books data if it's very confident
       String finalTitle = lookupTitle;
       String finalAuthor = lookupAuthor;
-      
+
       if (overrideTitle != null) {
         // For Gutenberg, use override unless Google Books is very confident
         final googleConfidence = metadata != null ? BookMetadataService().calculateConfidence(metadata, title, author) : 0.0;
@@ -182,6 +224,15 @@ class LibraryController extends AsyncNotifier<LibraryState> {
           finalTitle = overrideTitle;
           finalAuthor = overrideAuthor ?? finalAuthor;
         }
+      }
+
+      // Check for duplicate book by title to prevent re-importing the same book
+      final existingByTitle = findByTitle(finalTitle);
+      if (existingByTitle != null) {
+        // Book already exists - read current state for consistency
+        final earlyExitState = state.value ?? const LibraryState();
+        state = AsyncValue.data(earlyExitState.copyWith(isLoading: false));
+        return existingByTitle;
       }
 
       // Pre-segment all chapters in background isolate to avoid UI jank
@@ -209,15 +260,19 @@ class LibraryController extends AsyncNotifier<LibraryState> {
       final repo = await _getRepository();
       await repo.insertBook(book, chapterSegments);
 
-      // Update in-memory state
-      final updated = [book, ...current.books];
-      state = AsyncValue.data(current.copyWith(books: updated, isLoading: false));
+      // Update in-memory state - read CURRENT state to avoid race condition
+      // when multiple imports run concurrently
+      final latestState = state.value ?? const LibraryState();
+      final updated = [book, ...latestState.books];
+      state = AsyncValue.data(latestState.copyWith(books: updated, isLoading: false));
 
       return bookId;
     } catch (e) {
       if (kDebugMode) debugPrint('Library import failed: $e');
+      // Read current state to avoid race condition with concurrent imports
+      final errorState = state.value ?? const LibraryState();
       state = AsyncValue.data(
-        current.copyWith(isLoading: false, error: 'Import failed: $e'),
+        errorState.copyWith(isLoading: false, error: 'Import failed: $e'),
       );
       rethrow;
     }
@@ -355,17 +410,71 @@ class LibraryController extends AsyncNotifier<LibraryState> {
     return await repo.getSegmentCount(bookId, chapterIndex);
   }
 
+  /// Download cover image from Google Books API thumbnail URL.
+  ///
+  /// Downloads the thumbnail and saves it to the book's directory.
+  /// Returns the path to the saved cover file, or null if download fails.
+  Future<String?> _downloadCoverImage(String thumbnailUrl, String bookId) async {
+    try {
+      final response = await http.get(Uri.parse(thumbnailUrl))
+          .timeout(const Duration(seconds: 5));
+
+      if (response.statusCode != 200) {
+        if (kDebugMode) debugPrint('Cover download failed: status ${response.statusCode}');
+        return null;
+      }
+
+      // Determine file extension from URL or default to .jpg
+      String ext = '.jpg';
+      try {
+        final uri = Uri.parse(thumbnailUrl);
+        if (uri.pathSegments.isNotEmpty) {
+          final lastSegment = uri.pathSegments.last;
+          if (lastSegment.contains('.')) {
+            final dotIndex = lastSegment.lastIndexOf('.');
+            final potentialExt = lastSegment.substring(dotIndex);
+            if (potentialExt.length <= 5 && potentialExt.startsWith('.')) {
+              ext = potentialExt;
+            }
+          }
+        }
+      } catch (e) {
+        // Use default .jpg if we can't parse
+      }
+
+      // Save the cover image
+      final paths = await ref.read(appPathsProvider.future);
+      final bookDir = paths.bookDir(bookId);
+      await bookDir.create(recursive: true);
+
+      final coverFile = File('${bookDir.path}/cover$ext');
+      await coverFile.writeAsBytes(response.bodyBytes, flush: true);
+
+      if (kDebugMode) debugPrint('Cover image downloaded from Google Books: ${coverFile.path}');
+      return coverFile.path;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error downloading cover image: $e');
+      return null;
+    }
+  }
+
   /// Check if we should attempt metadata lookup for this book.
   /// Looks for signs of unreliable metadata like extra annotations.
   bool _shouldLookupMetadata(String title, String author) {
-    // Skip if author is unknown (likely not worth looking up)
+    // ALWAYS try lookup if author is unknown - we WANT better metadata!
     if (author.toLowerCase().contains('unknown') || author.trim().isEmpty) {
-      return false;
+      return true;  // Changed from false - unknown author means we need metadata!
     }
 
     // Look for common patterns that indicate messy metadata
     final messyPatterns = RegExp(r'\([^)]*(?:z-library|pdf|epub|kindle|azw|djvu)[^)]*\)', caseSensitive: false);
     if (messyPatterns.hasMatch(title)) {
+      return true;
+    }
+
+    // Look for underscore-separated patterns like _Z-Library_
+    final underscorePatterns = RegExp(r'_(?:z-library|pdf|epub|kindle|azw|djvu|libgen)_', caseSensitive: false);
+    if (underscorePatterns.hasMatch(title)) {
       return true;
     }
 

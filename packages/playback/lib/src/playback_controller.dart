@@ -79,6 +79,10 @@ typedef PlayIntentOverrideCallback = void Function(bool override);
 /// Parameter: filename (not full path) of the registered entry.
 typedef EntryRegisteredCallback = Future<void> Function(String filename);
 
+/// Callback to check if a segment type should be skipped during playback.
+/// Used for the "Skip Code Blocks" setting.
+typedef ShouldSkipSegmentTypeCallback = bool Function(SegmentType segmentType);
+
 /// Implementation of PlaybackController with synthesis and buffering.
 class AudiobookPlaybackController implements PlaybackController {
   final Logger _logger = Logger('AudiobookPlaybackController');
@@ -95,6 +99,7 @@ class AudiobookPlaybackController implements PlaybackController {
     SegmentAudioCompleteCallback? onSegmentAudioComplete,
     PlayIntentOverrideCallback? onPlayIntentOverride,
     EntryRegisteredCallback? onEntryRegistered,
+    ShouldSkipSegmentTypeCallback? shouldSkipSegmentType,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _resourceMonitor = resourceMonitor,
@@ -102,6 +107,7 @@ class AudiobookPlaybackController implements PlaybackController {
         _onSegmentSynthesisStarted = onSegmentSynthesisStarted,
         _onSegmentAudioComplete = onSegmentAudioComplete,
         _onPlayIntentOverride = onPlayIntentOverride,
+        _shouldSkipSegmentType = shouldSkipSegmentType,
         _scheduler = BufferScheduler(resourceMonitor: resourceMonitor),
         _synthesisCoordinator = SynthesisCoordinator(
           engine: engine,
@@ -141,6 +147,9 @@ class AudiobookPlaybackController implements PlaybackController {
   
   /// Callback to set play intent override (prevents play button flicker).
   final PlayIntentOverrideCallback? _onPlayIntentOverride;
+
+  /// Callback to check if a segment type should be skipped.
+  final ShouldSkipSegmentTypeCallback? _shouldSkipSegmentType;
 
   /// Buffer scheduler for watermark tracking.
   final BufferScheduler _scheduler;
@@ -742,6 +751,32 @@ class AudiobookPlaybackController implements PlaybackController {
     if (track == null) {
       _logger.warning('_speakCurrent called but currentTrack is null');
       _updateState(_state.copyWith(isPlaying: false, isBuffering: false));
+      return;
+    }
+
+    // Check if this segment type should be skipped (e.g., code blocks)
+    final shouldSkip = _shouldSkipSegmentType;
+    if (shouldSkip != null && shouldSkip(track.segmentType)) {
+      _logger.info('Skipping segment ${track.segmentIndex} (type: ${track.segmentType})');
+      // Mark segment as "listened" for progress tracking
+      final bookId = _state.bookId;
+      if (bookId != null) {
+        _onSegmentAudioComplete?.call(
+          bookId,
+          track.chapterIndex,
+          track.segmentIndex,
+        );
+      }
+      // Auto-advance to next track
+      if (!_isCurrentOp(opId) || _isOpCancelled) return;
+      if (_state.currentIndex + 1 < _state.queue.length) {
+        unawaited(nextTrack().catchError((error, stackTrace) {
+          _logger.severe('nextTrack failed after skipping segment', error, stackTrace);
+        }));
+      } else {
+        // End of chapter
+        _updateState(_state.copyWith(isPlaying: false, isBuffering: false));
+      }
       return;
     }
 

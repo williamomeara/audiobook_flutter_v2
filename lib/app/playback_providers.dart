@@ -634,6 +634,17 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           final result = await intelligentCache.compressEntryByFilenameInBackground(filename);
           PlaybackLogger.info('[PlaybackProvider] Compression result for $filename: $result');
         },
+        // Skip figure segments when images are disabled
+        shouldSkipSegmentType: (segmentType) {
+          final showImages = ref.read(settingsProvider).showImages;
+          
+          // Skip figures when images are disabled
+          if (!showImages && segmentType == SegmentType.figure) {
+            return true;
+          }
+          
+          return false;
+        },
       );
       PlaybackLogger.info('[PlaybackProvider] Controller created successfully');
 
@@ -778,8 +789,26 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
     final segmentDuration = DateTime.now().difference(segmentStart);
     PlaybackLogger.info('[PlaybackProvider] Loaded ${segments.length} segments from SQLite in ${segmentDuration.inMilliseconds}ms');
     
-    // Initialize type detector for code block detection
-    const typeDetector = SegmentTypeDetector();
+    // Check if this chapter should be skipped (all figures and images disabled)
+    final showImages = ref.read(settingsProvider).showImages;
+    if (!showImages && segments.isNotEmpty) {
+      final hasNonFigureSegment = segments.any((s) => s.type != SegmentType.figure);
+      if (!hasNonFigureSegment) {
+        PlaybackLogger.info('[PlaybackProvider] Skipping chapter $chapterIndex - all figures and images disabled');
+        // Auto-advance to next chapter if available
+        if (chapterIndex + 1 < book.chapters.length) {
+          return loadChapter(
+            book: book,
+            chapterIndex: chapterIndex + 1,
+            startSegmentIndex: 0,
+            autoPlay: autoPlay,
+          );
+        } else {
+          PlaybackLogger.info('[PlaybackProvider] No more chapters to skip to');
+          // Show empty message for last chapter
+        }
+      }
+    }
 
     // Handle empty chapter - create a single "empty" track to show in UI
     if (segments.isEmpty) {
@@ -802,19 +831,19 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       return;
     }
 
-    // Convert segments to AudioTracks with type detection
+    // Convert segments to AudioTracks
     PlaybackLogger.info('[PlaybackProvider] Converting ${segments.length} segments to AudioTracks...');
     final tracks = segments.asMap().entries.map((entry) {
       final segment = entry.value;
-      final detection = typeDetector.detect(segment.text);
+
       return AudioTrack(
         id: IdGenerator.audioTrackId(book.id, chapterIndex, entry.key),
         text: segment.text,
         chapterIndex: chapterIndex,
         segmentIndex: entry.key,
         estimatedDuration: segment.estimatedDuration,
-        segmentType: detection.type,
-        metadata: detection.metadata,
+        segmentType: segment.type,
+        metadata: segment.metadata,
       );
     }).toList();
 
@@ -934,10 +963,6 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           return;
         }
         
-        // Detect type for the presynth segment
-        const typeDetector = SegmentTypeDetector();
-        final detection = typeDetector.detect(firstSegmentText);
-        
         // Create an AudioTrack for the presynth segment
         final track = AudioTrack(
           id: '${book.id}_ch${nextChapterIndex}_seg0_presynth',
@@ -946,8 +971,7 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           segmentIndex: 0,
           bookId: book.id,
           title: nextChapter.title,
-          segmentType: detection.type,
-          metadata: detection.metadata,
+          segmentType: SegmentType.text,
         );
         
         // Queue through the coordinator with background priority

@@ -10,17 +10,9 @@ enum SegmentType {
   /// Normal prose text.
   text,
   
-  /// Code block - render with monospace font, syntax highlighting.
-  /// Can be skipped during TTS playback.
-  code,
-  
   /// Image/figure reference - placeholder for visual content.
   /// Always skipped during TTS (no audio for images).
   figure,
-  
-  /// Table data - render as structured table or collapsed card.
-  /// Can be skipped during TTS playback.
-  table,
   
   /// Section or chapter heading.
   heading,
@@ -68,7 +60,7 @@ class Segment {
   bool get shouldSkipByDefault => type == SegmentType.figure;
   
   /// Whether this segment type can optionally be skipped (user setting).
-  bool get canBeSkipped => type == SegmentType.code || type == SegmentType.table || type == SegmentType.figure;
+  bool get canBeSkipped => type == SegmentType.figure;
 
   Segment copyWith({
     String? text,

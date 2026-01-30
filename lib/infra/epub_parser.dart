@@ -39,7 +39,7 @@ class EpubParser {
   }) async {
     final bytes = await File(epubPath).readAsBytes();
     EpubBook epubBook;
-    
+
     try {
       epubBook = await compute(_parseEpubInIsolate, bytes);
     } catch (e) {
@@ -85,8 +85,8 @@ class EpubParser {
       } catch (_) {}
     }
 
-    // Extract all images from EPUB for figure support
-    final imagePathMap = await _extractAllImages(epubPath: epubPath, bookId: bookId);
+    // Extract all images from EPUB for figure support (with dimensions)
+    final imageInfoMap = await _extractAllImages(epubPath: epubPath, bookId: bookId);
 
     final rawChapters = <Chapter>[];
     final flattened = <EpubChapter>[];
@@ -116,7 +116,7 @@ class EpubParser {
       
       // Replace <img> tags with figure placeholders before text extraction
       final fileName = ch.ContentFileName ?? '';
-      html = _replaceImagesWithPlaceholders(html, fileName, imagePathMap);
+      html = _replaceImagesWithPlaceholders(html, fileName, imageInfoMap);
       
       // Extract only the content for this chapter's anchor if file is shared
       final chaptersInFile = chaptersByFile[fileName] ?? [];
@@ -143,7 +143,8 @@ class EpubParser {
     }
 
     // Apply smart text processing pipeline in background isolate
-    final chapters = await processChaptersInBackground(rawChapters);
+    // Pass book title to help detect repeated title prefixes
+    final chapters = await processChaptersInBackground(rawChapters, bookTitle: title);
 
     return ParsedEpub(
       title: title,
@@ -217,9 +218,9 @@ class EpubParser {
       final archive = ZipDecoder().decodeBuffer(inputStream);
       
       coverPath = await _extractCoverFromZip(epubPath: epubPath, bookId: bookId);
-      
-      // Extract images for figure support (same as main parser)
-      final imagePathMap = await _extractAllImages(epubPath: epubPath, bookId: bookId);
+
+      // Extract images for figure support (same as main parser) with dimensions
+      final imageInfoMap = await _extractAllImages(epubPath: epubPath, bookId: bookId);
 
       final xhtmlFiles = archive
           .where((f) => f.isFile && 
@@ -238,7 +239,7 @@ class EpubParser {
         }
         
         // Replace images with placeholders before stripping HTML
-        html = _replaceImagesWithPlaceholders(html, entry.name, imagePathMap);
+        html = _replaceImagesWithPlaceholders(html, entry.name, imageInfoMap);
         
         final text = _stripHtmlToText(html);
         if (text.trim().isEmpty) continue;
@@ -251,24 +252,27 @@ class EpubParser {
           content: text,
         ));
       }
-
+final fileName = epubPath.split('/').last;
+      final fallbackTitle = fileName.replaceAll('.epub', '');
+      
       // Apply smart text processing pipeline in background isolate
-      final chapters = await processChaptersInBackground(rawChapters);
+      final chapters = await processChaptersInBackground(rawChapters, bookTitle: fallbackTitle);
 
-      final fileName = epubPath.split('/').last;
       return ParsedEpub(
-        title: fileName.replaceAll('.epub', ''),
+        title: fallbackTitle,
         author: 'Unknown author',
         coverPath: coverPath,
         chapters: chapters,
       );
     } catch (e) {
-      // Apply smart processing even on error path if we have chapters
-      final chapters = await processChaptersInBackground(rawChapters);
-      
       final fileName = epubPath.split('/').last;
+      final fallbackTitle = fileName.replaceAll('.epub', '');
+      
+      // Apply smart processing even on error path if we have chapters
+      final chapters = await processChaptersInBackground(rawChapters, bookTitle: fallbackTitle);
+      
       return ParsedEpub(
-        title: fileName.replaceAll('.epub', ''),
+        title: fallbackTitle,
         author: 'Unknown author',
         coverPath: coverPath,
         chapters: chapters,
@@ -281,49 +285,91 @@ class EpubParser {
     // Remove script and style tags with content
     var text = html.replaceAll(RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), '');
     text = text.replaceAll(RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), '');
-    
+
     // Remove Project Gutenberg boilerplate sections before stripping tags
     // These are marked with class="pg-boilerplate" in the HTML
     text = text.replaceAll(
-      RegExp(r'<section[^>]*class="[^"]*pg-boilerplate[^"]*"[^>]*>[\s\S]*?</section>', caseSensitive: false), 
+      RegExp(r'<section[^>]*class="[^"]*pg-boilerplate[^"]*"[^>]*>[\s\S]*?</section>', caseSensitive: false),
       ''
     );
     // Also handle div-based boilerplate (older PG formats)
     text = text.replaceAll(
-      RegExp(r'<div[^>]*class="[^"]*pg-boilerplate[^"]*"[^>]*>[\s\S]*?</div>', caseSensitive: false), 
+      RegExp(r'<div[^>]*class="[^"]*pg-boilerplate[^"]*"[^>]*>[\s\S]*?</div>', caseSensitive: false),
       ''
     );
     // Remove PG header and footer elements by id
     text = text.replaceAll(
-      RegExp(r'<[^>]*id="pg-header"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false), 
+      RegExp(r'<[^>]*id="pg-header"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false),
       ''
     );
     text = text.replaceAll(
-      RegExp(r'<[^>]*id="pg-footer"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false), 
+      RegExp(r'<[^>]*id="pg-footer"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false),
       ''
     );
     text = text.replaceAll(
-      RegExp(r'<[^>]*id="pg-start-separator"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false), 
+      RegExp(r'<[^>]*id="pg-start-separator"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false),
       ''
     );
     text = text.replaceAll(
-      RegExp(r'<[^>]*id="pg-end-separator"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false), 
+      RegExp(r'<[^>]*id="pg-end-separator"[^>]*>[\s\S]*?</[^>]+>', caseSensitive: false),
       ''
     );
-    
+
     // Replace br and p tags with newlines
     text = text.replaceAll(RegExp(r'<br\s*/?>'), '\n');
     text = text.replaceAll(RegExp(r'</p>', caseSensitive: false), '\n\n');
-    
-    // Remove all remaining HTML tags
-    text = text.replaceAll(RegExp(r'<[^>]+>'), '');
-    
+
+    // Remove all remaining HTML tags (including malformed ones)
+    // Use dotAll mode to match tags that span multiple lines
+    text = text.replaceAll(RegExp(r'<[^>]*>', dotAll: true), '');
+
+    // Remove HTML attribute patterns with trailing artifacts
+    // KEY FIX: Include non-alphanumeric characters after the attribute
+    // Matches: id="pgepubid00000">, id="pgepubid00001\">
+    text = text.replaceAll(RegExp(r'\bid\s*=\s*"pgepubid\d+"'), '');
+    text = text.replaceAll(RegExp(r"\bid\s*=\s*'pgepubid\d+'"), '');
+
+    // Remove numeric-only id patterns: id00000>, id00002\">
+    text = text.replaceAll(RegExp(r'\bid\d{5,}'), '');
+
+    // Remove short numeric IDs with trailing non-word chars: 08>, d00000>, etc.
+    text = text.replaceAllMapped(RegExp(r'(^|\s)(d\d+)[^a-z0-9]'), (match) {
+      return (match.group(1) ?? '') + ' ';
+    });
+    text = text.replaceAllMapped(RegExp(r'(^|\s)0\d{2,}[^a-z0-9]*'), (match) {
+      return (match.group(1) ?? '') + ' ';
+    });
+
+    // Remove remaining id= patterns with quoted values
+    text = text.replaceAll(RegExp(r'\bid\s*=\s*[^\s>]*'), '');
+
+    // Remove stray quote/bracket combinations using simple string operations
+    text = text.replaceAll('\"', ' ');
+    text = text.replaceAll("'", ' ');
+    text = text.replaceAll('>', ' ');
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    // Remove Project Gutenberg pipe separator in all positions
+    text = text.replaceAll(RegExp(r'\|\s*Project Gutenberg\s*'), ' ');
+
+    // Remove orphaned closing angle bracket at segment boundaries
+    text = text.replaceAll(RegExp(r'^>\s*'), '');
+    text = text.replaceAll(RegExp(r'\s*>$'), '');
+
+    // Remove leading/trailing quotes (HTML artifacts, not code)
+    if (text.startsWith('"') || text.startsWith("'")) {
+      text = text.substring(1);
+    }
+    if (text.endsWith('"') || text.endsWith("'")) {
+      text = text.substring(0, text.length - 1);
+    }
+
     // Decode HTML entities
     text = _decodeHtmlEntities(text);
-    
+
     // Normalize whitespace
     text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    
+
     return text;
   }
 
@@ -398,13 +444,25 @@ class EpubParser {
     return _stripHtmlToText(segment);
   }
 
+  /// Image info with path and optional dimensions.
+  /// Used internally during EPUB parsing.
+}
+
+class _ImageInfo {
+  _ImageInfo({required this.path, this.width, this.height});
+  final String path;
+  final int? width;
+  final int? height;
+}
+
+extension _EpubParserImageExtraction on EpubParser {
   /// Extract all images from EPUB archive and save to book directory.
-  /// Returns a map of original image paths (as they appear in EPUB) to extracted file paths.
-  Future<Map<String, String>> _extractAllImages({
+  /// Returns a map of original image paths (as they appear in EPUB) to image info with dimensions.
+  Future<Map<String, _ImageInfo>> _extractAllImages({
     required String epubPath,
     required String bookId,
   }) async {
-    final imagePathMap = <String, String>{};
+    final imageInfoMap = <String, _ImageInfo>{};
     
     try {
       final dir = _paths.bookDir(bookId);
@@ -422,10 +480,10 @@ class EpubParser {
         // Skip cover images (already handled separately)
         if (name.contains('cover')) continue;
         
-        // Check if this is an image file
+        // Check if this is an image file (skip SVG - can't easily get dimensions)
         if (name.endsWith('.jpg') || name.endsWith('.jpeg') || 
             name.endsWith('.png') || name.endsWith('.gif') ||
-            name.endsWith('.webp') || name.endsWith('.svg')) {
+            name.endsWith('.webp')) {
           
           // Extract the file
           final ext = name.substring(name.lastIndexOf('.'));
@@ -434,24 +492,65 @@ class EpubParser {
           
           try {
             final destFile = File(destPath);
-            await destFile.writeAsBytes(file.content as List<int>, flush: true);
+            final content = file.content as List<int>;
+            await destFile.writeAsBytes(content, flush: true);
             
-            // Map the original path (relative in EPUB) to the extracted absolute path
+            // Try to decode the image to get dimensions
+            int? width;
+            int? height;
+            try {
+              final decodedImage = img.decodeImage(Uint8List.fromList(content));
+              if (decodedImage != null) {
+                width = decodedImage.width;
+                height = decodedImage.height;
+                debugPrint('EpubParser: Image ${file.name} dimensions: ${width}x$height');
+              }
+            } catch (e) {
+              debugPrint('EpubParser: Could not decode image dimensions for ${file.name}: $e');
+            }
+            
+            final imageInfo = _ImageInfo(path: destPath, width: width, height: height);
+            
+            // Map the original path (relative in EPUB) to the image info
             // Store both the full path and common variants for matching
-            imagePathMap[file.name] = destPath;
+            imageInfoMap[file.name] = imageInfo;
             
             // Also store just the filename for simpler matching
             final baseName = file.name.split('/').last;
-            imagePathMap[baseName] = destPath;
+            imageInfoMap[baseName] = imageInfo;
             
             // Store without leading path separators
             if (file.name.startsWith('/')) {
-              imagePathMap[file.name.substring(1)] = destPath;
+              imageInfoMap[file.name.substring(1)] = imageInfo;
             }
             
             imageIndex++;
           } catch (e) {
             debugPrint('Failed to extract image ${file.name}: $e');
+          }
+        } else if (name.endsWith('.svg')) {
+          // SVG files - extract but no dimensions
+          final ext = '.svg';
+          final destName = 'img_${imageIndex.toString().padLeft(4, '0')}$ext';
+          final destPath = '${imagesDir.path}/$destName';
+          
+          try {
+            final destFile = File(destPath);
+            await destFile.writeAsBytes(file.content as List<int>, flush: true);
+            
+            final imageInfo = _ImageInfo(path: destPath);
+            imageInfoMap[file.name] = imageInfo;
+            
+            final baseName = file.name.split('/').last;
+            imageInfoMap[baseName] = imageInfo;
+            
+            if (file.name.startsWith('/')) {
+              imageInfoMap[file.name.substring(1)] = imageInfo;
+            }
+            
+            imageIndex++;
+          } catch (e) {
+            debugPrint('Failed to extract SVG ${file.name}: $e');
           }
         }
       }
@@ -463,23 +562,30 @@ class EpubParser {
       debugPrint('EpubParser: Failed to extract images: $e');
     }
     
-    return imagePathMap;
+    return imageInfoMap;
   }
 
   /// Replace <img> tags in HTML with figure placeholders.
   /// 
-  /// The placeholder format is: [FIGURE:{imagePath}:{altText}]
+  /// The placeholder format is: [FIGURE:{imagePath}:{altText}:{width}:{height}]
+  /// Width and height are included when available.
   /// This allows the text segmenter to create proper figure segments.
   String _replaceImagesWithPlaceholders(
     String html,
     String chapterFileName,
-    Map<String, String> imagePathMap,
+    Map<String, _ImageInfo> imageInfoMap,
   ) {
+    debugPrint('EpubParser: Replacing images in $chapterFileName, ${imageInfoMap.length} images available');
+    
     // Simpler regex to match <img> tags
     final imgPattern = RegExp(r'<img[^>]*>', caseSensitive: false);
     
+    final matches = imgPattern.allMatches(html);
+    debugPrint('EpubParser: Found ${matches.length} <img> tags in $chapterFileName');
+    
     return html.replaceAllMapped(imgPattern, (match) {
       final imgTag = match.group(0) ?? '';
+      debugPrint('EpubParser: Processing img tag: $imgTag');
       
       // Extract src attribute using separate patterns for single and double quotes
       final srcDoubleMatch = RegExp(r'src="([^"]*)"', caseSensitive: false).firstMatch(imgTag);
@@ -491,13 +597,19 @@ class EpubParser {
       final altSingleMatch = RegExp(r"alt='([^']*)'", caseSensitive: false).firstMatch(imgTag);
       var alt = altDoubleMatch?.group(1) ?? altSingleMatch?.group(1);
       
-      if (src == null || src.isEmpty) return '';
+      debugPrint('EpubParser: Extracted src="$src", alt="$alt"');
       
-      // Resolve the image path
-      String? resolvedPath = _resolveImagePath(src, chapterFileName, imagePathMap);
+      if (src == null || src.isEmpty) {
+        debugPrint('EpubParser: No src found, returning empty');
+        return '';
+      }
       
-      if (resolvedPath == null) {
+      // Resolve the image info
+      _ImageInfo? imageInfo = _resolveImageInfo(src, chapterFileName, imageInfoMap);
+      
+      if (imageInfo == null) {
         // Image not found in extracted images, skip
+        debugPrint('EpubParser: Could not resolve path for $src');
         return '';
       }
       
@@ -505,26 +617,35 @@ class EpubParser {
       alt = (alt ?? 'Image').replaceAll(':', ' ').replaceAll('[', '').replaceAll(']', '').trim();
       if (alt.isEmpty) alt = 'Image';
       
+      // Build placeholder with optional dimensions
+      String placeholder;
+      if (imageInfo.width != null && imageInfo.height != null) {
+        placeholder = ' $figurePlaceholderPrefix${imageInfo.path}:$alt:${imageInfo.width}:${imageInfo.height}$figurePlaceholderSuffix ';
+      } else {
+        placeholder = ' $figurePlaceholderPrefix${imageInfo.path}:$alt$figurePlaceholderSuffix ';
+      }
+      debugPrint('EpubParser: Created placeholder: $placeholder');
+      
       // Return placeholder that will survive text stripping
-      return ' $figurePlaceholderPrefix$resolvedPath:$alt$figurePlaceholderSuffix ';
+      return placeholder;
     });
   }
 
-  /// Resolve an image src attribute to an extracted file path.
-  String? _resolveImagePath(
+  /// Resolve an image src attribute to image info with path and dimensions.
+  _ImageInfo? _resolveImageInfo(
     String src,
     String chapterFileName,
-    Map<String, String> imagePathMap,
+    Map<String, _ImageInfo> imageInfoMap,
   ) {
     // Try direct lookup first
-    if (imagePathMap.containsKey(src)) {
-      return imagePathMap[src];
+    if (imageInfoMap.containsKey(src)) {
+      return imageInfoMap[src];
     }
     
     // Try just the filename
     final srcFileName = src.split('/').last;
-    if (imagePathMap.containsKey(srcFileName)) {
-      return imagePathMap[srcFileName];
+    if (imageInfoMap.containsKey(srcFileName)) {
+      return imageInfoMap[srcFileName];
     }
     
     // Try resolving relative to chapter path
@@ -534,27 +655,27 @@ class EpubParser {
     
     if (chapterDir.isNotEmpty) {
       final relativePath = '$chapterDir/$src';
-      if (imagePathMap.containsKey(relativePath)) {
-        return imagePathMap[relativePath];
+      if (imageInfoMap.containsKey(relativePath)) {
+        return imageInfoMap[relativePath];
       }
       
       // Normalize path (handle ../)
       final normalizedPath = _normalizePath(relativePath);
-      if (imagePathMap.containsKey(normalizedPath)) {
-        return imagePathMap[normalizedPath];
+      if (imageInfoMap.containsKey(normalizedPath)) {
+        return imageInfoMap[normalizedPath];
       }
     }
     
     // Try without common prefixes
     for (final prefix in ['OEBPS/', 'EPUB/', 'OPS/', 'Content/']) {
       final withPrefix = '$prefix$src';
-      if (imagePathMap.containsKey(withPrefix)) {
-        return imagePathMap[withPrefix];
+      if (imageInfoMap.containsKey(withPrefix)) {
+        return imageInfoMap[withPrefix];
       }
       
       final withoutPrefix = src.replaceFirst(RegExp('^$prefix', caseSensitive: false), '');
-      if (imagePathMap.containsKey(withoutPrefix)) {
-        return imagePathMap[withoutPrefix];
+      if (imageInfoMap.containsKey(withoutPrefix)) {
+        return imageInfoMap[withoutPrefix];
       }
     }
     

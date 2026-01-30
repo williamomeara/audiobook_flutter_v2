@@ -204,6 +204,15 @@ class SettingsScreen extends ConsumerWidget {
                             onChanged: ref.read(settingsProvider.notifier).setShowBufferIndicator,
                           ),
                         ),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          label: 'Show images',
+                          subLabel: 'Display figures and images in playback view',
+                          trailing: Switch(
+                            value: settings.showImages,
+                            onChanged: ref.read(settingsProvider.notifier).setShowImages,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 20),

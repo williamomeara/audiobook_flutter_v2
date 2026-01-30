@@ -36,17 +36,23 @@ class SegmentData {
     required this.text,
     required this.index,
     required this.estimatedDurationMs,
+    this.segmentType = SegmentType.text,
+    this.metadata,
   });
 
   final String text;
   final int index;
   final int estimatedDurationMs;
+  final SegmentType segmentType;
+  final Map<String, dynamic>? metadata;
 
   /// Convert to Segment model.
   Segment toSegment() => Segment(
     text: text,
     index: index,
     estimatedDurationMs: estimatedDurationMs,
+    type: segmentType,
+    metadata: metadata,
   );
 }
 
@@ -78,6 +84,8 @@ SegmentationResult _segmentChapters(SegmentationParams params) {
       text: s.text,
       index: s.index,
       estimatedDurationMs: estimateDurationMs(s.text),
+      segmentType: s.type,
+      metadata: s.metadata,
     )).toList();
     
     allChapterSegments.add(segmentsWithMetadata);

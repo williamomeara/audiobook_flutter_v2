@@ -61,9 +61,10 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
       );
     }
     
-    // Get setting for book cover background
+    // Get setting for book cover background and image display
     final settings = ref.watch(settingsProvider);
     final showCoverBackground = settings.showBookCoverBackground && widget.book.coverImagePath != null;
+    final showImages = settings.showImages;
     
     // Determine dark mode from theme
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -82,6 +83,7 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
       activeSegmentKey: widget.activeSegmentKey,
       onSegmentTap: widget.onSegmentTap,
       isDarkMode: isDarkMode,
+      showImages: showImages,
       // onSkipSegment: (index) => _handleSkipSegment(index),  // TODO: implement skip
     );
     

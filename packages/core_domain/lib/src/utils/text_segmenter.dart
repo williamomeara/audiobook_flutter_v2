@@ -8,12 +8,16 @@ class _TextChunk {
     this.isFigure = false,
     this.imagePath,
     this.altText,
+    this.width,
+    this.height,
   });
   
   final String text;
   final bool isFigure;
   final String? imagePath;
   final String? altText;
+  final int? width;
+  final int? height;
 }
 
 /// Segments text into synthesis-friendly chunks.
@@ -38,9 +42,10 @@ class TextSegmenter {
   /// Minimum characters for a valid segment.
   static const int minLength = 10;
   
-  /// Pattern to match figure placeholders: [FIGURE:{path}:{alt}]
+  /// Pattern to match figure placeholders: [FIGURE:{path}:{alt}:{width}:{height}]
+  /// Width and height are optional for backwards compatibility.
   static final RegExp _figurePattern = RegExp(
-    r'\[FIGURE:([^:]+):([^\]]*)\]',
+    r'\[FIGURE:([^:]+):([^:\]]*?)(?::(\d+):(\d+))?\]',
   );
 
   /// Segment text into a list of segments.
@@ -62,15 +67,20 @@ class TextSegmenter {
     
     for (final chunk in chunks) {
       if (chunk.isFigure) {
-        // Create a figure segment with metadata
+        // Create a figure segment with metadata including dimensions
+        final metadata = <String, dynamic>{
+          'imagePath': chunk.imagePath,
+          'altText': chunk.altText ?? 'Image',
+        };
+        // Add dimensions if available
+        if (chunk.width != null) metadata['width'] = chunk.width;
+        if (chunk.height != null) metadata['height'] = chunk.height;
+        
         segments.add(Segment(
           text: chunk.altText ?? 'Image',
           index: segmentIndex++,
           type: SegmentType.figure,
-          metadata: {
-            'imagePath': chunk.imagePath,
-            'altText': chunk.altText ?? 'Image',
-          },
+          metadata: metadata,
         ));
       } else {
         // Segment normal text
@@ -102,12 +112,16 @@ class TextSegmenter {
         }
       }
       
-      // Add the figure
+      // Add the figure with dimensions if available
+      final widthStr = match.group(3);
+      final heightStr = match.group(4);
       chunks.add(_TextChunk(
         text: match.group(0) ?? '',
         isFigure: true,
         imagePath: match.group(1),
         altText: match.group(2),
+        width: widthStr != null ? int.tryParse(widthStr) : null,
+        height: heightStr != null ? int.tryParse(heightStr) : null,
       ));
       
       lastEnd = match.end;

@@ -65,6 +65,8 @@ class MigrationConsolidated {
         text TEXT NOT NULL,
         char_count INTEGER NOT NULL,
         estimated_duration_ms INTEGER NOT NULL,
+        segment_type TEXT DEFAULT 'text',
+        metadata_json TEXT,
         UNIQUE(book_id, chapter_index, segment_index),
         FOREIGN KEY(book_id) REFERENCES books(id) ON DELETE CASCADE
       )
