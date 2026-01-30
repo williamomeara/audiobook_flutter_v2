@@ -1208,11 +1208,19 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
   /// Build controls for preview mode - shows mini player instead of full controls
   Widget _buildPreviewModeControls(AppThemeColors colors, Book book) {
     final playbackState = ref.watch(playbackStateProvider);
+    final library = ref.watch(libraryProvider).value;
 
-    // Find the book for the currently playing chapter
+    // Get the currently playing book (might be different from previewed book)
+    Book? playingBook = book; // Default to current book
+    if (playbackState.bookId != null && playbackState.bookId != widget.bookId && library != null) {
+      // Audio is playing a DIFFERENT book - get that book's info
+      playingBook = library.books.where((b) => b.id == playbackState.bookId).firstOrNull;
+    }
+
+    // Find the chapter from the PLAYING book, not the previewed book
     final playingChapterIndex = _activePlaybackChapter ?? 0;
-    final playingChapter = playingChapterIndex < book.chapters.length
-        ? book.chapters[playingChapterIndex]
+    final playingChapter = playingBook != null && playingChapterIndex < playingBook.chapters.length
+        ? playingBook.chapters[playingChapterIndex]
         : null;
 
     return Column(
@@ -1243,8 +1251,16 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
         // Mini player showing what's currently playing
         GestureDetector(
           onTap: () {
-            // Navigate to the currently playing chapter
-            if (_activePlaybackChapter != null) {
+            final playbackState = ref.watch(playbackStateProvider);
+
+            // Check if playing a different book
+            if (playbackState.bookId != null && playbackState.bookId != widget.bookId) {
+              // Navigate to the currently playing book's playback screen
+              if (context.mounted) {
+                context.go('/playback/${playbackState.bookId}');
+              }
+            } else if (_activePlaybackChapter != null) {
+              // Same book - just exit preview mode
               setState(() {
                 _currentChapterIndex = _activePlaybackChapter!;
                 _isPreviewMode = false;
@@ -1269,16 +1285,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
-                    // Book cover thumbnail
+                    // Book cover thumbnail (from PLAYING book, not previewed book)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
                       child: SizedBox(
                         width: 44,
                         height: 44,
-                        child: book.coverImagePath != null &&
-                                File(book.coverImagePath!).existsSync()
+                        child: playingBook != null &&
+                                playingBook.coverImagePath != null &&
+                                File(playingBook.coverImagePath!).existsSync()
                             ? Image.file(
-                                File(book.coverImagePath!),
+                                File(playingBook.coverImagePath!),
                                 fit: BoxFit.cover,
                               )
                             : Container(
