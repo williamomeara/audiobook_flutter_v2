@@ -1111,6 +1111,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                       autoScrollEnabled: _autoScrollEnabled,
                       scrollController: _scrollController,
                       activeSegmentKey: _activeSegmentKey ??= GlobalKey(),
+                      isPreviewMode: _isPreviewMode,
                       sleepTimerMinutes: _sleepTimerMinutes,
                       sleepTimeRemainingSeconds: _sleepTimeRemainingSeconds,
                       onBack: _saveProgressAndPop,
@@ -1152,6 +1153,7 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                       autoScrollEnabled: _autoScrollEnabled,
                       scrollController: _scrollController,
                       activeSegmentKey: _activeSegmentKey ??= GlobalKey(),
+                      isPreviewMode: _isPreviewMode,
                       onBack: _saveProgressAndPop,
                       onToggleView:
                           () => setState(() => _showCover = !_showCover),

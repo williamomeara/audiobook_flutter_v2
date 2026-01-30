@@ -32,6 +32,7 @@ class TextDisplayView extends ConsumerStatefulWidget {
     required this.onAutoScrollDisabled,
     required this.onJumpToCurrent,
     required this.activeSegmentKey,
+    this.isPreviewMode = false,
   });
   
   final String bookId;
@@ -45,6 +46,8 @@ class TextDisplayView extends ConsumerStatefulWidget {
   final VoidCallback onAutoScrollDisabled;
   final VoidCallback onJumpToCurrent;
   final GlobalKey activeSegmentKey;
+  /// When true, user is browsing (not playing) - hide "Jump to Audio" button
+  final bool isPreviewMode;
 
   @override
   ConsumerState<TextDisplayView> createState() => _TextDisplayViewState();
@@ -123,7 +126,8 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
         ),
         
         // Jump to current button (bottom right) - shown when auto-scroll is disabled
-        if (!widget.autoScrollEnabled)
+        // BUT: Never show in preview mode - user should use mini player instead
+        if (!widget.autoScrollEnabled && !widget.isPreviewMode)
           Positioned(
             bottom: 16,
             right: 16,

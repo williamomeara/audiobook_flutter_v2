@@ -29,6 +29,7 @@ class PortraitLayout extends StatelessWidget {
     required this.autoScrollEnabled,
     required this.scrollController,
     required this.activeSegmentKey,
+    required this.isPreviewMode,
     required this.onBack,
     required this.onToggleView,
     required this.onSegmentTap,
@@ -52,6 +53,7 @@ class PortraitLayout extends StatelessWidget {
   final bool autoScrollEnabled;
   final ScrollController scrollController;
   final GlobalKey activeSegmentKey;
+  final bool isPreviewMode;
   
   // Callbacks
   final VoidCallback onBack;
@@ -109,6 +111,7 @@ class PortraitLayout extends StatelessWidget {
                       onAutoScrollDisabled: onAutoScrollDisabled,
                       onJumpToCurrent: onJumpToCurrent,
                       activeSegmentKey: activeSegmentKey,
+                      isPreviewMode: isPreviewMode,
                     ),
             ),
             playbackControlsBuilder(),
