@@ -38,6 +38,7 @@ dependencies:
   epubx: ^4.0.0
   image: ^3.3.0
   pdfrx: ^1.0.95
+  image_size_getter: ^2.4.1  # Fast image dimension extraction (metadata only, no decode)
   
   # Networking
   http: ^1.2.2

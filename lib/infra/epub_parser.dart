@@ -6,6 +6,7 @@ import 'package:epubx/epubx.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image/image.dart' as img;
+import 'package:image_size_getter/image_size_getter.dart';
 
 import 'package:core_domain/core_domain.dart';
 
@@ -495,18 +496,25 @@ extension _EpubParserImageExtraction on EpubParser {
             final content = file.content as List<int>;
             await destFile.writeAsBytes(content, flush: true);
             
-            // Try to decode the image to get dimensions
+            // Get image dimensions from metadata (fast - no full decode)
+            // Uses image_size_getter which reads only file headers, not full pixel data
             int? width;
             int? height;
             try {
-              final decodedImage = img.decodeImage(Uint8List.fromList(content));
-              if (decodedImage != null) {
-                width = decodedImage.width;
-                height = decodedImage.height;
-                debugPrint('EpubParser: Image ${file.name} dimensions: ${width}x$height');
+              final bytes = Uint8List.fromList(content);
+              final sizeResult = ImageSizeGetter.getSizeResult(MemoryInput(bytes));
+              final size = sizeResult.size;
+              // Handle potential rotation (EXIF orientation)
+              if (size.needRotate) {
+                width = size.height;
+                height = size.width;
+              } else {
+                width = size.width;
+                height = size.height;
               }
+              debugPrint('EpubParser: Image ${file.name} dimensions: ${width}x$height');
             } catch (e) {
-              debugPrint('EpubParser: Could not decode image dimensions for ${file.name}: $e');
+              debugPrint('EpubParser: Could not read image dimensions for ${file.name}: $e');
             }
             
             final imageInfo = _ImageInfo(path: destPath, width: width, height: height);
