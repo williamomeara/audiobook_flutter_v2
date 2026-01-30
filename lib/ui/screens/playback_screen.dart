@@ -27,6 +27,7 @@ class PlaybackScreen extends ConsumerStatefulWidget {
     required this.bookId,
     this.initialChapter,
     this.initialSegment,
+    this.startPlayback = false,
   });
 
   final String bookId;
@@ -36,6 +37,10 @@ class PlaybackScreen extends ConsumerStatefulWidget {
 
   /// Optional initial segment to navigate to (from query params)
   final int? initialSegment;
+
+  /// If true, start playback immediately (don't enter preview mode).
+  /// Used when user explicitly clicks "Start Listening" / "Continue Listening".
+  final bool startPlayback;
 
   @override
   ConsumerState<PlaybackScreen> createState() => _PlaybackScreenState();
@@ -582,9 +587,10 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           play: currentState.isPlaying,
         );
       }
-    } else if (isPlayingDifferentBook) {
+    } else if (isPlayingDifferentBook && !widget.startPlayback) {
       // PREVIEW MODE (different book): Audio is playing a different book
       // Show this book's content in preview mode with mini player showing what's playing
+      // BUT: if startPlayback is true, user explicitly wants to switch books
       PlaybackLogger.debug(
         '[PlaybackScreen] Entering preview mode (different book): viewing ${widget.bookId}, playing ${currentState.bookId}',
       );
@@ -593,6 +599,19 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
         _activePlaybackChapter = currentState.queue.first.chapterIndex;
       }
       await _enterPreviewMode(book, chapterIndex);
+    } else if (isPlayingDifferentBook && widget.startPlayback) {
+      // User explicitly requested to start playback of this book (from "Start Listening" button)
+      // Stop the other book and load this one
+      PlaybackLogger.debug(
+        '[PlaybackScreen] Switching books: user requested playback of ${widget.bookId}, stopping ${currentState.bookId}',
+      );
+      // Pause current playback first to ensure clean state transition
+      await ref.read(playbackControllerProvider.notifier).pause();
+      await _loadChapterWithRetry(
+        book: book,
+        chapterIndex: chapterIndex,
+        segmentIndex: segmentIndex,
+      );
     } else {
       // No active playback - normal load
       await _loadChapterWithRetry(

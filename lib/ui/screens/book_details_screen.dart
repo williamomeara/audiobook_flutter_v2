@@ -424,14 +424,16 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                             width: double.infinity,
                             child: ElevatedButton.icon(
                               onPressed: () {
-                                // If audio is currently playing, jump to that position
+                                // If audio is currently playing THIS book, jump to that position
                                 // Otherwise resume from saved listening position
                                 final chapter = currentPlayingChapter ?? book.progress.chapterIndex;
                                 final segment = currentPlayingChapter != null
                                     ? playbackState.currentIndex
                                     : book.progress.segmentIndex;
+                                // startPlayback=true tells PlaybackScreen to start playback
+                                // (not enter preview mode) even if another book is playing
                                 context.push(
-                                  '/playback/${widget.bookId}?chapter=$chapter&segment=$segment',
+                                  '/playback/${widget.bookId}?chapter=$chapter&segment=$segment&startPlayback=true',
                                 );
                               },
                               // Button icon and text based on book progress state

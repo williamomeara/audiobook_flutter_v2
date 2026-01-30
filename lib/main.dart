@@ -189,14 +189,17 @@ final _router = GoRouter(
         // Support optional query params for navigating to specific position
         final chapterStr = state.uri.queryParameters['chapter'];
         final segmentStr = state.uri.queryParameters['segment'];
+        final startPlaybackStr = state.uri.queryParameters['startPlayback'];
         final initialChapter =
             chapterStr != null ? int.tryParse(chapterStr) : null;
         final initialSegment =
             segmentStr != null ? int.tryParse(segmentStr) : null;
+        final startPlayback = startPlaybackStr == 'true';
         return PlaybackScreen(
           bookId: bookId,
           initialChapter: initialChapter,
           initialSegment: initialSegment,
+          startPlayback: startPlayback,
         );
       },
     ),
