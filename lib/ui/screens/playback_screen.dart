@@ -580,8 +580,19 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           play: currentState.isPlaying,
         );
       }
+    } else if (currentState.bookId != null && currentState.bookId != widget.bookId) {
+      // Different book is in playback state - pause and reset before loading new book
+      PlaybackLogger.info(
+        '[PlaybackScreen] Clearing playback state from different book: ${currentState.bookId}',
+      );
+      await ref.read(playbackControllerProvider.notifier).pause();
+      await _loadChapterWithRetry(
+        book: book,
+        chapterIndex: chapterIndex,
+        segmentIndex: segmentIndex,
+      );
     } else {
-      // No active playback or different book - normal load
+      // No active playback - normal load
       await _loadChapterWithRetry(
         book: book,
         chapterIndex: chapterIndex,
