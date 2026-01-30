@@ -789,22 +789,12 @@ class IntelligentCacheManager implements AudioCache {
   /// 
   /// Returns true if compression was performed and successful.
   /// Returns false if file doesn't exist, is already compressed, or is pinned.
+  /// Note: Handles orphan files (on disk but not in DB yet) by compressing them anyway.
   Future<bool> compressEntryByFilenameInBackground(String filename) async {
     // DEBUG: Use print to ensure visibility in logcat
     print('[COMPRESSION] compressEntryByFilenameInBackground called: $filename');
     print('[COMPRESSION] _pinnedFiles: $_pinnedFiles');
-    
-    // Skip if not in DB
-    final entry = await _storage.getEntry(filename);
-    if (entry == null) {
-      print('[COMPRESSION] ⚠️ SKIPPED (not in DB): $filename');
-      developer.log(
-        '⚠️ Compression skipped (not in DB): $filename',
-        name: 'IntelligentCacheManager',
-      );
-      return false;
-    }
-    
+
     // Skip if already compressed
     if (filename.endsWith('.m4a') || filename.endsWith('.aac')) {
       print('[COMPRESSION] ⚠️ SKIPPED (already compressed): $filename');
@@ -814,7 +804,7 @@ class IntelligentCacheManager implements AudioCache {
       );
       return false;
     }
-    
+
     // Skip if pinned (in use by prefetch)
     if (_pinnedFiles.contains(filename)) {
       print('[COMPRESSION] ⚠️ SKIPPED (pinned): $filename');
@@ -824,7 +814,8 @@ class IntelligentCacheManager implements AudioCache {
       );
       return false;
     }
-    
+
+    // Check if file exists (required for compression)
     final wavFile = File('${_cacheDir.path}/$filename');
     if (!await wavFile.exists()) {
       print('[COMPRESSION] ⚠️ SKIPPED (file not found): $filename');
@@ -834,22 +825,40 @@ class IntelligentCacheManager implements AudioCache {
       );
       return false;
     }
+
+    // Check if entry exists in DB
+    // Note: Entry might not exist yet if this is called immediately after synthesis
+    // This is OK - we'll compress orphan files anyway (they'll be registered later)
+    final entry = await _storage.getEntry(filename);
+    if (entry == null) {
+      print('[COMPRESSION] ℹ️ Entry not in DB yet (orphan file), will compress anyway: $filename');
+      developer.log(
+        'ℹ️ Compression of orphan file (not in DB yet): $filename',
+        name: 'IntelligentCacheManager',
+      );
+      // Continue with compression for orphan file
+    }
     
     print('[COMPRESSION] ✅ All checks passed, starting compression for: $filename');
     try {
-      // Step 1: Mark as compressing in DB (prevents concurrent compression)
-      await _storage.updateCompressionState(
-        filename,
-        CompressionState.compressing,
-        compressionStartedAt: DateTime.now(),
-      );
-      
-      print('[COMPRESSION] Marked as compressing, starting native codec...');
+      // Step 1: Mark as compressing in DB (only if entry exists)
+      if (entry != null) {
+        await _storage.updateCompressionState(
+          filename,
+          CompressionState.compressing,
+          compressionStartedAt: DateTime.now(),
+        );
+        print('[COMPRESSION] Marked as compressing in DB');
+      } else {
+        print('[COMPRESSION] Skipping DB update (orphan file, will be registered later)');
+      }
+
+      print('[COMPRESSION] Starting native codec...');
       developer.log(
         '⏳ Starting background compression for: $filename',
         name: 'IntelligentCacheManager',
       );
-      
+
       // Step 2: Run compression using native platform codec
       // NOTE: Do NOT use Isolate.run() here - platform channels (flutter_audio_toolkit)
       // only work on the main isolate. The native MediaCodec/AVFoundation encoder
@@ -859,62 +868,77 @@ class IntelligentCacheManager implements AudioCache {
         wavFile,
         deleteOriginal: true,
       );
-      
+
       if (m4aFile == null) {
-        // Compression failed - mark as failed in DB
+        // Compression failed
         print('[COMPRESSION] ❌ Native codec returned null for: $filename');
-        await _storage.updateCompressionState(
-          filename,
-          CompressionState.failed,
-        );
+        if (entry != null) {
+          await _storage.updateCompressionState(
+            filename,
+            CompressionState.failed,
+          );
+        }
         developer.log(
           '❌ Compression failed for $filename',
           name: 'IntelligentCacheManager',
         );
         return false;
       }
-      
+
       print('[COMPRESSION] ✅ Native codec succeeded for: $filename');
-      // Step 3: Update metadata atomically (DB-first approach)
-      final m4aKey = filename.replaceAll('.wav', '.m4a');
-      final m4aStat = await m4aFile.stat();
-      
-      final newEntry = CacheEntryMetadata(
-        key: m4aKey,
-        sizeBytes: m4aStat.size,
-        createdAt: entry.createdAt,
-        lastAccessed: entry.lastAccessed,
-        accessCount: entry.accessCount,
-        bookId: entry.bookId,
-        voiceId: entry.voiceId,
-        segmentIndex: entry.segmentIndex,
-        chapterIndex: entry.chapterIndex,
-        engineType: entry.engineType,
-        audioDurationMs: entry.audioDurationMs,
-        compressionState: CompressionState.m4a,
-        compressionStartedAt: null,
-      );
-      
-      // Replace in DB (atomic: delete WAV, insert M4A)
-      await _storage.replaceEntry(oldKey: filename, newEntry: newEntry);
-      
-      developer.log(
-        '✅ Background compressed $filename → $m4aKey '
-        '(${entry.sizeBytes ~/ 1024}KB → ${newEntry.sizeBytes ~/ 1024}KB)',
-        name: 'IntelligentCacheManager',
-      );
-      
+
+      // Step 3: Update metadata in DB (only if entry exists)
+      // Orphan files: compression succeeded, file will be registered when synthesis completes
+      if (entry != null) {
+        final m4aKey = filename.replaceAll('.wav', '.m4a');
+        final m4aStat = await m4aFile.stat();
+
+        final newEntry = CacheEntryMetadata(
+          key: m4aKey,
+          sizeBytes: m4aStat.size,
+          createdAt: entry.createdAt,
+          lastAccessed: entry.lastAccessed,
+          accessCount: entry.accessCount,
+          bookId: entry.bookId,
+          voiceId: entry.voiceId,
+          segmentIndex: entry.segmentIndex,
+          chapterIndex: entry.chapterIndex,
+          engineType: entry.engineType,
+          audioDurationMs: entry.audioDurationMs,
+          compressionState: CompressionState.m4a,
+          compressionStartedAt: null,
+        );
+
+        // Replace in DB (atomic: delete WAV, insert M4A)
+        await _storage.replaceEntry(oldKey: filename, newEntry: newEntry);
+
+        developer.log(
+          '✅ Background compressed $filename → $m4aKey '
+          '(${entry.sizeBytes ~/ 1024}KB → ${newEntry.sizeBytes ~/ 1024}KB)',
+          name: 'IntelligentCacheManager',
+        );
+      } else {
+        // Orphan file - compression succeeded, file is now .m4a
+        print('[COMPRESSION] ✅ Orphan file compressed: $filename → ${filename.replaceAll('.wav', '.m4a')}');
+        developer.log(
+          '✅ Orphan file compressed: $filename',
+          name: 'IntelligentCacheManager',
+        );
+      }
+
       return true;
     } catch (e) {
       developer.log(
         '❌ Background compression failed for $filename: $e',
         name: 'IntelligentCacheManager',
       );
-      // Try to mark as failed in DB
-      await _storage.updateCompressionState(
-        filename,
-        CompressionState.failed,
-      );
+      // Try to mark as failed in DB (only if entry exists)
+      if (entry != null) {
+        await _storage.updateCompressionState(
+          filename,
+          CompressionState.failed,
+        );
+      }
       return false;
     }
   }
