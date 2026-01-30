@@ -195,3 +195,196 @@ The following flags/params now exist:
 - `_autoScrollEnabled` - User scroll state
 
 This is functional but fragmented. A future refactor should unify these into a proper state machine as described above.
+
+---
+
+## Industry Best Practices Research
+
+### 1. Finite State Machines (FSM) for UI
+
+The XState/Stately documentation describes finite state machines as having five parts:
+- A **finite number of states**
+- A **finite number of events**
+- An **initial state**
+- A **transition function** that determines next state given current state and event
+- A (possibly empty) set of **final states**
+
+**Key insight**: A system can only be in ONE state at a time. This prevents "impossible states" - the exact problem we have when `_isPreviewMode` and `_autoScrollEnabled` can have conflicting combinations.
+
+### 2. BLoC Pattern (flutter_bloc)
+
+The BLoC library emphasizes:
+- **Separation of UI and business logic**: UI just sends events, doesn't know implementation
+- **Event-driven state changes**: Instead of calling functions that might or might not update state, you dispatch events that always result in predictable state transitions
+- **Traceability**: Every state change comes from a known event
+
+**Key insight**: Using events makes it clear WHY state changed. In our case, we could have events like `NavigateToChapter`, `StartPlaybackFromDetails`, `TapMiniPlayer` instead of inferring intent from parameters.
+
+### 3. Statecharts (Extended State Machines)
+
+David Harel's statecharts add:
+- **Hierarchical (nested) states**: e.g., `PlaybackScreen.Active` vs `PlaybackScreen.Preview`
+- **Guards/conditions**: Transitions can have conditions (like "only if different book is playing")
+- **Actions**: Entry/exit actions when entering/leaving states
+
+**Key insight**: Our `_initializePlayback()` method is essentially implementing guards manually with if/else chains. A proper statechart would make these transitions explicit.
+
+### 4. The Dart `state_machine` Package
+
+Demonstrates idiomatic Dart FSM patterns:
+```dart
+StateMachine playback = StateMachine('playback');
+State isActive = playback.newState('active');
+State isPreview = playback.newState('preview');
+State isLoading = playback.newState('loading');
+
+StateTransition startPlayback = playback.newStateTransition(
+  'startPlayback', 
+  [isPreview, isLoading], 
+  isActive
+);
+StateTransition enterPreview = playback.newStateTransition(
+  'enterPreview',
+  [isActive, isLoading],
+  isPreview
+);
+```
+
+**Key insight**: Legal transitions are defined up-front. Attempting illegal transitions throws exceptions. This would catch bugs like "entering preview mode from preview mode".
+
+### 5. BlocListener for Side Effects
+
+`flutter_bloc` recommends:
+- `BlocBuilder` for UI that depends on state
+- `BlocListener` for side effects (navigation, showing dialogs) that should happen ONCE per state change
+
+**Key insight**: Our "Jump to Audio" button logic mixes concerns. Instead of checking multiple booleans in the build method, we could have a listener that shows/hides it based on state transitions.
+
+---
+
+## Recommended Architecture (Revised with Research)
+
+Based on industry patterns, here's a more robust approach:
+
+### PlaybackViewState as a Sealed Class
+
+```dart
+sealed class PlaybackViewState {}
+
+class ActivePlayback extends PlaybackViewState {
+  final String bookId;
+  final int chapterIndex;
+  final int segmentIndex;
+  final bool autoScrollEnabled;
+  
+  // All UI decisions derived from this state
+  bool get showFullControls => true;
+  bool get showMiniPlayer => false;
+  bool get shouldAutoSave => true;
+}
+
+class PreviewMode extends PlaybackViewState {
+  final String previewBookId;
+  final int previewChapterIndex;
+  final String? playingBookId;  // null if nothing playing
+  final int? playingChapterIndex;
+  
+  bool get showFullControls => false;
+  bool get showMiniPlayer => playingBookId != null;
+  bool get shouldAutoSave => false;
+}
+
+class LoadingPlayback extends PlaybackViewState {
+  final String bookId;
+  final int chapterIndex;
+}
+```
+
+### Events Instead of Parameters
+
+```dart
+sealed class PlaybackEvent {}
+
+class StartListeningPressed extends PlaybackEvent {
+  final String bookId;
+  final int chapterIndex;
+  final int segmentIndex;
+}
+
+class ChapterTapped extends PlaybackEvent {
+  final String bookId;
+  final int chapterIndex;
+}
+
+class MiniPlayerTapped extends PlaybackEvent {}
+
+class SegmentTapped extends PlaybackEvent {
+  final int segmentIndex;
+}
+```
+
+### Transition Logic (Explicit)
+
+```dart
+PlaybackViewState transition(PlaybackViewState current, PlaybackEvent event) {
+  return switch ((current, event)) {
+    // From anywhere, "Start Listening" starts active playback
+    (_, StartListeningPressed e) => ActivePlayback(
+      bookId: e.bookId,
+      chapterIndex: e.chapterIndex,
+      segmentIndex: e.segmentIndex,
+    ),
+    
+    // From active, tapping different chapter enters preview
+    (ActivePlayback s, ChapterTapped e) 
+      when e.bookId == s.bookId && e.chapterIndex != s.chapterIndex 
+      => PreviewMode(
+        previewBookId: e.bookId,
+        previewChapterIndex: e.chapterIndex,
+        playingBookId: s.bookId,
+        playingChapterIndex: s.chapterIndex,
+      ),
+    
+    // From preview, tapping segment exits preview and starts that segment
+    (PreviewMode s, SegmentTapped e) => ActivePlayback(
+      bookId: s.previewBookId,
+      chapterIndex: s.previewChapterIndex,
+      segmentIndex: e.segmentIndex,
+    ),
+    
+    // From preview, mini player tap returns to active
+    (PreviewMode s, MiniPlayerTapped _) when s.playingBookId != null 
+      => ActivePlayback(
+        bookId: s.playingBookId!,
+        chapterIndex: s.playingChapterIndex!,
+        segmentIndex: 0, // Or restore from playback state
+      ),
+    
+    // Invalid transitions return current state (or could throw)
+    _ => current,
+  };
+}
+```
+
+### Benefits of This Approach
+
+1. **Impossible states are impossible**: Can't have `autoScrollEnabled && isPreviewMode` as a bug
+2. **Transitions are explicit and testable**: Unit test the transition function
+3. **UI is purely derived**: No conditional logic spread across widgets
+4. **Events are traceable**: Can log all events for debugging
+5. **Matches Flutter/Dart ecosystem**: Uses sealed classes, pattern matching
+
+---
+
+## Summary
+
+| Current State | Recommended State |
+|---------------|-------------------|
+| Multiple booleans (`_isPreviewMode`, `_autoScrollEnabled`, `startPlayback`) | Single sealed class hierarchy |
+| Intent inferred from context (is other book playing?) | Intent explicit in events |
+| Transition logic in `_initializePlayback()` if/else | Pure transition function |
+| UI checks multiple conditions | UI derives from single state |
+| Props drilling (`isPreviewMode` through 4 levels) | State available via provider |
+
+The current implementation works but will continue to accumulate patches. A refactor to a proper state machine architecture would prevent future bugs and make the system easier to reason about.
+
