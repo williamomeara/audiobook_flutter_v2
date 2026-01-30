@@ -552,22 +552,24 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
       return;
     }
 
-    // Check if audio is already playing a DIFFERENT chapter
+    // Check if audio is already playing
     final currentState = ref.read(playbackStateProvider);
-    final hasActivePlayback = currentState.queue.isNotEmpty &&
-        currentState.bookId == widget.bookId;
-    final activeChapter = hasActivePlayback
+    final hasActivePlayback = currentState.queue.isNotEmpty;
+    final isPlayingSameBook = hasActivePlayback && currentState.bookId == widget.bookId;
+    final isPlayingDifferentBook = hasActivePlayback && currentState.bookId != widget.bookId;
+
+    final activeChapter = isPlayingSameBook
         ? currentState.queue.first.chapterIndex
         : null;
 
-    if (hasActivePlayback && activeChapter != chapterIndex) {
-      // PREVIEW MODE: User is viewing a different chapter than what's playing
+    if (isPlayingSameBook && activeChapter != chapterIndex) {
+      // PREVIEW MODE (same book): User is viewing a different chapter than what's playing
       PlaybackLogger.debug(
-        '[PlaybackScreen] Entering preview mode: viewing chapter $chapterIndex, playing chapter $activeChapter',
+        '[PlaybackScreen] Entering preview mode (same book): viewing chapter $chapterIndex, playing chapter $activeChapter',
       );
       _activePlaybackChapter = activeChapter;
       await _enterPreviewMode(book, chapterIndex);
-    } else if (hasActivePlayback && activeChapter == chapterIndex) {
+    } else if (isPlayingSameBook && activeChapter == chapterIndex) {
       // Same chapter is already loaded
       PlaybackLogger.debug(
         '[PlaybackScreen] Chapter $chapterIndex already loaded, skipping reload',
@@ -580,17 +582,17 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           play: currentState.isPlaying,
         );
       }
-    } else if (currentState.bookId != null && currentState.bookId != widget.bookId) {
-      // Different book is in playback state - pause and reset before loading new book
-      PlaybackLogger.info(
-        '[PlaybackScreen] Clearing playback state from different book: ${currentState.bookId}',
+    } else if (isPlayingDifferentBook) {
+      // PREVIEW MODE (different book): Audio is playing a different book
+      // Show this book's content in preview mode with mini player showing what's playing
+      PlaybackLogger.debug(
+        '[PlaybackScreen] Entering preview mode (different book): viewing ${widget.bookId}, playing ${currentState.bookId}',
       );
-      await ref.read(playbackControllerProvider.notifier).pause();
-      await _loadChapterWithRetry(
-        book: book,
-        chapterIndex: chapterIndex,
-        segmentIndex: segmentIndex,
-      );
+      // Store the playing book info for mini player reference
+      if (currentState.queue.isNotEmpty) {
+        _activePlaybackChapter = currentState.queue.first.chapterIndex;
+      }
+      await _enterPreviewMode(book, chapterIndex);
     } else {
       // No active playback - normal load
       await _loadChapterWithRetry(
