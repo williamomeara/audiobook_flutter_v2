@@ -142,15 +142,21 @@ class TtsNativeApiImpl: TtsNativeApi {
     }
     
     func unloadVoice(engineType: NativeEngineType, voiceId: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        let svc = service(for: engineType)
-        svc.unloadVoice(voiceId: voiceId)
-        completion(.success(()))
+        Task.detached(priority: .userInitiated) { [self] in
+            let svc = service(for: engineType)
+            svc.unloadVoice(voiceId: voiceId)
+            completion(.success(()))
+        }
     }
     
     func unloadEngine(engineType: NativeEngineType, completion: @escaping (Result<Void, Error>) -> Void) {
-        let svc = service(for: engineType)
-        svc.unloadAll()
-        completion(.success(()))
+        // Run in background thread to avoid blocking UI
+        // unloadAll() calls waitUntilIdle which can block for up to 5 seconds
+        Task.detached(priority: .userInitiated) { [self] in
+            let svc = service(for: engineType)
+            svc.unloadAll()
+            completion(.success(()))
+        }
     }
     
     func getMemoryInfo(completion: @escaping (Result<MemoryInfo, Error>) -> Void) {
