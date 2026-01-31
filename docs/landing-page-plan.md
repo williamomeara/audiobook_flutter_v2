@@ -142,14 +142,50 @@ Visual: Phone mockup showing Eist app
 
 ## Deployment Options
 
-| Platform | Cost | Setup | Custom Domain |
-|----------|------|-------|---------------|
-| **GitHub Pages** | Free | Easy | ✅ |
-| **Vercel** | Free tier | Easy | ✅ |
-| **Netlify** | Free tier | Easy | ✅ |
-| **Cloudflare Pages** | Free | Easy | ✅ |
+| Platform | Cost | Setup | Custom Domain | Deploy Previews | Best For |
+|----------|------|-------|---------------|-----------------|----------|
+| **Vercel** | Free tier | Easiest | ✅ | ✅ Yes | ⭐ **Recommended** |
+| **Netlify** | Free tier | Easy | ✅ | ✅ Yes | Alternative to Vercel |
+| **Cloudflare Pages** | Free | Easy | ✅ | ✅ Yes | Edge performance |
+| **GitHub Pages** | Free | Easy | ✅ | ❌ No | Simple static only |
 
-**Recommendation:** Vercel or Netlify for easy deploy previews and HTTPS.
+### Recommendation: Vercel
+
+**Why Vercel:**
+- Zero-config Astro deployment (auto-detects framework)
+- Automatic HTTPS with custom domain
+- Deploy previews for every PR
+- Global CDN (fast worldwide)
+- Generous free tier (100GB bandwidth/month)
+- Built by same team that created Next.js (Astro works great too)
+
+### Setup with Vercel
+
+```bash
+# 1. Push repo to GitHub
+git remote add origin https://github.com/USERNAME/eist-landing.git
+git push -u origin main
+
+# 2. Connect to Vercel
+# Go to vercel.com → New Project → Import GitHub repo
+# Vercel auto-detects Astro and configures build
+
+# 3. Add custom domain
+# Project Settings → Domains → Add "eist.app"
+# Add DNS records in Namecheap:
+#   Type: A, Host: @, Value: 76.76.21.21
+#   Type: CNAME, Host: www, Value: cname.vercel-dns.com
+```
+
+### Alternative: Cloudflare Pages
+
+If you want edge-optimized performance and already use Cloudflare:
+
+```bash
+# Similar process - connect GitHub repo
+# Cloudflare Pages auto-detects Astro
+# Custom domain setup in Cloudflare DNS (even simpler if domain is on Cloudflare)
+```
 
 ---
 
