@@ -68,7 +68,7 @@ class KokoroSherpaInference {
         // Use CPU provider to avoid CoreML memory conflicts with Supertonic
         let modelConfig = sherpaOnnxOfflineTtsModelConfig(
             kokoro: kokoroConfig,
-            numThreads: threads,
+            numThreads: Int(threads),
             provider: "cpu"
         )
         

@@ -62,7 +62,7 @@ class PiperSherpaInference {
         // Use CPU provider to avoid memory pressure when CoreML is used for Supertonic
         let modelConfig = sherpaOnnxOfflineTtsModelConfig(
             vits: vitsConfig,
-            numThreads: threads,
+            numThreads: Int(threads),
             provider: "cpu"  // Use CPU to avoid CoreML memory conflicts with Supertonic
         )
         
