@@ -415,15 +415,20 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
           : EngineWarmupStatus.notStarted;
       final isAlreadyWarming = currentWarmupStatus == EngineWarmupStatus.warming;
       
+      // Track if warmUp was started and needs to trigger autoPlay when done
+      bool needsAutoPlayAfterWarmUp = false;
+      
       if (isAlreadyWarming) {
         debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} WarmUp already in progress, skipping duplicate call');
         // Don't start another warmUp - the existing one will update status when done
+        needsAutoPlayAfterWarmUp = autoPlay;
       } else if (selectedVoice != VoiceIds.none) {
         // Always run warmUp in background (unawaited) to avoid blocking UI
         // This is a change from the previous behavior where autoPlay awaited warmUp.
         // The tradeoff: first synthesis may be slower while CoreML compiles,
         // but the UI won't freeze for 20-30 seconds.
         _updateWarmupStatus(EngineWarmupStatus.warming);
+        needsAutoPlayAfterWarmUp = autoPlay;
         
         debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Starting background warmUp for $selectedVoice');
         unawaited(
@@ -435,6 +440,12 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
               success ? EngineWarmupStatus.ready : EngineWarmupStatus.failed,
               errorMessage: success ? null : 'Voice warmup failed',
             );
+            // If we deferred autoPlay, start it now
+            if (success && needsAutoPlayAfterWarmUp) {
+              debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Starting deferred playback');
+              final ctrl = ref.read(playbackControllerProvider.notifier).controller;
+              ctrl?.play();
+            }
           }).catchError((e) {
             debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Failed to warm up TTS engine: $e');
             _updateWarmupStatus(EngineWarmupStatus.failed, errorMessage: e.toString());
@@ -447,12 +458,17 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
 
       // THEN setup playback controller asynchronously
       // This can take time (cache checks, synthesis setup) but UI is already showing
+      // If warmUp is in progress, load chapter but DON'T autoPlay - we'll start playback
+      // after warmUp completes to avoid synthesis timeout during CoreML compilation.
+      final effectiveAutoPlay = autoPlay && !needsAutoPlayAfterWarmUp;
+      debugPrint('[_loadChapter] ${DateTime.now().toIso8601String()} Calling loadChapter with autoPlay=$effectiveAutoPlay (requested=$autoPlay, deferred=$needsAutoPlayAfterWarmUp)');
+      
       final playbackController = ref.read(playbackControllerProvider.notifier);
       await playbackController.loadChapter(
         book: book,
         chapterIndex: actualChapterIndex,
         startSegmentIndex: segmentIndex ?? 0,
-        autoPlay: autoPlay,
+        autoPlay: effectiveAutoPlay,
       );
     } catch (e) {
       _handleEvent(LoadingFailed(e.toString()));

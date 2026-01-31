@@ -199,11 +199,18 @@ class SupertonicAdapter implements AiVoiceEngine {
     }
 
     final coreReady = await getCoreReadiness(voiceId);
-    if (!coreReady.isReady && coreReady.state != CoreReadyState.notStarted) {
+    
+    // Check if core is actually ready for synthesis
+    if (!coreReady.isReady) {
+      // Core exists but isn't loaded/initialized yet
+      // This includes notStarted, downloading, and loading states
       return VoiceReadiness(
         voiceId: voiceId,
-        state: VoiceReadyState.coreLoading,
+        state: coreReady.state == CoreReadyState.notStarted 
+            ? VoiceReadyState.coreLoading  // CoreML compilation hasn't started yet
+            : VoiceReadyState.coreLoading, // CoreML compilation in progress
         coreState: coreReady.state,
+        nextActionUserShouldTake: 'Initializing voice engine...',
       );
     }
 
