@@ -320,6 +320,5 @@ if (!tmpFile.renameTo(finalFile)) {
 
 ## Related Documentation
 
-- [TTS Implementation](../TTS_IMPLEMENTATION_COMPLETE.md) - Implementation details
-- [Architecture Overview](../ARCHITECTURE.md) - High-level system architecture
-- [Kokoro Performance](../kokoro_performance_optimization.md) - Performance tuning
+- [Architecture Overview](./ARCHITECTURE.md) - High-level system architecture
+- [Playback State Machine](./playback_screen_state_machine.md) - Playback navigation states

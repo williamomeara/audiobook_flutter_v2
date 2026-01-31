@@ -461,7 +461,8 @@ AudioEvent.completed → nextTrack()
 | `routing_engine.dart` | Engine selection, cache integration |
 | `audio_cache.dart` | File caching, LRU management |
 | `cache_key_generator.dart` | Deterministic key generation |
-| `playback_controller.dart` | Coordinates synthesis with playback |
+| `playback_view_notifier.dart` | Coordinates synthesis with playback state machine |
+| `playback_state_machine.dart` | Pure transition function for playback states |
 | `KokoroTtsService.kt` | Native Kokoro synthesis with semaphore |
 | `PiperTtsService.kt` | Native Piper synthesis with semaphore |
 | `SupertonicTtsService.kt` | Native Supertonic synthesis |

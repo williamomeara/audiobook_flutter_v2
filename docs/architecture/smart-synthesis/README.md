@@ -195,8 +195,8 @@ await playbackManager.play();
 ## Related Documentation
 
 - [State Machine](./STATE_MACHINE.md) - Complete state diagram
-- [TTS Engines](../tts-engines/) - Engine-specific implementations
-- [Playback System](../playback/) - Audio playback architecture
+- [TTS Synthesis State Machine](../tts_synthesis_state_machine.md) - TTS engine states
+- [Audio Synthesis Pipeline](../audio_synthesis_pipeline_state_machine.md) - Pipeline orchestration
 
 ## Future Improvements
 
