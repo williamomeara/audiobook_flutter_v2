@@ -74,9 +74,31 @@ Sections needed:
    - Choose a voice
    - Start listening
 
-4. Download CTA: Final call to action with app store buttons
+4. Pricing: Side-by-side comparison of Free vs Premium
+   
+   FREE TIER (Forever):
+   - Unlimited TTS synthesis (no hour limits!)
+   - 1 book in library at a time
+   - 3 voices included
+   - EPUB & PDF support
+   - Offline reading
+   - Background playback
+   
+   PREMIUM ($5/month after 3 months free):
+   - Everything in Free, plus:
+   - Unlimited books in library
+   - 20+ premium voices
+   - Instant playback (pre-synthesis)
+   - Unlimited cache storage
+   - Priority processing
+   
+   Use a badge or callout to highlight: 
+   "UNLIMITED FREE READING" - emphasize that unlike competitors, 
+   we don't limit listening hours
 
-5. Footer: Links to Privacy Policy, Terms, and social links
+5. Download CTA: Final call to action with app store buttons
+
+6. Footer: Links to Privacy Policy, Terms, and social links
 
 Style: Professional, minimal, tech-forward like Linear or Raycast
 ```
