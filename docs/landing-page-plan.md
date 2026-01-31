@@ -123,20 +123,129 @@ Visual: Phone mockup showing Eist app
 
 ## Design Direction
 
-### Colors (from app)
-- Primary: App's accent color
-- Background: Dark mode friendly
-- Text: High contrast for readability
+### Eist Color Palette (from app)
+
+The app uses a dual-theme design. Use these exact values in Figma:
+
+**Dark Mode (Primary Theme for Landing Page)**
+| Token | Hex | Usage |
+|-------|-----|-------|
+| Background | `#0F172A` (slate-900) | Page background |
+| Card/Surface | `#1E293B` (slate-800) | Cards, sections |
+| Border | `#334155` (slate-700) | Borders, dividers |
+| Text Primary | `#FFFFFF` | Headlines, body |
+| Text Secondary | `#94A3B8` (slate-400) | Captions, labels |
+| Accent | `#F59E0B` (amber-500) | CTAs, highlights |
+| Accent Hover | `#FBBF24` (amber-400) | Hover states |
+| Danger | `#EF4444` | Error states |
+
+**Light Mode (Optional)**
+| Token | Hex | Usage |
+|-------|-----|-------|
+| Background | `#F5F5F5` | Page background |
+| Card/Surface | `#FFFFFF` | Cards |
+| Text Primary | `#030213` | Headlines, body |
+| Text Secondary | `#717182` | Captions |
 
 ### Typography
-- Headlines: Bold, modern sans-serif
-- Body: Clean, readable
+
+**Recommended Fonts (free, web-safe):**
+- Headlines: **Inter** (bold, 700 weight)
+- Body: **Inter** (regular, 400 weight)
+- Fallback: System font stack
+
+**Type Scale:**
+| Element | Size | Weight |
+|---------|------|--------|
+| H1 (Hero) | 48-64px | Bold |
+| H2 (Section) | 32-40px | Bold |
+| H3 (Card title) | 24px | Semibold |
+| Body | 16-18px | Regular |
+| Caption | 14px | Regular |
+
+---
+
+## Figma Workflow
+
+### Step 1: Set Up Figma Design System
+
+Create a new Figma file with shared styles:
+
+1. **Create color styles** matching the palette above
+   - Right-click color → "Create style"
+   - Name: `colors/background`, `colors/accent`, etc.
+
+2. **Create text styles** for typography
+   - H1, H2, H3, Body, Caption
+   - Include line-height (1.2 for headers, 1.5 for body)
+
+3. **Create components** for reusable elements
+   - Button (primary, secondary, ghost)
+   - Feature card
+   - Phone mockup frame
+
+### Step 2: Export Design to Code
+
+**Option A: Figma Dev Mode (Recommended)**
+- Enable Dev Mode in Figma
+- View CSS values for each element
+- Copy Tailwind classes or raw CSS
+
+**Option B: Figma to Tailwind Plugin**
+- Install "Figma to Code" or "Builder.io" plugin
+- Export components as React/Tailwind code
+- Clean up and integrate into Astro
+
+**Option C: Manual Translation**
+- Design in Figma
+- Manually recreate in Astro using Tailwind
+- Best for small sites where you want full control
+
+### Step 3: Match App Theme in Tailwind
+
+Create a `tailwind.config.mjs` with Eist colors:
+
+```javascript
+export default {
+  theme: {
+    extend: {
+      colors: {
+        // Dark mode (default)
+        background: '#0F172A',
+        surface: '#1E293B',
+        border: '#334155',
+        'text-primary': '#FFFFFF',
+        'text-secondary': '#94A3B8',
+        accent: '#F59E0B',
+        'accent-hover': '#FBBF24',
+        
+        // Semantic
+        eist: {
+          slate: {
+            700: '#334155',
+            800: '#1E293B',
+            900: '#0F172A',
+          },
+          amber: {
+            400: '#FBBF24',
+            500: '#F59E0B',
+            600: '#D97706',
+          }
+        }
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+      }
+    }
+  }
+}
+```
 
 ### Visual Assets Needed
-- App icon (high-res)
-- App screenshots (3-5)
-- Phone mockup templates
-- Feature icons
+- App icon (high-res PNG, 512x512+)
+- App screenshots (3-5, phone frame mockups)
+- Phone mockup template (use Figma's device frames)
+- Feature icons (use Lucide or Phosphor icons)
 
 ---
 
