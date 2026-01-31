@@ -367,10 +367,28 @@ export default {
 }
 ```
 
-### Visual Assets Needed
-- App icon (high-res PNG, 512x512+)
-- App screenshots (3-5, phone frame mockups)
-- Phone mockup template (use Figma's device frames)
+### Visual Assets Available
+
+**Screenshots** (in `assets/store/screenshots/phone/`):
+| File | Content | Best For |
+|------|---------|----------|
+| `01_library_empty_light.jpg` | Empty library | Getting started |
+| `02_free_books_light.jpg` | Free books catalog (light) | Discovery feature |
+| `03_library_books_light.jpg` | Library with books (light) | — |
+| `04_library_books_dark.jpg` | Library with books (dark) | ⭐ Hero mockup |
+| `05_book_details_light.jpg` | Book details (light) | — |
+| `06_book_details_dark.jpg` | Book details (dark) | ⭐ Features |
+| `07_playback_dark.jpg` | Playback with text highlight | ⭐ Hero/Features |
+| `08_free_books_dark.jpg` | Free books (dark) | ⭐ Features |
+
+**Recommended for landing page:**
+- **Hero**: `07_playback_dark.jpg` (shows the core experience)
+- **Features**: `04_library_books_dark.jpg`, `06_book_details_dark.jpg`, `08_free_books_dark.jpg`
+
+**App Icon**: `assets/store/app_icon_512.png`
+
+**Additional assets needed:**
+- Phone mockup frames (use Figma or mockuphone.com)
 - Feature icons (use Lucide or Phosphor icons)
 
 ---
