@@ -73,6 +73,55 @@ class ChapterDao {
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
+  /// Check if a chapter is playable (has audio content).
+  Future<bool> isChapterPlayable(String bookId, int chapterIndex) async {
+    final result = await _db.rawQuery('''
+      SELECT is_playable FROM chapters
+      WHERE book_id = ? AND chapter_index = ?
+    ''', [bookId, chapterIndex]);
+    if (result.isEmpty) return false;
+    return (result.first['is_playable'] as int? ?? 1) == 1;
+  }
+
+  /// Find the next playable chapter index starting from (but not including) the given index.
+  /// Returns null if no playable chapter exists after the given index.
+  Future<int?> findNextPlayableChapter(String bookId, int fromIndex) async {
+    final result = await _db.rawQuery('''
+      SELECT chapter_index FROM chapters
+      WHERE book_id = ? AND chapter_index > ? AND is_playable = 1
+      ORDER BY chapter_index ASC
+      LIMIT 1
+    ''', [bookId, fromIndex]);
+    if (result.isEmpty) return null;
+    return result.first['chapter_index'] as int;
+  }
+
+  /// Find the previous playable chapter index starting from (but not including) the given index.
+  /// Returns null if no playable chapter exists before the given index.
+  Future<int?> findPreviousPlayableChapter(String bookId, int fromIndex) async {
+    final result = await _db.rawQuery('''
+      SELECT chapter_index FROM chapters
+      WHERE book_id = ? AND chapter_index < ? AND is_playable = 1
+      ORDER BY chapter_index DESC
+      LIMIT 1
+    ''', [bookId, fromIndex]);
+    if (result.isEmpty) return null;
+    return result.first['chapter_index'] as int;
+  }
+
+  /// Find the first playable chapter for a book.
+  /// Returns null if no playable chapters exist.
+  Future<int?> findFirstPlayableChapter(String bookId) async {
+    final result = await _db.rawQuery('''
+      SELECT chapter_index FROM chapters
+      WHERE book_id = ? AND is_playable = 1
+      ORDER BY chapter_index ASC
+      LIMIT 1
+    ''', [bookId]);
+    if (result.isEmpty) return null;
+    return result.first['chapter_index'] as int;
+  }
+
   /// Delete all chapters for a book.
   Future<void> deleteChaptersForBook(String bookId) async {
     await _db.delete(

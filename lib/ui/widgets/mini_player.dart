@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/playback/playback.dart';
 import '../../app/playback_providers.dart';
 import '../../app/library_controller.dart';
 import '../theme/app_colors.dart';
@@ -17,13 +18,18 @@ class MiniPlayer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final playbackState = ref.watch(playbackStateProvider);
+    final viewState = ref.watch(playbackViewProvider);
     final libraryAsync = ref.watch(libraryProvider);
     final colors = Theme.of(context).extension<AppThemeColors>()!;
 
-    // Don't show if no active playback session (no book loaded or empty queue)
-    final bookId = playbackState.bookId;
-    if (bookId == null || playbackState.queue.isEmpty) {
+    // Don't show if no active playback
+    if (!viewState.showMiniPlayerGlobally) {
+      return const SizedBox.shrink();
+    }
+
+    // Get the playing book ID
+    final bookId = viewState.playingBookId;
+    if (bookId == null) {
       return const SizedBox.shrink();
     }
 
@@ -34,13 +40,17 @@ class MiniPlayer extends ConsumerWidget {
         final book = library.books.where((b) => b.id == bookId).firstOrNull;
         if (book == null) return const SizedBox.shrink();
 
+        // Get current segment info from playback state
+        final playbackState = ref.watch(playbackStateProvider);
+        final currentIndex = playbackState.currentIndex;
+        final queueLength = playbackState.queue.length;
+
         // Get bottom safe area padding for system navigation bar
         final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
 
         return GestureDetector(
           onTap: () => context.push('/playback/$bookId'),
           child: Container(
-            // Add bottom padding to lift mini-player above system navigation bar
             padding: EdgeInsets.only(bottom: bottomPadding),
             decoration: BoxDecoration(
               color: colors.background,
@@ -67,8 +77,10 @@ class MiniPlayer extends ConsumerWidget {
                       child: SizedBox(
                         width: 44,
                         height: 44,
-                        child: book.coverImagePath != null && File(book.coverImagePath!).existsSync()
-                            ? Image.file(File(book.coverImagePath!), fit: BoxFit.cover)
+                        child: book.coverImagePath != null &&
+                                File(book.coverImagePath!).existsSync()
+                            ? Image.file(File(book.coverImagePath!),
+                                fit: BoxFit.cover)
                             : Container(
                                 color: colors.primary.withOpacity(0.1),
                                 child: Icon(Icons.book, color: colors.primary),
@@ -78,80 +90,75 @@ class MiniPlayer extends ConsumerWidget {
                     const SizedBox(width: 12),
 
                     // Title and progress
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          book.title,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: colors.text,
-                            decoration: TextDecoration.none, // Remove debug underline
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            book.title,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: colors.text,
+                              decoration: TextDecoration.none,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Segment ${playbackState.currentIndex + 1}/${playbackState.queue.length}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colors.textSecondary,
-                            decoration: TextDecoration.none, // Remove debug underline
+                          const SizedBox(height: 2),
+                          Text(
+                            queueLength > 0
+                                ? 'Segment ${currentIndex + 1}/$queueLength'
+                                : 'Loading...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textSecondary,
+                              decoration: TextDecoration.none,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
 
-                  // Play/Pause button
-                  Semantics(
-                    button: true,
-                    enabled: true,
-                    label: playbackState.isPlaying ? 'Pause' : 'Play',
-                    tooltip:
-                        playbackState.isPlaying ? 'Pause playback' : 'Play audiobook',
-                    onTap: () {
-                      final controller =
-                          ref.read(playbackControllerProvider.notifier);
-                      if (playbackState.isPlaying) {
-                        controller.pause();
-                      } else {
-                        controller.play();
-                      }
-                    },
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          final controller =
-                              ref.read(playbackControllerProvider.notifier);
-                          if (playbackState.isPlaying) {
-                            controller.pause();
-                          } else {
-                            controller.play();
-                          }
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Icon(
-                            playbackState.isPlaying
-                                ? Icons.pause
-                                : Icons.play_arrow,
-                            size: 28,
-                            color: colors.primary,
+                    // Play/Pause button
+                    Semantics(
+                      button: true,
+                      enabled: true,
+                      label: viewState.isPlaying ? 'Pause' : 'Play',
+                      tooltip: viewState.isPlaying
+                          ? 'Pause playback'
+                          : 'Play audiobook',
+                      onTap: () {
+                        ref
+                            .read(playbackViewProvider.notifier)
+                            .togglePlayPause();
+                      },
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () {
+                            ref
+                                .read(playbackViewProvider.notifier)
+                                .togglePlayPause();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Icon(
+                              viewState.isPlaying
+                                  ? Icons.pause
+                                  : Icons.play_arrow,
+                              size: 28,
+                              color: colors.primary,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
           ),
         );
       },

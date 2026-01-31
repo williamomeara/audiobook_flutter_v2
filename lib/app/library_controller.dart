@@ -395,7 +395,33 @@ class LibraryController extends AsyncNotifier<LibraryState> {
   Book? getBook(String bookId) {
     return state.value?.books.where((b) => b.id == bookId).firstOrNull;
   }
-  
+
+  /// Mark an entire book as complete (all chapters finished).
+  Future<void> markBookComplete(String bookId) async {
+    final current = state.value ?? const LibraryState();
+
+    final updated = current.books.map((b) {
+      if (b.id == bookId) {
+        // Mark all chapters as complete
+        final allChapters = Set<int>.from(
+          List.generate(b.chapters.length, (i) => i),
+        );
+        return b.copyWith(completedChapters: allChapters);
+      }
+      return b;
+    }).toList();
+    state = AsyncValue.data(current.copyWith(books: updated));
+
+    // Mark all chapters complete in repository
+    final repo = await _getRepository();
+    final book = current.books.where((b) => b.id == bookId).firstOrNull;
+    if (book != null) {
+      for (int i = 0; i < book.chapters.length; i++) {
+        await repo.markChapterComplete(bookId, i);
+      }
+    }
+  }
+
   /// Get segments for a chapter (for playback).
   /// This is the new way to get segment data - from SQLite, not runtime segmentation.
   Future<List<Segment>> getSegmentsForChapter(
@@ -408,6 +434,34 @@ class LibraryController extends AsyncNotifier<LibraryState> {
   Future<int> getSegmentCount(String bookId, int chapterIndex) async {
     final repo = await _getRepository();
     return await repo.getSegmentCount(bookId, chapterIndex);
+  }
+
+  /// Check if a chapter is playable (has audio content).
+  /// Non-playable chapters are structural dividers like "PART I" or "ACT I".
+  Future<bool> isChapterPlayable(String bookId, int chapterIndex) async {
+    final repo = await _getRepository();
+    return await repo.isChapterPlayable(bookId, chapterIndex);
+  }
+
+  /// Find the next playable chapter index starting from (but not including) the given index.
+  /// Returns null if no playable chapter exists after the given index.
+  Future<int?> findNextPlayableChapter(String bookId, int fromIndex) async {
+    final repo = await _getRepository();
+    return await repo.findNextPlayableChapter(bookId, fromIndex);
+  }
+
+  /// Find the previous playable chapter index starting from (but not including) the given index.
+  /// Returns null if no playable chapter exists before the given index.
+  Future<int?> findPreviousPlayableChapter(String bookId, int fromIndex) async {
+    final repo = await _getRepository();
+    return await repo.findPreviousPlayableChapter(bookId, fromIndex);
+  }
+
+  /// Find the first playable chapter for a book.
+  /// Returns null if no playable chapters exist.
+  Future<int?> findFirstPlayableChapter(String bookId) async {
+    final repo = await _getRepository();
+    return await repo.findFirstPlayableChapter(bookId);
   }
 
   /// Download cover image from Google Books API thumbnail URL.

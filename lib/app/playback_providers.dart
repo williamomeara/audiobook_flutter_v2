@@ -20,6 +20,15 @@ import 'tts_providers.dart';
 import '../main.dart' show initAudioService;
 import '../utils/app_logger.dart';
 
+/// Global stream controller for ChapterEnded events.
+/// This is used to break the circular dependency between playbackControllerProvider
+/// and playbackViewProvider. The controller fires this stream, and the view notifier
+/// listens to it separately from Riverpod's dependency tracking.
+final _chapterEndedController = StreamController<void>.broadcast();
+
+/// Stream of ChapterEnded events for playbackViewProvider to listen to.
+Stream<void> get chapterEndedStream => _chapterEndedController.stream;
+
 /// Global segment readiness tracker singleton.
 /// This is used to track synthesis state for UI opacity feedback.
 /// Key format: "bookId:chapterIndex"
@@ -645,6 +654,17 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           
           return false;
         },
+        // Callback when playback queue ends naturally (chapter complete)
+        // This fires when all segments in a chapter have finished playing
+        onQueueEnded: (bookId, chapterIndex) {
+          PlaybackLogger.info('[PlaybackProvider] Chapter $chapterIndex complete for book $bookId');
+          PlaybackLogger.info('[PlaybackProvider] Dispatching ChapterEnded event for auto-advance');
+          // Use a global stream to dispatch ChapterEnded events.
+          // This breaks the circular dependency between playbackControllerProvider
+          // and playbackViewProvider. The view notifier listens to this stream
+          // separately from Riverpod's dependency tracking.
+          _chapterEndedController.add(null);
+        },
       );
       PlaybackLogger.info('[PlaybackProvider] Controller created successfully');
 
@@ -1049,6 +1069,13 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   /// Pause playback.
   Future<void> pause() async {
     await _controller?.pause();
+  }
+
+  /// Stop playback completely (pause and clear state).
+  Future<void> stop() async {
+    await _controller?.pause();
+    // Note: We don't clear the queue here, just pause.
+    // The UI can clear state as needed.
   }
 
   /// Seek to a specific track/segment.

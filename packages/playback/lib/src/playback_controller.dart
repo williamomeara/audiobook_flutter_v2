@@ -83,6 +83,10 @@ typedef EntryRegisteredCallback = Future<void> Function(String filename);
 /// Used for the "Skip Code Blocks" setting.
 typedef ShouldSkipSegmentTypeCallback = bool Function(SegmentType segmentType);
 
+/// Callback fired when the playback queue ends naturally (last segment finished).
+/// This is different from user pause - it indicates all content has been played.
+typedef QueueEndedCallback = void Function(String bookId, int chapterIndex);
+
 /// Implementation of PlaybackController with synthesis and buffering.
 class AudiobookPlaybackController implements PlaybackController {
   final Logger _logger = Logger('AudiobookPlaybackController');
@@ -100,6 +104,7 @@ class AudiobookPlaybackController implements PlaybackController {
     PlayIntentOverrideCallback? onPlayIntentOverride,
     EntryRegisteredCallback? onEntryRegistered,
     ShouldSkipSegmentTypeCallback? shouldSkipSegmentType,
+    QueueEndedCallback? onQueueEnded,
   })  : _audioOutput = audioOutput ?? JustAudioOutput(),
         _onStateChange = onStateChange,
         _resourceMonitor = resourceMonitor,
@@ -108,6 +113,7 @@ class AudiobookPlaybackController implements PlaybackController {
         _onSegmentAudioComplete = onSegmentAudioComplete,
         _onPlayIntentOverride = onPlayIntentOverride,
         _shouldSkipSegmentType = shouldSkipSegmentType,
+        _onQueueEnded = onQueueEnded,
         _scheduler = BufferScheduler(resourceMonitor: resourceMonitor),
         _synthesisCoordinator = SynthesisCoordinator(
           engine: engine,
@@ -150,6 +156,9 @@ class AudiobookPlaybackController implements PlaybackController {
 
   /// Callback to check if a segment type should be skipped.
   final ShouldSkipSegmentTypeCallback? _shouldSkipSegmentType;
+
+  /// Callback when playback queue ends naturally (chapter complete).
+  final QueueEndedCallback? _onQueueEnded;
 
   /// Buffer scheduler for watermark tracking.
   final BufferScheduler _scheduler;
@@ -536,8 +545,16 @@ class AudiobookPlaybackController implements PlaybackController {
 
       await _speakCurrent(opId: opId);
     } else {
-      // End of queue
-      _logger.info('[nextTrack] End of queue, pausing');
+      // End of queue - chapter is complete
+      _logger.info('[nextTrack] End of queue, chapter complete');
+      
+      // Fire callback before pausing so UI can react
+      final currentTrack = _state.currentTrack;
+      final bookId = _state.bookId;
+      if (currentTrack != null && bookId != null) {
+        _onQueueEnded?.call(bookId, currentTrack.chapterIndex);
+      }
+      
       await pause();
     }
   }

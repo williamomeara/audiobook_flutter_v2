@@ -11,6 +11,7 @@ import 'migrations/json_migration_service.dart';
 import 'migrations/migration_consolidated.dart';
 import 'migrations/migration_v7.dart';
 import 'migrations/migration_v8.dart';
+import 'migrations/migration_v9.dart';
 import 'migrations/settings_migration_service.dart';
 
 /// Singleton database instance for the Eist audiobook app.
@@ -26,7 +27,7 @@ import 'migrations/settings_migration_service.dart';
 class AppDatabase {
   static Database? _database;
   static const String _dbName = 'eist_audiobook.db';
-  static const int _dbVersion = 8;
+  static const int _dbVersion = 9;
 
   // Private constructor to prevent instantiation
   AppDatabase._();
@@ -119,6 +120,14 @@ class AppDatabase {
         debugPrint('📦 Running database migration V7 -> V8 (segment type and metadata)');
       }
       await MigrationV8.up(db);
+    }
+
+    // V8 -> V9: Add is_playable column to chapters
+    if (oldVersion < 9 && newVersion >= 9) {
+      if (kDebugMode) {
+        debugPrint('📦 Running database migration V8 -> V9 (chapter is_playable)');
+      }
+      await MigrationV9.up(db);
     }
   }
 

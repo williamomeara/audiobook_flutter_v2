@@ -203,6 +203,12 @@ class LibraryRepository {
         final durationMs = segments.fold<int>(
             0, (sum, s) => sum + (s.estimatedDurationMs ?? 0));
 
+        // Determine if chapter is playable (has enough content for TTS)
+        // A chapter is non-playable if it has no segments or very few words
+        // (likely a structural divider like "PART I" or "ACT I")
+        const minPlayableWordCount = 5;
+        final isPlayable = segments.isNotEmpty && wordCount >= minPlayableWordCount;
+
         // Insert chapter metadata
         await txn.insert('chapters', {
           'book_id': book.id,
@@ -212,6 +218,7 @@ class LibraryRepository {
           'word_count': wordCount,
           'char_count': charCount,
           'estimated_duration_ms': durationMs,
+          'is_playable': isPlayable ? 1 : 0,
         });
 
         // Batch insert segments
@@ -316,5 +323,29 @@ class LibraryRepository {
   /// Add listen time to a book.
   Future<void> addListenTime(String bookId, int durationMs) async {
     await _progressDao.addListenTime(bookId, durationMs);
+  }
+
+  /// Check if a chapter is playable (has audio content).
+  /// Non-playable chapters are structural dividers like "PART I" or "ACT I".
+  Future<bool> isChapterPlayable(String bookId, int chapterIndex) async {
+    return await _chapterDao.isChapterPlayable(bookId, chapterIndex);
+  }
+
+  /// Find the next playable chapter index starting from (but not including) the given index.
+  /// Returns null if no playable chapter exists after the given index.
+  Future<int?> findNextPlayableChapter(String bookId, int fromIndex) async {
+    return await _chapterDao.findNextPlayableChapter(bookId, fromIndex);
+  }
+
+  /// Find the previous playable chapter index starting from (but not including) the given index.
+  /// Returns null if no playable chapter exists before the given index.
+  Future<int?> findPreviousPlayableChapter(String bookId, int fromIndex) async {
+    return await _chapterDao.findPreviousPlayableChapter(bookId, fromIndex);
+  }
+
+  /// Find the first playable chapter for a book.
+  /// Returns null if no playable chapters exist.
+  Future<int?> findFirstPlayableChapter(String bookId) async {
+    return await _chapterDao.findFirstPlayableChapter(bookId);
   }
 }

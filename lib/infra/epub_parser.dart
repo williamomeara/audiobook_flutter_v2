@@ -112,24 +112,29 @@ class EpubParser {
 
     var chapterNumber = 0;
     for (final ch in flattened) {
-      var html = (ch.HtmlContent ?? '').trim();
-      if (html.isEmpty) continue;
-      
-      // Replace <img> tags with figure placeholders before text extraction
-      final fileName = ch.ContentFileName ?? '';
-      html = _replaceImagesWithPlaceholders(html, fileName, imageInfoMap);
+      final rawHtml = (ch.HtmlContent ?? '').trim();
+      if (rawHtml.isEmpty) continue;
       
       // Extract only the content for this chapter's anchor if file is shared
+      // Do this FIRST on raw HTML before image replacement to avoid corrupting
+      // figure placeholders when splitting at anchor boundaries
+      final fileName = ch.ContentFileName ?? '';
       final chaptersInFile = chaptersByFile[fileName] ?? [];
-      String text;
+      String chapterHtml;
       
       if (chaptersInFile.length > 1 && ch.Anchor != null && ch.Anchor!.isNotEmpty) {
         // Multiple chapters share this file - extract content between anchors
-        text = _extractAnchorContent(html, ch.Anchor!, chaptersInFile, ch);
+        chapterHtml = _extractAnchorHtml(rawHtml, ch.Anchor!, chaptersInFile, ch);
       } else {
         // Single chapter per file - use entire content
-        text = _stripHtmlToText(html);
+        chapterHtml = rawHtml;
       }
+      
+      // Now replace <img> tags with figure placeholders in the extracted HTML
+      final htmlWithFigures = _replaceImagesWithPlaceholders(chapterHtml, fileName, imageInfoMap);
+      
+      // Finally strip HTML to plain text
+      final text = _stripHtmlToText(htmlWithFigures);
       
       if (text.isEmpty) continue;
 
@@ -324,6 +329,14 @@ final fileName = epubPath.split('/').last;
     // Use dotAll mode to match tags that span multiple lines
     text = text.replaceAll(RegExp(r'<[^>]*>', dotAll: true), '');
 
+    // Remove incomplete/truncated HTML tags at end of text (from anchor boundary splits)
+    // Matches: <h3, <div class= chapter, <span style=, etc. (tags without closing >)
+    text = text.replaceAll(RegExp(r'<[a-zA-Z][^>]*$'), '');
+    
+    // Remove incomplete tags at start of text (content starting mid-tag)
+    // Matches: class="foo"> or attribute="value">
+    text = text.replaceAll(RegExp(r'^[^<]*?>'), '');
+
     // Remove HTML attribute patterns with trailing artifacts
     // KEY FIX: Include non-alphanumeric characters after the attribute
     // Matches: id="pgepubid00000">, id="pgepubid00001\">
@@ -390,7 +403,9 @@ final fileName = epubPath.split('/').last;
   /// 
   /// This handles EPUBs where the TOC uses anchor fragments (e.g., file.xhtml#chapter1)
   /// to point to different sections within a single HTML file.
-  String _extractAnchorContent(
+  /// 
+  /// Returns raw HTML (not text) so figure placeholders can be inserted after.
+  String _extractAnchorHtml(
     String html, 
     String currentAnchor, 
     List<EpubChapter> chaptersInFile,
@@ -420,7 +435,7 @@ final fileName = epubPath.split('/').last;
     
     // If we couldn't find the current anchor, fall back to full content
     if (!anchorPositions.containsKey(currentAnchor)) {
-      return _stripHtmlToText(html);
+      return html;
     }
     
     // Sort anchors by position in HTML
@@ -430,7 +445,7 @@ final fileName = epubPath.split('/').last;
     // Find the current anchor's position in the sorted list
     final currentIndex = sortedAnchors.indexWhere((e) => e.key == currentAnchor);
     if (currentIndex == -1) {
-      return _stripHtmlToText(html);
+      return html;
     }
     
     // Extract content from current anchor to next anchor (or end of file)
@@ -439,10 +454,8 @@ final fileName = epubPath.split('/').last;
         ? sortedAnchors[currentIndex + 1].value
         : html.length;
     
-    // Extract the HTML segment
-    final segment = html.substring(startPos, endPos);
-    
-    return _stripHtmlToText(segment);
+    // Extract and return the raw HTML segment
+    return html.substring(startPos, endPos);
   }
 
   /// Image info with path and optional dimensions.
@@ -512,9 +525,8 @@ extension _EpubParserImageExtraction on EpubParser {
                 width = size.width;
                 height = size.height;
               }
-              debugPrint('EpubParser: Image ${file.name} dimensions: ${width}x$height');
-            } catch (e) {
-              debugPrint('EpubParser: Could not read image dimensions for ${file.name}: $e');
+            } catch (_) {
+              // Silently continue without dimensions
             }
             
             final imageInfo = _ImageInfo(path: destPath, width: width, height: height);
@@ -583,17 +595,17 @@ extension _EpubParserImageExtraction on EpubParser {
     String chapterFileName,
     Map<String, _ImageInfo> imageInfoMap,
   ) {
-    debugPrint('EpubParser: Replacing images in $chapterFileName, ${imageInfoMap.length} images available');
-    
     // Simpler regex to match <img> tags
     final imgPattern = RegExp(r'<img[^>]*>', caseSensitive: false);
     
-    final matches = imgPattern.allMatches(html);
-    debugPrint('EpubParser: Found ${matches.length} <img> tags in $chapterFileName');
+    final matches = imgPattern.allMatches(html).toList();
+    if (matches.isEmpty) return html;
     
-    return html.replaceAllMapped(imgPattern, (match) {
+    debugPrint('EpubParser: Processing ${matches.length} images in $chapterFileName');
+    
+    var replacedCount = 0;
+    final result = html.replaceAllMapped(imgPattern, (match) {
       final imgTag = match.group(0) ?? '';
-      debugPrint('EpubParser: Processing img tag: $imgTag');
       
       // Extract src attribute using separate patterns for single and double quotes
       final srcDoubleMatch = RegExp(r'src="([^"]*)"', caseSensitive: false).firstMatch(imgTag);
@@ -605,10 +617,7 @@ extension _EpubParserImageExtraction on EpubParser {
       final altSingleMatch = RegExp(r"alt='([^']*)'", caseSensitive: false).firstMatch(imgTag);
       var alt = altDoubleMatch?.group(1) ?? altSingleMatch?.group(1);
       
-      debugPrint('EpubParser: Extracted src="$src", alt="$alt"');
-      
       if (src == null || src.isEmpty) {
-        debugPrint('EpubParser: No src found, returning empty');
         return '';
       }
       
@@ -617,7 +626,6 @@ extension _EpubParserImageExtraction on EpubParser {
       
       if (imageInfo == null) {
         // Image not found in extracted images, skip
-        debugPrint('EpubParser: Could not resolve path for $src');
         return '';
       }
       
@@ -632,11 +640,14 @@ extension _EpubParserImageExtraction on EpubParser {
       } else {
         placeholder = ' $figurePlaceholderPrefix${imageInfo.path}:$alt$figurePlaceholderSuffix ';
       }
-      debugPrint('EpubParser: Created placeholder: $placeholder');
       
+      replacedCount++;
       // Return placeholder that will survive text stripping
       return placeholder;
     });
+    
+    debugPrint('EpubParser: Replaced $replacedCount images with placeholders');
+    return result;
   }
 
   /// Resolve an image src attribute to image info with path and dimensions.
