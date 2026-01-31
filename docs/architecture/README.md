@@ -1,8 +1,27 @@
 # Architecture Documentation
 
 > 🎯 **This folder contains core state machines and system design for LLM context.**
-> 
-> Point LLMs here for rapid and precise understanding of the project architecture.
+
+## 30-Second Overview
+
+**Eist Audiobook** is a Flutter app that reads EPUB/PDF books aloud using on-device TTS.
+
+```mermaid
+flowchart LR
+    Book[📚 EPUB/PDF] --> Parser[Parser]
+    Parser --> Segments[Text Segments]
+    Segments --> TTS[TTS Engine]
+    TTS --> Audio[🔊 Audio]
+    Audio --> Player[just_audio]
+```
+
+**Key patterns:**
+- **Pure function state machine** for playback navigation (`IdleState → LoadingState → ActiveState ⇄ PreviewState`)
+- **SQLite** for all persistence (WAL mode, v9 schema)
+- **Three TTS engines**: Kokoro (quality), Piper (speed), Supertonic (advanced)
+- **Smart prefetch** system prevents buffering gaps
+
+---
 
 ## Contents
 
@@ -12,8 +31,7 @@
 | [playback_screen_state_machine.md](playback_screen_state_machine.md) | Playback UI states and transitions |
 | [sleep_timer_state_machine.md](sleep_timer_state_machine.md) | Sleep timer with play-aware countdown |
 | [tts_synthesis_state_machine.md](tts_synthesis_state_machine.md) | TTS synthesis pipeline states |
-| [audio_synthesis_pipeline_state_machine.md](audio_synthesis_pipeline_state_machine.md) | Audio synthesis orchestration |
-| [smart-synthesis/](smart-synthesis/) | Smart prefetch system and cold-start handling |
+| [audio_synthesis_pipeline_state_machine.md](audio_synthesis_pipeline_state_machine.md) | Audio synthesis, prefetch, and caching |
 
 ---
 

@@ -1,387 +1,171 @@
-# Audio Synthesis Pipeline State Machine
+# Audio Synthesis Pipeline
 
-This document describes the synthesis pipeline that transforms text segments into playable audio files. It covers the prefetch system, cache management, concurrent synthesis, and engine coordination.
+> Transforms text segments into playable audio with intelligent prefetching.
 
 ## Overview
 
-The synthesis pipeline is responsible for:
-1. Converting text segments to audio files via TTS engines
-2. Caching synthesized audio for instant replay
-3. Prefetching upcoming segments to eliminate playback gaps
-4. Managing memory across multiple TTS engines
+The synthesis pipeline:
+1. Converts text segments to audio via on-device TTS engines
+2. Caches synthesized audio for instant replay
+3. Prefetches upcoming segments to eliminate playback gaps
+4. Manages memory across Kokoro, Piper, and Supertonic engines
 
 ---
 
-## Pipeline Architecture
+## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         SYNTHESIS PIPELINE                                   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
-│  │  SEGMENT    │───▶│  CACHE      │───▶│  ENGINE     │───▶│  AUDIO      │  │
-│  │  REQUEST    │    │  LOOKUP     │    │  SYNTHESIS  │    │  READY      │  │
-│  └─────────────┘    └──────┬──────┘    └─────────────┘    └─────────────┘  │
-│                            │                                                 │
-│                            │ HIT                                             │
-│                            ▼                                                 │
-│                     ┌─────────────┐                                          │
-│                     │  INSTANT    │                                          │
-│                     │  RETURN     │                                          │
-│                     └─────────────┘                                          │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Playback["Playback Layer"]
+        PM[PlaybackViewNotifier]
+        BS[BufferScheduler]
+    end
+    
+    subgraph Synthesis["Synthesis Layer"]
+        SSM[SmartSynthesisManager]
+        RE[RoutingEngine]
+        Cache[AudioCache]
+    end
+    
+    subgraph TTS["TTS Engines (Native)"]
+        Kokoro
+        Piper
+        Supertonic
+    end
+    
+    PM --> BS
+    BS --> SSM
+    SSM --> RE
+    RE --> Cache
+    RE --> Kokoro
+    RE --> Piper
+    RE --> Supertonic
 ```
 
 ---
 
-## Segment Synthesis States
+## Segment Lifecycle
 
-Each segment goes through the following states:
-
-```
-┌───────────────────────────────────────────────────────────────────────┐
-│                    SEGMENT SYNTHESIS LIFECYCLE                        │
-├───────────────────────────────────────────────────────────────────────┤
-│                                                                       │
-│   ┌───────────┐                                                       │
-│   │NOT_QUEUED │ ─── (not in prefetch range yet)                      │
-│   └─────┬─────┘                                                       │
-│         │ segment enters prefetch window                              │
-│         ▼                                                             │
-│   ┌───────────┐                                                       │
-│   │  QUEUED   │ ─── (in queue, awaiting synthesis)                   │
-│   └─────┬─────┘                                                       │
-│         │ synthesis starts                                            │
-│         ▼                                                             │
-│   ┌───────────┐                                                       │
-│   │SYNTHESIZING│ ─── (TTS engine processing)                         │
-│   └─────┬─────┘                                                       │
-│         │ success                    │ failure                        │
-│         ▼                            ▼                                │
-│   ┌───────────┐              ┌───────────┐                           │
-│   │   READY   │              │  FAILED   │                           │
-│   └───────────┘              └─────┬─────┘                           │
-│                                    │ retry allowed                   │
-│                                    ▼                                 │
-│                              ┌───────────┐                           │
-│                              │  QUEUED   │ (re-queued for retry)     │
-│                              └───────────┘                           │
-│                                                                       │
-└───────────────────────────────────────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> NOT_QUEUED
+    NOT_QUEUED --> QUEUED: enters prefetch window
+    QUEUED --> SYNTHESIZING: synthesis starts
+    SYNTHESIZING --> READY: success
+    SYNTHESIZING --> FAILED: error
+    FAILED --> QUEUED: retry
+    READY --> [*]
 ```
 
-### State Definitions
-
-| State | Description | Trigger |
-|-------|-------------|---------|
-| `NOT_QUEUED` | Segment not yet in prefetch range | Beyond prefetch window |
-| `QUEUED` | Waiting for synthesis slot | Entered prefetch window |
-| `SYNTHESIZING` | TTS engine processing | Synthesis started |
-| `READY` | Audio file cached and ready | Synthesis complete |
-| `FAILED` | Synthesis error occurred | Engine error, timeout |
+| State | Description |
+|-------|-------------|
+| `NOT_QUEUED` | Beyond prefetch window |
+| `QUEUED` | Waiting for synthesis slot |
+| `SYNTHESIZING` | TTS engine processing |
+| `READY` | Cached and playable |
+| `FAILED` | Error (may retry) |
 
 ---
 
-## Prefetch System
+## Prefetch Strategy
 
-### Prefetch Strategies
+### Three-Phase Prefetch
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                         PREFETCH TIMING                                    │
-├────────────────────────────────────────────────────────────────────────────┤
-│                                                                            │
-│  PHASE 1: PRE-SYNTHESIS (Before Playback)                                 │
-│  ═══════════════════════════════════════                                  │
-│                                                                            │
-│  loadChapter() ──▶ SmartSynthesisManager.prepareForPlayback()            │
-│                    │                                                       │
-│                    ├─ Synthesize segment[0] (BLOCKING)                    │
-│                    └─ Synthesize segment[1] (background)                  │
-│                                                                            │
-│  PHASE 2: IMMEDIATE NEXT (During Playback)                                │
-│  ═════════════════════════════════════════                                │
-│                                                                            │
-│  playFile(n) ──▶ prefetchNextSegmentImmediately()                        │
-│                  │                                                         │
-│                  └─ Target: currentIndex + 1 ONLY                         │
-│                     Priority: HIGHEST                                      │
-│                     Goal: Minimize transition gap                          │
-│                                                                            │
-│  PHASE 3: BACKGROUND WATERMARK (Continuous)                               │
-│  ═══════════════════════════════════════════                              │
-│                                                                            │
-│  Triggered when: bufferedAheadMs < lowWatermarkMs (10 seconds)           │
-│                                                                            │
-│  _startPrefetchIfNeeded() ──▶ shouldPrefetch() ──▶ calculateTargetIndex()│
-│                               │                     │                      │
-│                               │                     └─ Target: enough for │
-│                               │                        30s buffer         │
-│                               └─ runPrefetch()                            │
-│                                  │                                        │
-│                                  └─ Loop: synthesize until target reached │
-│                                                                            │
-└────────────────────────────────────────────────────────────────────────────┘
-```
+| Phase | Trigger | Target | Priority |
+|-------|---------|--------|----------|
+| **Cold-start** | `loadChapter()` | Segment 0 (blocking) + 1 (async) | Highest |
+| **Immediate** | `playFile(n)` | Segment n+1 | High |
+| **Background** | Buffer < 10s | Until 30s buffer | Normal |
 
-### Prefetch Decision Logic
+### Strategy Selection
 
-```dart
-shouldPrefetch(queue, currentIndex, playbackRate):
-  // Check resource constraints
-  if (!resourceMonitor.canPrefetch) → return false
-  
-  // Check if suspended (user interaction)
-  if (isSuspended) → return false
-  
-  // Check if already running
-  if (isRunning) → return false
-  
-  // Check buffer level
-  bufferedMs = estimateBufferedAheadMs(queue, currentIndex)
-  return bufferedMs < lowWatermarkMs  // e.g., < 10 seconds
-```
-
-### Buffer Estimation
-
-```dart
-estimateBufferedAheadMs(queue, currentIndex):
-  ms = 0
-  for i in (currentIndex + 1) to prefetchedThroughIndex:
-    ms += estimateDurationMs(queue[i].text)  // ~150ms per word
-  return ms
+```mermaid
+flowchart TD
+    Start[Check Device State]
+    Start --> LowPower{Low Power Mode?}
+    LowPower -->|Yes| Conservative[Conservative: 1-2 segments]
+    LowPower -->|No| Charging{Charging?}
+    Charging -->|Yes| Aggressive[Aggressive: 5+ segments]
+    Charging -->|No| Adaptive[Adaptive: RTF-based, 2-4 segments]
 ```
 
 ---
 
 ## Cache System
 
-### Cache Key Generation
+### Cache Key Structure
+```
+{engine}_{voice}_{rate}_{textHash}
+Example: kokoro_af_1_00_a7f3b2c9d1e4f6a8.wav
+```
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                         CACHE KEY STRUCTURE                            │
-├────────────────────────────────────────────────────────────────────────┤
-│                                                                        │
-│  Input:                                                                │
-│    voiceId = "kokoro_af"                                              │
-│    text = "The quick brown fox..."                                    │
-│    playbackRate = 1.5                                                 │
-│                                                                        │
-│  Process:                                                              │
-│    1. Normalize text (trim, lowercase for hash)                       │
-│    2. Always use synthesisRate = 1.0 (rate-independent caching)       │
-│    3. Hash text: SHA256(normalizedText).substring(0, 16)              │
-│                                                                        │
-│  Output:                                                               │
-│    cacheKey = "kokoro_af_1_00_a7f3b2c9d1e4f6a8"                       │
-│    filename = "kokoro_af_1_00_a7f3b2c9d1e4f6a8.wav"                   │
-│                                                                        │
-│  Note: Rate in filename is synthesis rate (always 1.0), NOT playback  │
-│        rate. Playback rate is adjusted in the audio player.           │
-│                                                                        │
-└────────────────────────────────────────────────────────────────────────┘
-```
+- Rate is synthesis rate (always 1.0), NOT playback rate
+- Playback rate adjusted in audio player
+- Cache validated: file exists + length >= 44 bytes (WAV header)
 
 ### Cache Lookup Flow
-
 ```
-synthesizeToWavFile(voiceId, text, playbackRate)
-  │
-  ├─ Generate cacheKey
-  │
-  ├─ cache.isReady(cacheKey)?
-  │  │
-  │  YES ──▶ cache.fileFor(cacheKey) ──▶ Return SynthResult (FAST PATH)
-  │  │
-  │  NO ──▶ Continue to synthesis
-  │
-  ├─ prepareEngine(voiceId)
-  │
-  ├─ engine.synthesizeToFile(...)
-  │
-  ├─ cache.markUsed(cacheKey)  // Update LRU timestamp
-  │
-  └─ Return SynthResult
-```
-
-### Cache Validity Check
-
-```dart
-isReady(cacheKey):
-  file = fileFor(cacheKey)
-  
-  if (!file.exists()) → return false
-  
-  // WAV header is 44 bytes minimum
-  if (file.lengthSync() < 44) → return false
-  
-  return true
+synthesize(voiceId, text)
+  → Generate cacheKey
+  → cache.isReady(cacheKey)?
+      YES → Return cached file (FAST PATH)
+      NO  → Synthesize → cache.markUsed() → Return
 ```
 
 ---
 
-## Engine Coordination
+## Engine Management
 
 ### Engine Routing
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                         ENGINE ROUTING                                 │
-├────────────────────────────────────────────────────────────────────────┤
-│                                                                        │
-│  voiceId format: "{engine}_{voice}"                                   │
-│  Examples: "kokoro_af", "piper_lessac", "supertonic_v1"              │
-│                                                                        │
-│  RoutingEngine._prepareEngineForVoice(voiceId):                       │
-│    │                                                                   │
-│    ├─ Parse engine type from voiceId                                  │
-│    │                                                                   │
-│    ├─ EngineMemoryManager.prepareForEngine(engineType)                │
-│    │  │                                                                │
-│    │  └─ May unload other engines to free memory                      │
-│    │     (active engine pattern: only 1 engine loaded at a time)      │
-│    │                                                                   │
-│    └─ Return appropriate engine instance                              │
-│       ├─ kokoroEngine (high quality, slower)                         │
-│       ├─ piperEngine (fast, smaller models)                          │
-│       └─ supertonicEngine (advanced features)                        │
-│                                                                        │
-└────────────────────────────────────────────────────────────────────────┘
+```dart
+voiceId format: "{engine}_{voice}"
+Examples: "kokoro_af", "piper_lessac", "supertonic_v1"
 ```
 
-### Memory Management
+### Memory Budget
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                     ENGINE MEMORY BUDGET                               │
-├────────────────────────────────────────────────────────────────────────┤
-│                                                                        │
-│  Device RAM        │ Max Loaded Models │ Strategy                     │
-│  ──────────────────┼───────────────────┼──────────────────────────────│
-│  ≤ 4GB             │ 1 model           │ Unload on engine switch      │
-│  4-8GB             │ 2 models          │ LRU eviction                 │
-│  > 8GB             │ 3+ models         │ Full caching                 │
-│                                                                        │
-│  EngineMemoryManager Flow:                                            │
-│    prepareForEngine(engineType)                                        │
-│      │                                                                 │
-│      ├─ If target engine already loaded → return                      │
-│      │                                                                 │
-│      ├─ If budget exceeded → unloadLeastUsedEngine()                  │
-│      │                                                                 │
-│      └─ Mark target engine as active                                  │
-│                                                                        │
-└────────────────────────────────────────────────────────────────────────┘
-```
+| Device RAM | Max Loaded | Strategy |
+|------------|------------|----------|
+| ≤ 4GB | 1 model | Unload on switch |
+| 4-8GB | 2 models | LRU eviction |
+| > 8GB | 3+ models | Full caching |
 
 ---
 
-## Concurrent Synthesis
+## Concurrency Control
 
-### Android Native (Semaphore-based)
+### Native Layer (Kotlin)
+```kotlin
+// Each TTS service limits to 4 concurrent requests
+private val synthesisSemaphore = Semaphore(4)
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                    NATIVE CONCURRENCY CONTROL                          │
-├────────────────────────────────────────────────────────────────────────┤
-│                                                                        │
-│  Each TTS Service (Kokoro, Piper, Supertonic):                        │
-│                                                                        │
-│    private val synthesisSemaphore = Semaphore(4)                      │
-│                                                                        │
-│    synthesize(request):                                                │
-│      │                                                                 │
-│      ├─ if (!synthesisSemaphore.tryAcquire()) → return BUSY          │
-│      │                                                                 │
-│      ├─ try:                                                          │
-│      │    runInference(...)                                           │
-│      │                                                                 │
-│      └─ finally:                                                       │
-│           synthesisSemaphore.release()                                │
-│                                                                        │
-│  Thread Safety:                                                        │
-│    - activeJobs: ConcurrentHashMap                                    │
-│    - loadedVoices: ConcurrentHashMap                                  │
-│    - @Volatile for isInitialized, inference fields                    │
-│                                                                        │
-└────────────────────────────────────────────────────────────────────────┘
+synthesize(request):
+    if (!synthesisSemaphore.tryAcquire()) → return BUSY
+    try { runInference(...) }
+    finally { synthesisSemaphore.release() }
 ```
 
-### Flutter Prefetch (Sequential with Context Check)
-
-```dart
-runPrefetch(queue, targetIndex, shouldContinue):
-  isRunning = true
-  
-  try:
-    for i in (prefetchedThroughIndex + 1) to targetIndex:
-      
-      // Check cancellation
-      if (!shouldContinue() || contextChanged) → return
-      
-      track = queue[i]
-      
-      // Check cache
-      if (await cache.isReady(cacheKey)) → 
-        prefetchedThroughIndex = i
-        continue
-      
-      // Synthesize (awaited sequentially)
-      await engine.synthesizeToWavFile(...)
-      prefetchedThroughIndex = i
-      
-  finally:
-    isRunning = false
-```
+### Flutter Layer
+- Sequential prefetch with cancellation checks
+- Context change → abort all pending synthesis
+- Cancel token propagated to native layer
 
 ---
 
 ## Error Handling
 
-### Error Types
-
 | Error | Cause | Recovery |
 |-------|-------|----------|
-| `modelMissing` | TTS core not installed | UI prompts download |
-| `modelCorrupted` | SHA256 mismatch | Re-download core |
+| `modelMissing` | TTS not installed | Prompt download |
 | `outOfMemory` | Engine memory exhausted | Unload models, retry |
-| `inferenceFailed` | Model crashed | Retry or switch voice |
-| `timeout` | >30s synthesis | Retry with extension |
-| `invalidInput` | Empty text | Skip segment |
-| `fileWriteError` | Disk full | Retry or clear cache |
-| `cancelled` | User cancelled | Stop cleanly |
+| `inferenceFailed` | Model crashed | Retry or skip |
 | `busy` | Semaphore full | Return error code |
+| `cancelled` | User cancelled | Stop cleanly |
 
 ### Retry Logic
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                         RETRY FLOW                                     │
-├────────────────────────────────────────────────────────────────────────┤
-│                                                                        │
-│  Synthesis attempt                                                     │
-│    │                                                                   │
-│    ├─ SUCCESS → Return result                                         │
-│    │                                                                   │
-│    └─ FAILURE                                                          │
-│         │                                                              │
-│         ├─ Is retryable error? (timeout, inference, busy)             │
-│         │    │                                                         │
-│         │    YES ─┬─ retryAttempt < maxRetries (1)?                   │
-│         │         │    │                                               │
-│         │         │    YES → Increment retryAttempt, re-queue         │
-│         │         │    │                                               │
-│         │         │    NO → Surface error to user                      │
-│         │         │                                                    │
-│         │    NO ──┴─ Surface error immediately                        │
-│         │                                                              │
-│         └─ Log error, update UI state                                 │
-│                                                                        │
-└────────────────────────────────────────────────────────────────────────┘
-```
+- Retryable: timeout, inference, busy
+- Max retries: 1
+- Non-retryable: missing model, corrupted, invalid input
 
 ---
 
@@ -389,66 +173,11 @@ runPrefetch(queue, targetIndex, shouldContinue):
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `lowWatermarkMs` | 10,000 | Start prefetch when buffer below this |
-| `bufferTargetMs` | 30,000 | Target buffer amount |
-| `maxPrefetchTracks` | 15 | Max segments in prefetch batch |
-| `prefetchResumeDelay` | 500ms | Resume delay after user interaction |
-| `seekDebounce` | 500ms | Debounce rapid seek operations |
-| `nativeSemaphoreLimit` | 4 | Max concurrent native synthesis |
+| `lowWatermarkMs` | 10,000 | Start prefetch threshold |
+| `bufferTargetMs` | 30,000 | Target buffer size |
+| `maxPrefetchTracks` | 15 | Max batch size |
+| `nativeSemaphoreLimit` | 4 | Concurrent native synthesis |
 | `cacheBudgetMB` | 500 | Max cache size |
-| `cacheMaxAgeDays` | 7 | Prune older entries |
-
----
-
-## Timing Diagram
-
-```
-Time →
-────────────────────────────────────────────────────────────────────────────
-
-User taps Play on Segment 0
-│
-▼
-loadChapter(autoPlay=true)
-│
-├──────────────────── SmartSynthesisManager ────────────────────┐
-│ Pre-synth S0 (blocking)                                       │
-│ ████████████████████ (500ms)                                  │
-│                      └── S0 READY                             │
-│                          Fire S1 background synth ──────────┐ │
-│                                                              │ │
-└─────────────────── _speakCurrent(S0) ───────────────────────┼─┘
-                    │                                          │
-                    └── playFile(S0) starts                    │
-                        │                                      │
-                        ├── _startImmediateNextPrefetch(S1) ◀──┤
-                        │   S1 already in progress, skip       │
-                        │                                      │
-                        ├── _startPrefetchIfNeeded()           │
-                        │   Buffer: ~8s (S1 estimated)         │
-                        │   < 10s threshold → start prefetch   │
-                        │                                      │
-                        └── runPrefetch(target=S5)             │
-                            ██████ S2 (200ms)                  │
-                            ██████ S3 (180ms)          S1 done ┘
-                            ██████ S4 (220ms)
-                            ██████ S5 (190ms)
-                            └── prefetchedThroughIndex = 5
-
-S0 audio plays for ~8 seconds...
-│
-▼
-AudioEvent.completed → nextTrack()
-│
-└── _speakCurrent(S1)
-    │
-    └── S1 READY (cache hit) → instant playback
-        │
-        └── _startImmediateNextPrefetch(S2)
-            S2 READY (cache hit) → skip
-            
-... continuous loop ...
-```
 
 ---
 
@@ -456,13 +185,9 @@ AudioEvent.completed → nextTrack()
 
 | File | Purpose |
 |------|---------|
-| `buffer_scheduler.dart` | Prefetch orchestration, watermark logic |
-| `smart_synthesis_manager.dart` | Pre-playback synthesis strategy |
-| `routing_engine.dart` | Engine selection, cache integration |
-| `audio_cache.dart` | File caching, LRU management |
-| `cache_key_generator.dart` | Deterministic key generation |
-| `playback_view_notifier.dart` | Coordinates synthesis with playback state machine |
-| `playback_state_machine.dart` | Pure transition function for playback states |
-| `KokoroTtsService.kt` | Native Kokoro synthesis with semaphore |
-| `PiperTtsService.kt` | Native Piper synthesis with semaphore |
-| `SupertonicTtsService.kt` | Native Supertonic synthesis |
+| `buffer_scheduler.dart` | Prefetch orchestration |
+| `smart_synthesis_manager.dart` | Cold-start strategy |
+| `routing_engine.dart` | Engine selection |
+| `audio_cache.dart` | File caching |
+| `playback_view_notifier.dart` | Playback state machine |
+| `*TtsService.kt` | Native synthesis |
