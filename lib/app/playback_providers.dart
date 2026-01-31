@@ -15,6 +15,7 @@ import 'config/config_providers.dart';
 import 'config/runtime_playback_config.dart' as app_config show PrefetchMode;
 import 'database/database.dart';
 import 'library_controller.dart';
+import 'playback/playback_view_notifier.dart';
 import 'settings_controller.dart';
 import 'tts_providers.dart';
 import '../main.dart' show initAudioService;
@@ -784,16 +785,9 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
   /// This initializes the CoreML/ONNX models for the given voice so that
   /// the first synthesis doesn't cause UI jank.
   void _warmUpVoiceInBackground(Ref ref, String voiceId) {
-    unawaited(
-      ref.read(ttsRoutingEngineProvider.future).then((engine) {
-        PlaybackLogger.info('[PlaybackProvider] Warming up voice: $voiceId');
-        return engine.warmUp(voiceId);
-      }).then((success) {
-        PlaybackLogger.info('[PlaybackProvider] WarmUp completed for $voiceId: $success');
-      }).catchError((e) {
-        PlaybackLogger.error('[PlaybackProvider] WarmUp failed for $voiceId: $e');
-      }),
-    );
+    // Update the view notifier's warmup status so _loadChapter knows warmUp is in progress
+    // and doesn't start a duplicate warmUp call
+    ref.read(playbackViewProvider.notifier).handleVoiceChange(voiceId);
   }
 
   /// Get the underlying controller.

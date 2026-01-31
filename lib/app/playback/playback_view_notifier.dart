@@ -219,21 +219,30 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
   int? get sleepTimerMinutes => _sleepTimerMinutes;
 
   /// Handle voice change - warmup the new voice engine.
-  Future<void> handleVoiceChange(String voiceId) async {
+  /// This runs the warmUp in the background (unawaited) to avoid blocking the UI.
+  void handleVoiceChange(String voiceId) {
     final current = state;
     if (current is! ActiveState) return;
     
     // Update status to warming
     _updateWarmupStatus(EngineWarmupStatus.warming);
     
-    try {
-      // Warmup the new engine
-      final engine = await ref.read(ttsRoutingEngineProvider.future);
-      await engine.warmUp(voiceId);
-      _updateWarmupStatus(EngineWarmupStatus.ready);
-    } catch (e) {
-      _updateWarmupStatus(EngineWarmupStatus.failed, errorMessage: e.toString());
-    }
+    // Run warmUp in background (unawaited) to avoid blocking UI
+    debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Starting background warmUp for $voiceId');
+    unawaited(
+      ref.read(ttsRoutingEngineProvider.future).then((engine) {
+        return engine.warmUp(voiceId);
+      }).then((success) {
+        debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} WarmUp completed: $success');
+        _updateWarmupStatus(
+          success ? EngineWarmupStatus.ready : EngineWarmupStatus.failed,
+          errorMessage: success ? null : 'Voice warmup failed',
+        );
+      }).catchError((e) {
+        debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Failed to warm up TTS engine: $e');
+        _updateWarmupStatus(EngineWarmupStatus.failed, errorMessage: e.toString());
+      }),
+    );
   }
   
   /// Update the warmup status in the current state.
@@ -377,7 +386,6 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
 
       // Emit loading complete IMMEDIATELY so UI shows content
       // Don't wait for playback controller setup
-      final loadingStartTime = DateTime.now();
       _handleEvent(LoadingComplete(
         segments: segments,
         bookTitle: book.title,
@@ -399,52 +407,30 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
       // sees the chapter while warmUp runs.
       final selectedVoice = ref.read(settingsProvider).selectedVoice;
       debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Selected voice: $selectedVoice');
-      if (selectedVoice != VoiceIds.none && autoPlay) {
-        // Update state to show warming status
+      
+      // Check if warmUp is already in progress from voice change listener
+      // If so, skip the awaited warmUp call to avoid blocking the UI
+      final currentWarmupStatus = (state is ActiveState) 
+          ? (state as ActiveState).warmupStatus 
+          : EngineWarmupStatus.notStarted;
+      final isAlreadyWarming = currentWarmupStatus == EngineWarmupStatus.warming;
+      
+      if (isAlreadyWarming) {
+        debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} WarmUp already in progress, skipping duplicate call');
+        // Don't start another warmUp - the existing one will update status when done
+      } else if (selectedVoice != VoiceIds.none) {
+        // Always run warmUp in background (unawaited) to avoid blocking UI
+        // This is a change from the previous behavior where autoPlay awaited warmUp.
+        // The tradeoff: first synthesis may be slower while CoreML compiles,
+        // but the UI won't freeze for 20-30 seconds.
         _updateWarmupStatus(EngineWarmupStatus.warming);
         
-        try {
-          debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Starting warmUp for $selectedVoice (awaited for autoPlay)');
-          
-          // Wait for Flutter to render the new state before starting warmUp
-          // This ensures the UI shows content while warmUp runs
-          final completer = Completer<void>();
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Post-frame callback fired, UI should be rendered');
-            completer.complete();
-          });
-          await completer.future;
-          
-          final engineLoadStart = DateTime.now();
-          final engine = await ref.read(ttsRoutingEngineProvider.future);
-          debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Engine loaded in ${DateTime.now().difference(engineLoadStart).inMilliseconds}ms, calling warmUp...');
-          
-          // Yield again before the potentially slow warmUp
-          await Future.delayed(Duration.zero);
-          
-          final warmUpStart = DateTime.now();
-          final success = await engine.warmUp(selectedVoice);
-          final warmUpDuration = DateTime.now().difference(warmUpStart);
-          final totalDuration = DateTime.now().difference(loadingStartTime);
-          debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} WarmUp completed: $success in ${warmUpDuration.inMilliseconds}ms (total since LoadingComplete: ${totalDuration.inMilliseconds}ms)');
-          
-          // Update state to show ready or failed
-          _updateWarmupStatus(
-            success ? EngineWarmupStatus.ready : EngineWarmupStatus.failed,
-            errorMessage: success ? null : 'Voice warmup failed',
-          );
-        } catch (e) {
-          debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Failed to warm up TTS engine: $e');
-          _updateWarmupStatus(EngineWarmupStatus.failed, errorMessage: e.toString());
-          // Continue even if warmUp fails - synthesis will still work (just with jank)
-        }
-      } else if (selectedVoice != VoiceIds.none) {
-        // Not autoPlay - run warmUp in background
-        _updateWarmupStatus(EngineWarmupStatus.warming);
+        debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Starting background warmUp for $selectedVoice');
         unawaited(
           ref.read(ttsRoutingEngineProvider.future).then((engine) {
             return engine.warmUp(selectedVoice);
           }).then((success) {
+            debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} WarmUp completed: $success');
             _updateWarmupStatus(
               success ? EngineWarmupStatus.ready : EngineWarmupStatus.failed,
               errorMessage: success ? null : 'Voice warmup failed',
