@@ -40,6 +40,9 @@ class PiperAdapter implements AiVoiceEngine {
   /// Current core state.
   CoreReadiness _coreReadiness = CoreReadiness.notStarted;
   
+  /// Completer to serialize _initEngine calls.
+  Completer<void>? _initEngineCompleter;
+  
   /// Called when native notifies us a voice was unloaded.
   void onVoiceUnloaded(String voiceId) {
     _loadedVoices.remove(voiceId);
@@ -382,13 +385,47 @@ class PiperAdapter implements AiVoiceEngine {
     }
   }
 
+  /// Initialize the native engine.
+  /// 
+  /// Uses a Completer to serialize calls - if another call is already in
+  /// progress, this waits for it instead of starting a second init.
   Future<void> _initEngine(String corePath) async {
-    final request = InitEngineRequest(
-      engineType: NativeEngineType.piper,
-      corePath: corePath,
-    );
-    await _nativeApi.initEngine(request);
-    _coreReadiness = CoreReadiness.readyFor('piper');
+    // If already ready, skip
+    if (_coreReadiness.isReady) {
+      TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} _initEngine: already ready, skipping');
+      return;
+    }
+    
+    // If another init is in progress, wait for it
+    if (_initEngineCompleter != null) {
+      TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} _initEngine: waiting for existing init...');
+      await _initEngineCompleter!.future;
+      TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} _initEngine: existing init completed');
+      return;
+    }
+    
+    // Start new init
+    _initEngineCompleter = Completer<void>();
+    final startTime = DateTime.now();
+    TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} _initEngine starting...');
+    
+    try {
+      final request = InitEngineRequest(
+        engineType: NativeEngineType.piper,
+        corePath: corePath,
+      );
+      await _nativeApi.initEngine(request);
+      _coreReadiness = CoreReadiness.readyFor('piper');
+      final duration = DateTime.now().difference(startTime);
+      TtsLog.info('[PiperAdapter] ${DateTime.now().toIso8601String()} _initEngine completed in ${duration.inMilliseconds}ms');
+      _initEngineCompleter!.complete();
+    } catch (e) {
+      TtsLog.error('[PiperAdapter] ${DateTime.now().toIso8601String()} _initEngine failed: $e');
+      _initEngineCompleter!.completeError(e);
+      rethrow;
+    } finally {
+      _initEngineCompleter = null;
+    }
   }
 
   Future<void> _loadVoice(String voiceId, String modelPath) async {
