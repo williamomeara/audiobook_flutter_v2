@@ -1,6 +1,8 @@
 # Architecture Documentation
 
-This folder contains detailed architecture documentation including state machines, audits, and improvement plans.
+> 🎯 **This folder is the Single Source of Truth for all architecture documentation.**
+
+This folder contains detailed architecture documentation including system design, state machines, audits, and improvement plans.
 
 ## Data Persistence (SQLite)
 
@@ -45,7 +47,7 @@ Comprehensive documentation of the state machines used in the app:
 
 | Document | Description |
 |----------|-------------|
-| [../features/last-listened-location/NAVIGATION_STATE_MACHINE.md](../features/last-listened-location/NAVIGATION_STATE_MACHINE.md) | Preview mode, mini-player, and position tracking |
+| [../features/completed/last-listened-location/NAVIGATION_STATE_MACHINE.md](../features/completed/last-listened-location/NAVIGATION_STATE_MACHINE.md) | Preview mode, mini-player, and position tracking |
 
 ## System Design Documentation
 
@@ -96,6 +98,7 @@ Analysis documents, audits, and optimization plans are in the [improvements/](im
 
 ## Related Documentation
 
-- [../ARCHITECTURE.md](../ARCHITECTURE.md) - High-level architecture overview
-- [../features/sqlite-migration/PLAN.md](../features/sqlite-migration/PLAN.md) - SQLite migration plan (historical reference)
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - High-level architecture overview
+- [../features/completed/sqlite-migration/PLAN.md](../features/completed/sqlite-migration/PLAN.md) - SQLite migration plan (historical reference)
+- [../features/completed/last-listened-location/NAVIGATION_STATE_MACHINE.md](../features/completed/last-listened-location/NAVIGATION_STATE_MACHINE.md) - Navigation state machine
 - [../modules/](../modules/) - Package-level documentation
