@@ -9,6 +9,7 @@ class CoreDownloadState {
     required this.status,
     this.progress = 0.0,
     required this.sizeBytes,
+    this.downloadedBytes = 0,
     this.error,
   });
 
@@ -18,13 +19,39 @@ class CoreDownloadState {
   final DownloadStatus status;
   final double progress;
   final int sizeBytes;
+  final int downloadedBytes;
   final String? error;
 
   bool get isReady => status == DownloadStatus.ready;
   bool get isDownloading =>
       status == DownloadStatus.downloading || status == DownloadStatus.queued;
+  bool get isExtracting => status == DownloadStatus.extracting;
   bool get isFailed => status == DownloadStatus.failed;
   bool get isNotDownloaded => status == DownloadStatus.notDownloaded;
+  
+  /// Whether the download is active (downloading, extracting, or queued).
+  bool get isActive => status == DownloadStatus.downloading || 
+                       status == DownloadStatus.extracting ||
+                       status == DownloadStatus.queued;
+
+  /// Human-readable status text for UI display.
+  String get statusText {
+    switch (status) {
+      case DownloadStatus.notDownloaded:
+        return _formatBytes(sizeBytes);
+      case DownloadStatus.queued:
+        return 'Waiting...';
+      case DownloadStatus.downloading:
+        final percent = (progress * 100).toStringAsFixed(0);
+        return '$percent% · ${_formatBytes(downloadedBytes)} / ${_formatBytes(sizeBytes)}';
+      case DownloadStatus.extracting:
+        return 'Unpacking files...';
+      case DownloadStatus.ready:
+        return 'Ready';
+      case DownloadStatus.failed:
+        return error ?? 'Failed - Tap to retry';
+    }
+  }
 
   CoreDownloadState copyWith({
     String? coreId,
@@ -33,6 +60,7 @@ class CoreDownloadState {
     DownloadStatus? status,
     double? progress,
     int? sizeBytes,
+    int? downloadedBytes,
     String? error,
   }) {
     return CoreDownloadState(
@@ -42,6 +70,7 @@ class CoreDownloadState {
       status: status ?? this.status,
       progress: progress ?? this.progress,
       sizeBytes: sizeBytes ?? this.sizeBytes,
+      downloadedBytes: downloadedBytes ?? this.downloadedBytes,
       error: error ?? this.error,
     );
   }
@@ -180,4 +209,14 @@ class GranularDownloadState {
     cores: {},
     voices: {},
   );
+}
+
+/// Format bytes as human-readable string.
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  if (bytes < 1024 * 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
 }

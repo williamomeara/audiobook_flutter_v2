@@ -258,7 +258,12 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
         // Single file download - subscribe to state updates for progress
         subscription = _assetManager.watchState(key).listen((downloadState) {
           if (downloadState.status == DownloadStatus.downloading) {
-            _updateCoreState(core.id, DownloadStatus.downloading, downloadState.progress);
+            _updateCoreState(
+              core.id, 
+              DownloadStatus.downloading, 
+              downloadState.progress,
+              downloadedBytes: downloadState.downloadedBytes,
+            );
             
             // Log every 10% progress
             final currentPercent = (downloadState.progress * 100).toInt();
@@ -466,6 +471,7 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     DownloadStatus status,
     double progress, {
     String? error,
+    int? downloadedBytes,
   }) {
     final current = state.value;
     if (current == null) return;
@@ -481,15 +487,16 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
       status: status,
       progress: progress,
       sizeBytes: core.totalSize,
+      downloadedBytes: downloadedBytes ?? (progress * core.totalSize).toInt(),
       error: error,
     );
 
     // Determine currentDownload:
-    // - If this item is downloading, it becomes current
+    // - If this item is downloading or extracting, it becomes current
     // - If this item was current but is now done (ready/failed/notDownloaded), clear it
     // - Otherwise keep existing currentDownload
     String? newCurrentDownload;
-    if (status == DownloadStatus.downloading) {
+    if (status == DownloadStatus.downloading || status == DownloadStatus.extracting) {
       newCurrentDownload = coreId;
     } else if (current.currentDownload == coreId &&
         (status == DownloadStatus.ready ||

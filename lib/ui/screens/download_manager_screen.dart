@@ -475,11 +475,12 @@ class _CoreTile extends ConsumerWidget {
                     color: colors.text,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  _formatBytes(core.sizeBytes),
+                  core.statusText,
                   style: TextStyle(
                     fontSize: 12,
-                    color: colors.textSecondary,
+                    color: _getStatusColor(colors),
                   ),
                 ),
               ],
@@ -490,23 +491,47 @@ class _CoreTile extends ConsumerWidget {
       ),
     );
   }
+  
+  Color _getStatusColor(AppThemeColors colors) {
+    switch (core.status) {
+      case DownloadStatus.failed:
+        return Colors.red.shade600;
+      case DownloadStatus.downloading:
+      case DownloadStatus.extracting:
+        return colors.primary;
+      default:
+        return colors.textSecondary;
+    }
+  }
 
   Widget _buildAction(WidgetRef ref, AppThemeColors colors) {
     switch (core.status) {
       case DownloadStatus.notDownloaded:
-      case DownloadStatus.failed:
         return _DownloadButton(
           onPressed: () => ref
               .read(granularDownloadManagerProvider.notifier)
               .downloadCore(core.coreId),
           colors: colors,
         );
-      case DownloadStatus.downloading:
-      case DownloadStatus.extracting:
-        return _ProgressIndicator(
-          progress: core.progress,
+      case DownloadStatus.failed:
+        return _RetryButton(
+          onPressed: () => ref
+              .read(granularDownloadManagerProvider.notifier)
+              .downloadCore(core.coreId),
           colors: colors,
         );
+      case DownloadStatus.queued:
+        return _QueuedIndicator(colors: colors);
+      case DownloadStatus.downloading:
+        return _DownloadProgressIndicator(
+          progress: core.progress,
+          colors: colors,
+          onCancel: () => ref
+              .read(granularDownloadManagerProvider.notifier)
+              .cancelDownload(core.coreId),
+        );
+      case DownloadStatus.extracting:
+        return _ExtractingIndicator(colors: colors);
       case DownloadStatus.ready:
         return Container(
           padding: const EdgeInsets.all(6),
@@ -516,8 +541,6 @@ class _CoreTile extends ConsumerWidget {
           ),
           child: Icon(Icons.check, size: 16, color: Colors.green.shade600),
         );
-      default:
-        return const SizedBox.shrink();
     }
   }
 }
@@ -540,6 +563,9 @@ class _VoiceTile extends ConsumerWidget {
     final isDownloading = voice.anyDownloading(cores);
     final currentlyPlaying = ref.watch(voicePreviewProvider);
     final isPlayingThis = currentlyPlaying == voice.voiceId;
+    
+    // Get the status text from the first required core
+    final statusText = _getStatusText(isReady, isDownloading);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -556,13 +582,28 @@ class _VoiceTile extends ConsumerWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              voice.displayName,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: isLocked ? colors.textTertiary : colors.text,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  voice.displayName,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: isLocked ? colors.textTertiary : colors.text,
+                  ),
+                ),
+                if (statusText != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    statusText,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _getStatusColor(colors, isReady, isDownloading),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           
@@ -592,6 +633,33 @@ class _VoiceTile extends ConsumerWidget {
       ),
     );
   }
+  
+  String? _getStatusText(bool isReady, bool isDownloading) {
+    if (isReady) return null; // Don't show "Ready" text for voices
+    
+    // Find the first non-ready required core and show its status
+    for (final coreId in voice.requiredCoreIds) {
+      final core = cores[coreId];
+      if (core != null && !core.isReady) {
+        return core.statusText;
+      }
+    }
+    return null;
+  }
+  
+  Color _getStatusColor(AppThemeColors colors, bool isReady, bool isDownloading) {
+    if (isReady) return colors.textSecondary;
+    
+    // Check if any core is extracting
+    for (final coreId in voice.requiredCoreIds) {
+      final core = cores[coreId];
+      if (core != null) {
+        if (core.isFailed) return Colors.red.shade600;
+        if (core.isExtracting || core.isDownloading) return colors.primary;
+      }
+    }
+    return colors.textSecondary;
+  }
 
   Widget _buildAction(
     WidgetRef ref,
@@ -610,10 +678,19 @@ class _VoiceTile extends ConsumerWidget {
       );
     }
 
+    // Check if any core is extracting (show spinner instead of progress bar)
+    final isExtracting = voice.requiredCoreIds.any((id) => 
+      cores[id]?.isExtracting ?? false);
+    
+    if (isExtracting) {
+      return _ExtractingIndicator(colors: colors);
+    }
+
     if (isDownloading) {
-      return _ProgressIndicator(
+      return _DownloadProgressIndicator(
         progress: voice.getDownloadProgress(cores),
         colors: colors,
+        onCancel: null, // Voice download cancel would need to cancel all cores
       );
     }
 
@@ -662,42 +739,121 @@ class _DownloadButton extends StatelessWidget {
   }
 }
 
-class _ProgressIndicator extends StatelessWidget {
-  const _ProgressIndicator({
+/// Indicator for downloading state with cancel option.
+class _DownloadProgressIndicator extends StatelessWidget {
+  const _DownloadProgressIndicator({
     required this.progress,
     required this.colors,
+    this.onCancel,
   });
 
   final double progress;
   final AppThemeColors colors;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          '${(progress * 100).toStringAsFixed(0)}%',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: colors.primary,
+    return GestureDetector(
+      onTap: onCancel,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${(progress * 100).toStringAsFixed(0)}%',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: colors.primary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: 50,
+                height: 4,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: colors.border,
+                    color: colors.primary,
+                  ),
+                ),
+              ),
+            ],
           ),
+          if (onCancel != null) ...[
+            const SizedBox(width: 8),
+            Icon(Icons.close, size: 16, color: colors.textSecondary),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Spinner indicator for extracting/unpacking phase.
+class _ExtractingIndicator extends StatelessWidget {
+  const _ExtractingIndicator({required this.colors});
+
+  final AppThemeColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 24,
+      height: 24,
+      child: CircularProgressIndicator(
+        strokeWidth: 2.5,
+        color: colors.primary,
+      ),
+    );
+  }
+}
+
+/// Indicator for queued state.
+class _QueuedIndicator extends StatelessWidget {
+  const _QueuedIndicator({required this.colors});
+
+  final AppThemeColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: colors.textSecondary.withValues(alpha: 0.2),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(Icons.schedule, size: 16, color: colors.textSecondary),
+    );
+  }
+}
+
+/// Retry button for failed downloads.
+class _RetryButton extends StatelessWidget {
+  const _RetryButton({
+    required this.onPressed,
+    required this.colors,
+  });
+
+  final VoidCallback onPressed;
+  final AppThemeColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.15),
+          shape: BoxShape.circle,
         ),
-        const SizedBox(height: 4),
-        SizedBox(
-          width: 50,
-          height: 4,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: progress,
-              backgroundColor: colors.border,
-              color: colors.primary,
-            ),
-          ),
-        ),
-      ],
+        child: Icon(Icons.refresh, size: 16, color: Colors.red.shade600),
+      ),
     );
   }
 }
