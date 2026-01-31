@@ -49,6 +49,10 @@ class SupertonicAdapter implements AiVoiceEngine {
   /// both wait for the slow CoreML compilation (46+ seconds on iOS).
   Completer<void>? _initEngineCompleter;
   
+  /// Completer to serialize warmUp calls.
+  /// Prevents duplicate concurrent warmUp attempts when voice is changed.
+  Completer<bool>? _warmUpCompleter;
+  
   /// Called when native notifies us a voice was unloaded.
   void onVoiceUnloaded(String voiceId) {
     _loadedVoices.remove(voiceId);
@@ -106,8 +110,21 @@ class SupertonicAdapter implements AiVoiceEngine {
       return false;
     }
 
+    // Serialize warmUp calls - if another warmUp is in progress, wait for it
+    if (_warmUpCompleter != null) {
+      debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: another warmUp in progress, waiting...');
+      try {
+        return await _warmUpCompleter!.future;
+      } catch (e) {
+        // Previous warmUp failed, we'll try again below
+        debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: previous warmUp failed, retrying...');
+      }
+    }
+
     final warmUpStartTime = DateTime.now();
     debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp started for $voiceId');
+    
+    _warmUpCompleter = Completer<bool>();
     
     try {
       // Check if voice files are downloaded (not whether engine is initialized)
@@ -119,6 +136,8 @@ class SupertonicAdapter implements AiVoiceEngine {
       
       if (!await coreDir.exists()) {
         debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: core not found at $corePath');
+        _warmUpCompleter!.complete(false);
+        _warmUpCompleter = null;
         return false;
       }
 
@@ -143,10 +162,14 @@ class SupertonicAdapter implements AiVoiceEngine {
 
       final totalDuration = DateTime.now().difference(warmUpStartTime);
       debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp complete for $voiceId in ${totalDuration.inMilliseconds}ms');
+      _warmUpCompleter!.complete(true);
+      _warmUpCompleter = null;
       return true;
     } catch (e) {
       final totalDuration = DateTime.now().difference(warmUpStartTime);
       debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp failed after ${totalDuration.inMilliseconds}ms: $e');
+      _warmUpCompleter!.completeError(e);
+      _warmUpCompleter = null;
       return false;
     }
   }
