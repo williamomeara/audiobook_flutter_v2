@@ -217,6 +217,24 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
 
   /// Get current sleep timer minutes (null if not set)
   int? get sleepTimerMinutes => _sleepTimerMinutes;
+
+  /// Handle voice change - warmup the new voice engine.
+  Future<void> handleVoiceChange(String voiceId) async {
+    final current = state;
+    if (current is! ActiveState) return;
+    
+    // Update status to warming
+    _updateWarmupStatus(EngineWarmupStatus.warming);
+    
+    try {
+      // Warmup the new engine
+      final engine = await ref.read(ttsRoutingEngineProvider.future);
+      await engine.warmUp(voiceId);
+      _updateWarmupStatus(EngineWarmupStatus.ready);
+    } catch (e) {
+      _updateWarmupStatus(EngineWarmupStatus.failed, errorMessage: e.toString());
+    }
+  }
   
   /// Update the warmup status in the current state.
   /// 

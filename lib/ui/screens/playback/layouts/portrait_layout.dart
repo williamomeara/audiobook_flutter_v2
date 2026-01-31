@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:playback/playback.dart';
 
+import '../../../../app/playback/state/playback_view_state.dart';
 import '../../../theme/app_colors.dart';
 import '../widgets/widgets.dart';
 
@@ -37,6 +38,8 @@ class PortraitLayout extends StatelessWidget {
     required this.onJumpToCurrent,
     required this.playbackControlsBuilder,
     required this.errorBannerBuilder,
+    required this.warmupStatus,
+    required this.onVoiceTap,
   });
   
   final Book book;
@@ -66,6 +69,10 @@ class PortraitLayout extends StatelessWidget {
   final Widget Function() playbackControlsBuilder;
   final Widget Function(String error) errorBannerBuilder;
   
+  // Voice selection
+  final EngineWarmupStatus warmupStatus;
+  final VoidCallback onVoiceTap;
+  
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppThemeColors>()!;
@@ -79,6 +86,8 @@ class PortraitLayout extends StatelessWidget {
             showCover: showCover,
             onBack: onBack,
             onToggleView: onToggleView,
+            warmupStatus: warmupStatus,
+            onVoiceTap: onVoiceTap,
           ),
           if (playbackState.error != null) 
             errorBannerBuilder(playbackState.error!),

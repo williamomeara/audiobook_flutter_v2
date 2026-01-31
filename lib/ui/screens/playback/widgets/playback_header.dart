@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:core_domain/core_domain.dart';
 
+import '../../../../app/playback/state/playback_view_state.dart';
 import '../../../theme/app_colors.dart';
+import 'voice_selection_button.dart';
 
 /// Header widget for the playback screen showing book title, chapter title,
-/// and navigation controls.
+/// voice selection button, and navigation controls.
 class PlaybackHeader extends StatelessWidget {
   const PlaybackHeader({
     super.key,
@@ -13,6 +15,8 @@ class PlaybackHeader extends StatelessWidget {
     required this.showCover,
     required this.onBack,
     required this.onToggleView,
+    required this.warmupStatus,
+    required this.onVoiceTap,
   });
 
   final Book book;
@@ -20,6 +24,8 @@ class PlaybackHeader extends StatelessWidget {
   final bool showCover;
   final VoidCallback onBack;
   final VoidCallback onToggleView;
+  final EngineWarmupStatus warmupStatus;
+  final VoidCallback onVoiceTap;
 
   @override
   Widget build(BuildContext context) {
@@ -60,6 +66,13 @@ class PlaybackHeader extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(width: 8),
+          // Voice selection button
+          VoiceSelectionButton(
+            warmupStatus: warmupStatus,
+            onTap: onVoiceTap,
+          ),
+          const SizedBox(width: 4),
           // Toggle view button
           InkWell(
             onTap: onToggleView,

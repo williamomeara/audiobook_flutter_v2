@@ -21,22 +21,27 @@ class SupertonicTtsService: TtsServiceProtocol {
     }
     
     func loadCore(corePath: String, configPath: String?) async throws {
-        lock.lock()
-        defer { lock.unlock() }
-        
         NSLog("[SupertonicTtsService] loadCore called with corePath: %@", corePath)
         
-        // Check if already loaded
-        if coremlInference.isModelLoaded {
+        // Check if already loaded (quick check without heavy work)
+        lock.lock()
+        let alreadyLoaded = coremlInference.isModelLoaded
+        lock.unlock()
+        
+        if alreadyLoaded {
             NSLog("[SupertonicTtsService] CoreML models already loaded")
             return
         }
         
-        // Load CoreML models - supports both bundled and downloaded paths
-        // __BUNDLED_COREML__ loads from app bundle, file paths load from downloaded directory
-        NSLog("[SupertonicTtsService] Loading CoreML models from: %@", corePath)
-        try coremlInference.loadFromBundle(corePath)
-        NSLog("[SupertonicTtsService] CoreML models loaded successfully")
+        // Load CoreML models on a background thread to avoid blocking UI
+        // CoreML model loading is CPU-intensive and should not run on main thread
+        let inference = self.coremlInference
+        let path = corePath
+        try await Task.detached(priority: .userInitiated) {
+            NSLog("[SupertonicTtsService] Loading CoreML models from background thread: %@", path)
+            try inference.loadFromBundle(path)
+            NSLog("[SupertonicTtsService] CoreML models loaded successfully")
+        }.value
     }
     
     func loadVoice(voiceId: String, modelPath: String, speakerId: Int?, configPath: String?) async throws {
@@ -74,15 +79,19 @@ class SupertonicTtsService: TtsServiceProtocol {
         NSLog("[SupertonicTtsService] Synthesizing with CoreML: voiceId=%@, speakerId=%d, text length=%d", voiceId, speakerId ?? 0, text.count)
         NSLog("[SupertonicTtsService] isModelLoaded=%@", coremlInference.isModelLoaded ? "YES" : "NO")
         
-        // Synthesize using CoreML 4-stage pipeline
-        let startTime = CFAbsoluteTimeGetCurrent()
-        let (samples, sampleRate) = try coremlInference.synthesize(
-            text: text,
-            voiceName: voiceId,
-            speakerId: speakerId ?? 0,
-            speed: Float(speed)
-        )
-        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        // Run synthesis on background thread to avoid blocking UI
+        let inference = self.coremlInference
+        let (samples, sampleRate, elapsed) = try await Task.detached(priority: .userInitiated) {
+            let startTime = CFAbsoluteTimeGetCurrent()
+            let (samples, sampleRate) = try inference.synthesize(
+                text: text,
+                voiceName: voiceId,
+                speakerId: speakerId ?? 0,
+                speed: Float(speed)
+            )
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            return (samples, sampleRate, elapsed)
+        }.value
         
         NSLog("[SupertonicTtsService] Synthesis complete: %d samples at %dHz in %.2fs", samples.count, sampleRate, elapsed)
         

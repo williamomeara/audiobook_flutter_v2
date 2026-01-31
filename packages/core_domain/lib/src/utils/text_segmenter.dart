@@ -202,18 +202,74 @@ class TextSegmenter {
     return segments;
   }
 
+  /// Common abbreviations that should not be treated as sentence endings.
+  /// These typically end with a period but are not sentence boundaries.
+  static const _abbreviations = <String>[
+    // Titles
+    'Mr', 'Mrs', 'Ms', 'Miss', 'Dr', 'Prof', 'Rev', 'Sr', 'Jr', 'Esq',
+    'Hon', 'Pres', 'Gov', 'Gen', 'Col', 'Lt', 'Cmdr', 'Sgt', 'Cpl',
+    'Capt', 'Adm', 'Maj', 'Pvt',
+    // Common abbreviations
+    'St', 'Mt', 'Ft', 'Ave', 'Blvd', 'Rd', 'Ln', 'Ct', 'Sq', 'Pl',
+    'Inc', 'Corp', 'Ltd', 'Co', 'LLC', 'Assn', 'Bros', 
+    'vs', 'etc', 'e.g', 'i.e', 'viz', 'cf', 'al', 'et', 
+    'approx', 'dept', 'est', 'govt', 'misc', 'no', 'nos',
+    'vol', 'vols', 'pp', 'pg', 'ch', 'sec', 'para', 'fig', 'figs',
+    'Jan', 'Feb', 'Mar', 'Apr', 'Jun', 'Jul', 'Aug', 'Sep', 'Sept', 
+    'Oct', 'Nov', 'Dec', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun',
+  ];
+  
+  /// Pattern matching abbreviations (case insensitive)
+  static final RegExp _abbreviationPattern = RegExp(
+    r'\b(' + _abbreviations.join('|') + r')\.$',
+    caseSensitive: false,
+  );
+
   /// Split text into sentences.
   static List<String> _splitIntoSentences(String text) {
     // Split on sentence-ending punctuation followed by space or end
-    final sentencePattern = RegExp(
-      r'(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])$',
-    );
-
-    final parts = text.split(sentencePattern);
-    return parts
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
+    // But NOT after common abbreviations
+    final result = <String>[];
+    var current = StringBuffer();
+    final words = text.split(RegExp(r'(?<=\S)\s+'));
+    
+    for (var i = 0; i < words.length; i++) {
+      final word = words[i];
+      current.write(word);
+      
+      // Check if this word ends with sentence-ending punctuation
+      if (RegExp(r'[.!?]$').hasMatch(word)) {
+        // Check if it's an abbreviation
+        final isAbbreviation = _abbreviationPattern.hasMatch(word);
+        
+        // Check if next word starts with capital letter (indicating new sentence)
+        final nextWord = i + 1 < words.length ? words[i + 1] : null;
+        final nextStartsWithCapital = nextWord != null && 
+            RegExp(r'^[A-Z]').hasMatch(nextWord);
+        
+        // End sentence if:
+        // 1. Not an abbreviation AND (next word is capitalized OR this is the last word)
+        // 2. Exception: Always split on ! and ?
+        if (word.endsWith('!') || word.endsWith('?') ||
+            (!isAbbreviation && (nextStartsWithCapital || i == words.length - 1))) {
+          result.add(current.toString().trim());
+          current = StringBuffer();
+          continue;
+        }
+      }
+      
+      // Add space before next word
+      if (i < words.length - 1) {
+        current.write(' ');
+      }
+    }
+    
+    // Add remaining text
+    if (current.isNotEmpty) {
+      result.add(current.toString().trim());
+    }
+    
+    return result.where((s) => s.isNotEmpty).toList();
   }
 
   /// Split a long sentence at natural break points.
