@@ -110,27 +110,23 @@ class SupertonicAdapter implements AiVoiceEngine {
     debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp started for $voiceId');
     
     try {
-      // Check if voice files are available
-      final readiness = await checkVoiceReady(voiceId);
-      if (!readiness.isReady) {
-        debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: voice not ready - ${readiness.state}');
+      // Check if voice files are downloaded (not whether engine is initialized)
+      // warmUp is supposed to INITIALIZE the engine, so we only check file existence
+      final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
+      final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+      final corePath = '${_coreDir.path}/supertonic/$coreId/$coreSubdir';
+      final coreDir = Directory(corePath);
+      
+      if (!await coreDir.exists()) {
+        debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: core not found at $corePath');
         return false;
       }
 
       // Initialize engine if not already done
       if (!_coreReadiness.isReady) {
-        final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
-        final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
-        final corePath = '${_coreDir.path}/supertonic/$coreId/$coreSubdir';
-        final coreDir = Directory(corePath);
-        if (await coreDir.exists()) {
-          debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: initializing engine...');
-          await _initEngine(corePath);
-          debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: engine initialized');
-        } else {
-          debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: core not found at $corePath');
-          return false;
-        }
+        debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: initializing engine...');
+        await _initEngine(corePath);
+        debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: engine initialized');
       }
 
       // Load voice if not already loaded
