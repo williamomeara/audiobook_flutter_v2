@@ -689,9 +689,16 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           if (previousVoice != VoiceIds.none && previousVoice != next && _controller != null) {
             PlaybackLogger.info('[PlaybackProvider] Voice changed: $previousVoice -> $next');
             _controller!.notifyVoiceChanged();
+            
+            // Pre-warm the new voice engine in the background
+            // This prevents UI jank when playback starts with the new voice
+            if (next != VoiceIds.none) {
+              _warmUpVoiceInBackground(ref, next);
+            }
           } else if (previousVoice == VoiceIds.none && next != VoiceIds.none) {
-            // Voice was loaded from settings (initial sync) - just log, no need to notify
+            // Voice was loaded from settings (initial sync) - warm it up in background
             PlaybackLogger.info('[PlaybackProvider] Voice synced from settings: $next');
+            _warmUpVoiceInBackground(ref, next);
           }
         },
         fireImmediately: true,  // Sync voice immediately in case settings already loaded
@@ -770,6 +777,23 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
       PlaybackLogger.error('[PlaybackProvider] Stack trace: $st');
       // Non-fatal - app works without system media controls
     }
+  }
+
+  /// Pre-warm a voice engine in the background.
+  /// 
+  /// This initializes the CoreML/ONNX models for the given voice so that
+  /// the first synthesis doesn't cause UI jank.
+  void _warmUpVoiceInBackground(Ref ref, String voiceId) {
+    unawaited(
+      ref.read(ttsRoutingEngineProvider.future).then((engine) {
+        PlaybackLogger.info('[PlaybackProvider] Warming up voice: $voiceId');
+        return engine.warmUp(voiceId);
+      }).then((success) {
+        PlaybackLogger.info('[PlaybackProvider] WarmUp completed for $voiceId: $success');
+      }).catchError((e) {
+        PlaybackLogger.error('[PlaybackProvider] WarmUp failed for $voiceId: $e');
+      }),
+    );
   }
 
   /// Get the underlying controller.

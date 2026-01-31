@@ -74,6 +74,53 @@ class PiperAdapter implements AiVoiceEngine {
   }
 
   @override
+  Future<bool> warmUp(String voiceId) async {
+    // Check if this voice belongs to this engine
+    if (!VoiceIds.isPiper(voiceId)) {
+      return false;
+    }
+
+    final warmUpStartTime = DateTime.now();
+    TtsLog.info('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp started for $voiceId');
+
+    try {
+      // Check if voice files are available
+      final readiness = await checkVoiceReady(voiceId);
+      if (!readiness.isReady) {
+        TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp: voice not ready');
+        return false;
+      }
+
+      // Initialize engine if needed
+      if (!_coreReadiness.isReady) {
+        TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp: initializing engine...');
+        await _initEngine(_coreDir.path);
+        TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp: engine initialized');
+      }
+
+      // Load voice if not already loaded
+      if (!_loadedVoices.containsKey(voiceId)) {
+        final modelKey = VoiceIds.piperModelKey(voiceId);
+        if (modelKey != null) {
+          final coreId = _getCoreIdForModelKey(modelKey);
+          final modelPath = '${_coreDir.path}/piper/$coreId/$modelKey.onnx';
+          TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp: loading voice $voiceId...');
+          await _loadVoice(voiceId, modelPath);
+          TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp: voice loaded');
+        }
+      }
+
+      final totalDuration = DateTime.now().difference(warmUpStartTime);
+      TtsLog.info('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp complete for $voiceId in ${totalDuration.inMilliseconds}ms');
+      return true;
+    } catch (e) {
+      final totalDuration = DateTime.now().difference(warmUpStartTime);
+      TtsLog.error('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp failed after ${totalDuration.inMilliseconds}ms: $e');
+      return false;
+    }
+  }
+
+  @override
   Future<CoreReadiness> getCoreReadiness(String voiceId) async {
     try {
       final status = await _nativeApi.getCoreStatus(NativeEngineType.piper);

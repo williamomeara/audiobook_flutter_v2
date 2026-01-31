@@ -1,5 +1,20 @@
 import 'download_state.dart';
 
+/// Status of a voice's installation (separate from core download).
+/// For engines like Supertonic and Kokoro where the core is shared,
+/// this allows showing individual voice "installations" even though
+/// the voices are just speaker IDs within the downloaded core.
+enum VoiceInstallStatus {
+  /// Voice is not installed (core not downloaded OR voice not "activated").
+  notInstalled,
+  
+  /// Voice is being installed (brief simulated activation step).
+  installing,
+  
+  /// Voice is fully installed and ready to use.
+  installed,
+}
+
 /// State of a single core download.
 class CoreDownloadState {
   const CoreDownloadState({
@@ -121,7 +136,7 @@ class CoreDownloadState {
       'CoreDownloadState($coreId, $status, ${(progress * 100).toStringAsFixed(0)}%)';
 }
 
-/// State of a voice (includes dependency info).
+/// State of a voice (includes dependency info and individual install status).
 class VoiceDownloadState {
   const VoiceDownloadState({
     required this.voiceId,
@@ -131,6 +146,7 @@ class VoiceDownloadState {
     required this.requiredCoreIds,
     this.speakerId,
     this.modelKey,
+    this.installStatus = VoiceInstallStatus.notInstalled,
   });
 
   final String voiceId;
@@ -140,11 +156,37 @@ class VoiceDownloadState {
   final List<String> requiredCoreIds;
   final int? speakerId;
   final String? modelKey;
+  
+  /// Individual voice install status.
+  /// For Piper: voice IS the core, so this follows core status.
+  /// For Supertonic/Kokoro: voice is a speaker ID within core, so we track
+  /// individual "installation" to give users the perception of downloading
+  /// individual voices (even though they're just activating speaker IDs).
+  final VoiceInstallStatus installStatus;
+  
+  /// Whether this voice uses shared core (Supertonic, Kokoro) vs self-contained (Piper).
+  bool get usesSharedCore => engineId == 'supertonic' || engineId == 'kokoro';
 
   /// Check if all required cores are ready.
   bool allCoresReady(Map<String, CoreDownloadState> coreStates) {
     return requiredCoreIds.every((id) => coreStates[id]?.isReady ?? false);
   }
+  
+  /// Check if this voice is fully ready to use.
+  /// For Piper: just checks core is ready.
+  /// For Supertonic/Kokoro: checks core is ready AND voice is installed.
+  bool isReady(Map<String, CoreDownloadState> coreStates) {
+    if (!allCoresReady(coreStates)) return false;
+    // For shared core engines, also check voice install status
+    if (usesSharedCore) {
+      return installStatus == VoiceInstallStatus.installed;
+    }
+    // For Piper, core ready = voice ready
+    return true;
+  }
+  
+  /// Whether the voice is currently being installed.
+  bool get isInstalling => installStatus == VoiceInstallStatus.installing;
 
   /// Check if any required core is currently downloading.
   bool anyDownloading(Map<String, CoreDownloadState> coreStates) {
@@ -176,9 +218,25 @@ class VoiceDownloadState {
     );
     return total / requiredCoreIds.length;
   }
+  
+  /// Create a copy with updated install status.
+  VoiceDownloadState copyWith({
+    VoiceInstallStatus? installStatus,
+  }) {
+    return VoiceDownloadState(
+      voiceId: voiceId,
+      displayName: displayName,
+      engineId: engineId,
+      language: language,
+      requiredCoreIds: requiredCoreIds,
+      speakerId: speakerId,
+      modelKey: modelKey,
+      installStatus: installStatus ?? this.installStatus,
+    );
+  }
 
   @override
-  String toString() => 'VoiceDownloadState($voiceId, $engineId)';
+  String toString() => 'VoiceDownloadState($voiceId, $engineId, $installStatus)';
 }
 
 /// Combined download state for UI.
@@ -196,8 +254,9 @@ class GranularDownloadState {
   final String? error;
 
   /// Get all voices that are ready to use.
+  /// Uses the new isReady method which accounts for individual voice installation.
   List<VoiceDownloadState> get readyVoices =>
-      voices.values.where((v) => v.allCoresReady(cores)).toList();
+      voices.values.where((v) => v.isReady(cores)).toList();
 
   /// Get voices for a specific engine.
   List<VoiceDownloadState> getVoicesForEngine(String engineId) =>
@@ -210,11 +269,11 @@ class GranularDownloadState {
   /// Check if a core is ready.
   bool isCoreReady(String coreId) => cores[coreId]?.isReady ?? false;
 
-  /// Check if a voice can be used (all cores ready).
+  /// Check if a voice can be used (all cores ready AND voice installed).
   bool isVoiceReady(String voiceId) {
     final voice = voices[voiceId];
     if (voice == null) return false;
-    return voice.allCoresReady(cores);
+    return voice.isReady(cores);
   }
 
   /// Check if any downloads are in progress.

@@ -596,7 +596,16 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     }
   }
 
-  /// Build the audio track queue for display
+  /// Build the audio track queue for display.
+  ///
+  /// Design Decision: We have two sources of segment data:
+  /// 1. ActiveState.segments - loaded from SQLite, available immediately on LoadingComplete
+  /// 2. playbackState.queue - populated by PlaybackController.loadChapter(), has audio metadata
+  ///
+  /// During engine warmUp (which can take 2-45 seconds on iOS), loadChapter hasn't run yet,
+  /// so playbackState.queue is empty. We use ActiveState.segments as fallback to show content
+  /// immediately while warmUp runs. Once loadChapter completes, we switch to playbackState.queue
+  /// which has richer metadata (synthesis status, cache status, actual duration).
   List<AudioTrack> _buildQueue(
     PlaybackViewState viewState,
     PlaybackState playbackState,
@@ -617,8 +626,24 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
               ))
           .toList();
     } else {
-      // In active mode, use the actual playback queue
-      return playbackState.queue;
+      // In active mode, prefer the actual playback queue if available
+      // If playback queue is empty (e.g., during engine warmUp), use segments from ActiveState
+      if (playbackState.queue.isNotEmpty) {
+        return playbackState.queue;
+      }
+      
+      // Fallback: build queue from segments during warmUp or before loadChapter completes
+      return segments
+          .map((s) => AudioTrack(
+                id: 'pending_${s.index}',
+                text: s.text,
+                chapterIndex: chapterIndex,
+                segmentIndex: s.index,
+                estimatedDuration: s.estimatedDuration,
+                segmentType: s.type,
+                metadata: s.metadata,
+              ))
+          .toList();
     }
   }
 

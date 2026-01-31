@@ -94,6 +94,62 @@ class SupertonicAdapter implements AiVoiceEngine {
   }
 
   @override
+  Future<bool> warmUp(String voiceId) async {
+    // Check if this voice belongs to this engine
+    if (!VoiceIds.isSupertonic(voiceId)) {
+      return false;
+    }
+
+    final warmUpStartTime = DateTime.now();
+    TtsLog.info('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp started for $voiceId');
+    
+    try {
+      // Check if voice files are available
+      final readiness = await checkVoiceReady(voiceId);
+      if (!readiness.isReady) {
+        TtsLog.debug('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: voice not ready - ${readiness.state}');
+        return false;
+      }
+
+      // Initialize engine if not already done
+      if (!_coreReadiness.isReady) {
+        final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
+        final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+        final corePath = '${_coreDir.path}/supertonic/$coreId/$coreSubdir';
+        final coreDir = Directory(corePath);
+        if (await coreDir.exists()) {
+          TtsLog.debug('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: initializing engine...');
+          await _initEngine(corePath);
+          TtsLog.debug('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: engine initialized');
+        } else {
+          TtsLog.debug('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: core not found at $corePath');
+          return false;
+        }
+      }
+
+      // Load voice if not already loaded
+      if (!_loadedVoices.containsKey(voiceId)) {
+        final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
+        final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+        final modelPath = Platform.isIOS 
+            ? '${_coreDir.path}/supertonic/$coreId/$coreSubdir' 
+            : '${_coreDir.path}/supertonic/$coreId/$coreSubdir/onnx/model.onnx';
+        TtsLog.debug('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: loading voice $voiceId...');
+        await _loadVoice(voiceId, modelPath);
+        TtsLog.debug('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: voice loaded');
+      }
+
+      final totalDuration = DateTime.now().difference(warmUpStartTime);
+      TtsLog.info('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp complete for $voiceId in ${totalDuration.inMilliseconds}ms');
+      return true;
+    } catch (e) {
+      final totalDuration = DateTime.now().difference(warmUpStartTime);
+      TtsLog.error('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp failed after ${totalDuration.inMilliseconds}ms: $e');
+      return false;
+    }
+  }
+
+  @override
   Future<CoreReadiness> getCoreReadiness(String voiceId) async {
     try {
       final status = await _nativeApi.getCoreStatus(NativeEngineType.supertonic);
@@ -234,10 +290,12 @@ class SupertonicAdapter implements AiVoiceEngine {
         speed: request.playbackRate,
       );
 
+      final synthStartTime = DateTime.now();
       final result = await _nativeApi.synthesize(nativeRequest);
+      final synthDuration = DateTime.now().difference(synthStartTime);
       
-      // Debug: log synthesis result
-      _logger.info('Supertonic synthesis result: success=${result.success}, durationMs=${result.durationMs}, sampleRate=${result.sampleRate}');
+      // Debug: log synthesis result with timestamps
+      _logger.info('[${DateTime.now().toIso8601String()}] Supertonic synthesis result: success=${result.success}, audioDurationMs=${result.durationMs}, synthTimeMs=${synthDuration.inMilliseconds}, sampleRate=${result.sampleRate}');
 
       if (request.isCancelled) {
         await _deleteTempFile(tmpPath);
@@ -245,7 +303,7 @@ class SupertonicAdapter implements AiVoiceEngine {
       }
 
       if (!result.success) {
-        _logger.severe('Native synthesis failed: ${result.errorMessage} Code: ${result.errorCode}');
+        _logger.severe('[${DateTime.now().toIso8601String()}] Native synthesis failed: ${result.errorMessage} Code: ${result.errorCode}');
         await _deleteTempFile(tmpPath);
         return _handleNativeError(result, request);
       }
@@ -258,14 +316,14 @@ class SupertonicAdapter implements AiVoiceEngine {
 
       _loadedVoices[request.voiceId] = DateTime.now();
 
-      _logger.info('Supertonic synthesis complete: ${result.durationMs}ms to ${request.outputFile.path}');
+      _logger.info('[${DateTime.now().toIso8601String()}] Supertonic synthesis complete: audioDurationMs=${result.durationMs}, synthTimeMs=${synthDuration.inMilliseconds}, textLen=${request.normalizedText.length} to ${request.outputFile.path}');
       return ExtendedSynthResult.successWith(
         outputFile: request.outputFile.path,
         durationMs: result.durationMs ?? 0,
         sampleRate: result.sampleRate ?? 24000,
       );
     } catch (e, stackTrace) {
-      _logger.severe('Supertonic synthesis exception', e, stackTrace);
+      _logger.severe('[${DateTime.now().toIso8601String()}] Supertonic synthesis exception', e, stackTrace);
       
       if (request.canRetry && _isRecoverableError(e)) {
         _logger.info('Retrying synthesis (attempt ${request.retryAttempt + 1})');
@@ -347,15 +405,21 @@ class SupertonicAdapter implements AiVoiceEngine {
   // Private helpers
 
   Future<void> _initEngine(String corePath) async {
+    final startTime = DateTime.now();
+    TtsLog.debug('[SupertonicAdapter] ${DateTime.now().toIso8601String()} _initEngine starting...');
     final request = InitEngineRequest(
       engineType: NativeEngineType.supertonic,
       corePath: corePath,
     );
     await _nativeApi.initEngine(request);
     _coreReadiness = CoreReadiness.readyFor('supertonic');
+    final duration = DateTime.now().difference(startTime);
+    TtsLog.info('[SupertonicAdapter] ${DateTime.now().toIso8601String()} _initEngine completed in ${duration.inMilliseconds}ms');
   }
 
   Future<void> _loadVoice(String voiceId, String modelPath) async {
+    final startTime = DateTime.now();
+    TtsLog.debug('[SupertonicAdapter] ${DateTime.now().toIso8601String()} _loadVoice starting for $voiceId...');
     final request = LoadVoiceRequest(
       engineType: NativeEngineType.supertonic,
       voiceId: voiceId,
@@ -363,6 +427,8 @@ class SupertonicAdapter implements AiVoiceEngine {
       speakerId: _getSpeakerId(voiceId),
     );
     await _nativeApi.loadVoice(request);
+    final duration = DateTime.now().difference(startTime);
+    TtsLog.info('[SupertonicAdapter] ${DateTime.now().toIso8601String()} _loadVoice completed for $voiceId in ${duration.inMilliseconds}ms');
   }
 
   int _getSpeakerId(String voiceId) {

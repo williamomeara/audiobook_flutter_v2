@@ -7,3 +7,4 @@ export 'play_button.dart';
 export 'playback_header.dart';
 export 'text_display/text_display_widgets.dart';
 export 'time_remaining_row.dart';
+export 'voice_selection_button.dart';

@@ -712,15 +712,17 @@ class _VoiceTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.appColors;
-    final isReady = voice.allCoresReady(cores);
+    // Use the new isReady method that accounts for individual voice installation
+    final isReady = voice.isReady(cores);
     final isDownloading = voice.anyDownloading(cores);
+    final isInstalling = voice.isInstalling;
     final previewState = ref.watch(voicePreviewProvider);
     final isPlayingThis = previewState.isPlayingVoice(voice.voiceId);
     final isLoadingThis = previewState.isLoadingVoice(voice.voiceId);
     final hasError = previewState.isError && previewState.voiceId == voice.voiceId;
     
-    // Get the status text from the first required core
-    final statusText = _getStatusText(isReady, isDownloading);
+    // Get the status text (now includes installing state)
+    final statusText = _getStatusText(isReady, isDownloading, isInstalling);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -754,7 +756,7 @@ class _VoiceTile extends ConsumerWidget {
                     statusText,
                     style: TextStyle(
                       fontSize: 12,
-                      color: _getStatusColor(colors, isReady, isDownloading),
+                      color: _getStatusColor(colors, isReady, isDownloading, isInstalling),
                     ),
                   ),
                 ],
@@ -779,8 +781,19 @@ class _VoiceTile extends ConsumerWidget {
     );
   }
   
-  String? _getStatusText(bool isReady, bool isDownloading) {
+  String? _getStatusText(bool isReady, bool isDownloading, bool isInstalling) {
     if (isReady) return null; // Don't show "Ready" text for voices
+    
+    // Show installing status
+    if (isInstalling) {
+      return 'Installing voice...';
+    }
+    
+    // For shared-core engines, check if core is ready but voice not installed
+    if (voice.usesSharedCore && voice.allCoresReady(cores) && 
+        voice.installStatus == VoiceInstallStatus.notInstalled) {
+      return 'Tap to install';
+    }
     
     // Find the first non-ready required core and show its status
     for (final coreId in voice.requiredCoreIds) {
@@ -792,8 +805,9 @@ class _VoiceTile extends ConsumerWidget {
     return null;
   }
   
-  Color _getStatusColor(AppThemeColors colors, bool isReady, bool isDownloading) {
+  Color _getStatusColor(AppThemeColors colors, bool isReady, bool isDownloading, bool isInstalling) {
     if (isReady) return colors.textSecondary;
+    if (isInstalling) return colors.primary;
     
     // Check if any core is extracting
     for (final coreId in voice.requiredCoreIds) {
@@ -821,6 +835,11 @@ class _VoiceTile extends ConsumerWidget {
         ),
         child: Icon(Icons.check, size: 16, color: Colors.green.shade600),
       );
+    }
+    
+    // Show installing spinner for shared-core voices being installed
+    if (voice.isInstalling) {
+      return _ExtractingIndicator(colors: colors);
     }
 
     // Check if any core is extracting (show spinner instead of progress bar)

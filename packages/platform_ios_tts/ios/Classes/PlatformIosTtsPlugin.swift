@@ -38,7 +38,7 @@ class TtsNativeApiImpl: TtsNativeApi {
     // MARK: - TtsNativeApi Protocol
     
     func initEngine(request: InitEngineRequest, completion: @escaping (Result<Void, Error>) -> Void) {
-        Task {
+        Task.detached(priority: .userInitiated) { [self] in
             do {
                 let svc = service(for: request.engineType)
                 try await svc.loadCore(corePath: request.corePath, configPath: request.configPath)
@@ -50,7 +50,7 @@ class TtsNativeApiImpl: TtsNativeApi {
     }
     
     func loadVoice(request: LoadVoiceRequest, completion: @escaping (Result<Void, Error>) -> Void) {
-        Task {
+        Task.detached(priority: .userInitiated) { [self] in
             do {
                 let svc = service(for: request.engineType)
                 try await svc.loadVoice(
@@ -71,7 +71,9 @@ class TtsNativeApiImpl: TtsNativeApi {
         activeRequests[request.requestId] = true
         lock.unlock()
         
-        Task {
+        // Use Task.detached to run synthesis off the main thread
+        // This creates an independent task that doesn't inherit the main actor context
+        Task.detached(priority: .userInitiated) { [self] in
             do {
                 let svc = service(for: request.engineType)
                 

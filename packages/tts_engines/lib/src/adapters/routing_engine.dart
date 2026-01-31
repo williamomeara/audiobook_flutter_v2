@@ -79,6 +79,15 @@ class RoutingEngine implements AiVoiceEngine {
   }
 
   @override
+  Future<bool> warmUp(String voiceId) async {
+    final engine = _engineForVoice(voiceId);
+    if (engine == null) {
+      return false;
+    }
+    return engine.warmUp(voiceId);
+  }
+
+  @override
   Future<CoreReadiness> getCoreReadiness(String voiceId) async {
     final engine = _engineForVoice(voiceId);
     if (engine == null) {

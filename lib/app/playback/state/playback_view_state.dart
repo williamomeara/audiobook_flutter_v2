@@ -1,5 +1,22 @@
 import 'package:core_domain/core_domain.dart';
 
+/// Status of TTS engine warmup.
+/// 
+/// Used to show loading state in the voice selection button.
+enum EngineWarmupStatus {
+  /// Engine warmup has not started yet.
+  notStarted,
+  
+  /// Engine is currently warming up (loading models, initializing).
+  warming,
+  
+  /// Engine is ready for synthesis.
+  ready,
+  
+  /// Engine warmup failed.
+  failed,
+}
+
 /// The complete view state for playback navigation.
 ///
 /// This sealed hierarchy ensures impossible states cannot occur.
@@ -64,6 +81,12 @@ class ActiveState extends PlaybackViewState {
 
   /// Total chapter count for progress display
   final int totalChapters;
+  
+  /// Current TTS engine warmup status.
+  final EngineWarmupStatus warmupStatus;
+  
+  /// Error message if warmup failed.
+  final String? warmupError;
 
   const ActiveState({
     required this.bookId,
@@ -75,6 +98,8 @@ class ActiveState extends PlaybackViewState {
     this.bookTitle,
     this.chapterTitle,
     this.totalChapters = 0,
+    this.warmupStatus = EngineWarmupStatus.notStarted,
+    this.warmupError,
   });
 
   ActiveState copyWith({
@@ -85,6 +110,8 @@ class ActiveState extends PlaybackViewState {
     String? bookTitle,
     String? chapterTitle,
     int? totalChapters,
+    EngineWarmupStatus? warmupStatus,
+    String? warmupError,
   }) =>
       ActiveState(
         bookId: bookId,
@@ -96,6 +123,8 @@ class ActiveState extends PlaybackViewState {
         bookTitle: bookTitle ?? this.bookTitle,
         chapterTitle: chapterTitle ?? this.chapterTitle,
         totalChapters: totalChapters ?? this.totalChapters,
+        warmupStatus: warmupStatus ?? this.warmupStatus,
+        warmupError: warmupError ?? this.warmupError,
       );
 }
 
@@ -279,5 +308,19 @@ extension PlaybackViewStateUI on PlaybackViewState {
         ActiveState(isPlaying: final playing) => playing,
         PreviewState(isPlaying: final playing) => playing,
         _ => false,
+      };
+  
+  /// Current engine warmup status.
+  EngineWarmupStatus get warmupStatus => switch (this) {
+        ActiveState(warmupStatus: final status) => status,
+        PreviewState() => EngineWarmupStatus.ready, // Already playing, so ready
+        LoadingState() => EngineWarmupStatus.warming,
+        IdleState() => EngineWarmupStatus.notStarted,
+      };
+  
+  /// Engine warmup error message, if any.
+  String? get warmupError => switch (this) {
+        ActiveState(warmupError: final error) => error,
+        _ => null,
       };
 }

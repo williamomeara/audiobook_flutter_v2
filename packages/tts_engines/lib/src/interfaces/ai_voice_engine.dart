@@ -78,6 +78,15 @@ abstract interface class AiVoiceEngine {
   /// Synthesize a segment with full lifecycle tracking.
   Future<ExtendedSynthResult> synthesizeSegment(SegmentSynthRequest request);
 
+  /// Warm up the engine for a specific voice.
+  ///
+  /// This pre-initializes the engine and loads the voice model so that
+  /// the first synthesis request doesn't experience startup latency.
+  /// Should be called when the playback screen opens, before the user presses play.
+  ///
+  /// Returns true if warm-up was successful, false if the voice is not available.
+  Future<bool> warmUp(String voiceId);
+
   /// Cancel an in-flight synthesis operation.
   Future<void> cancelSynth(String requestId);
 

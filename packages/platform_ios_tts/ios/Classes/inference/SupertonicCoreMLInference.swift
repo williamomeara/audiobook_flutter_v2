@@ -216,8 +216,13 @@ final class SupertonicCoreMLInference {
     }
     
     /// Synthesize text to audio samples.
+    /// Thread-safe: Uses lock to prevent concurrent CoreML inference (CoreML models are not thread-safe)
     func synthesize(text: String, voiceName: String, speakerId: Int, speed: Float) throws -> (samples: [Float], sampleRate: Int) {
-        guard isModelLoaded else {
+        // Hold lock for entire synthesis to prevent concurrent CoreML access
+        lock.lock()
+        defer { lock.unlock() }
+        
+        guard dpModel != nil && teModel != nil && veModel != nil && vocModel != nil else {
             throw TtsError.modelNotLoaded
         }
         

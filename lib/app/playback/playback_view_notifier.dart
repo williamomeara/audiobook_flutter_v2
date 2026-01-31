@@ -8,8 +8,10 @@ import 'package:audiobook_flutter_v2/app/playback/state/playback_state_machine.d
 import 'package:audiobook_flutter_v2/app/playback/state/playback_view_state.dart';
 import 'package:audiobook_flutter_v2/app/playback_providers.dart';
 import 'package:audiobook_flutter_v2/app/settings_controller.dart';
+import 'package:audiobook_flutter_v2/app/tts_providers.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Provider for the playback view state machine
@@ -102,11 +104,22 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
     
     final (newState, effects) = transition(currentState, event);
 
+    // Debug logging for LoadingComplete
+    if (event is LoadingComplete) {
+      debugPrint('[PlaybackViewNotifier] ${DateTime.now().toIso8601String()} LoadingComplete received!');
+      debugPrint('[PlaybackViewNotifier] ${DateTime.now().toIso8601String()} segments count: ${event.segments.length}');
+      debugPrint('[PlaybackViewNotifier] ${DateTime.now().toIso8601String()} Current state: ${currentState.runtimeType}');
+      debugPrint('[PlaybackViewNotifier] ${DateTime.now().toIso8601String()} New state: ${newState.runtimeType}');
+      if (newState is ActiveState) {
+        debugPrint('[PlaybackViewNotifier] ${DateTime.now().toIso8601String()} ActiveState segments: ${newState.segments.length}');
+      }
+    }
+
     // Debug logging for state transition result
     if (event is ChapterEnded) {
-      debugPrint('[PlaybackViewNotifier] After ChapterEnded transition:');
-      debugPrint('[PlaybackViewNotifier] New state type: ${newState.runtimeType}');
-      debugPrint('[PlaybackViewNotifier] Effects: $effects');
+      debugPrint('[PlaybackViewNotifier] ${DateTime.now().toIso8601String()} After ChapterEnded transition:');
+      debugPrint('[PlaybackViewNotifier] ${DateTime.now().toIso8601String()} New state type: ${newState.runtimeType}');
+      debugPrint('[PlaybackViewNotifier] ${DateTime.now().toIso8601String()} Effects: $effects');
     }
 
     // Update state if changed
@@ -204,6 +217,20 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
 
   /// Get current sleep timer minutes (null if not set)
   int? get sleepTimerMinutes => _sleepTimerMinutes;
+  
+  /// Update the warmup status in the current state.
+  /// 
+  /// This is used to show loading progress in the voice selection button.
+  void _updateWarmupStatus(EngineWarmupStatus status, {String? errorMessage}) {
+    final current = state;
+    if (current is ActiveState) {
+      state = current.copyWith(
+        warmupStatus: status,
+        warmupError: errorMessage,
+      );
+      debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Status updated to: $status');
+    }
+  }
 
   // ===========================================================================
   // Side Effect Execution
@@ -332,6 +359,7 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
 
       // Emit loading complete IMMEDIATELY so UI shows content
       // Don't wait for playback controller setup
+      final loadingStartTime = DateTime.now();
       _handleEvent(LoadingComplete(
         segments: segments,
         bookTitle: book.title,
@@ -339,6 +367,79 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
         totalChapters: book.chapters.length,
         actualChapterIndex: actualChapterIndex,  // Pass actual chapter (may differ from requested)
       ));
+      
+      // Verify state changed to ActiveState
+      debugPrint('[_loadChapter] ${DateTime.now().toIso8601String()} After LoadingComplete, state is: ${state.runtimeType}');
+      if (state is ActiveState) {
+        debugPrint('[_loadChapter] ${DateTime.now().toIso8601String()} ActiveState segments: ${(state as ActiveState).segments.length}');
+      }
+
+      // Pre-warm the TTS engine for the selected voice BEFORE loading the chapter.
+      // This initializes the CoreML/ONNX models before playback starts,
+      // preventing UI jank during the first synthesis.
+      // Note: UI already shows content (LoadingComplete emitted above), so user
+      // sees the chapter while warmUp runs.
+      final selectedVoice = ref.read(settingsProvider).selectedVoice;
+      debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Selected voice: $selectedVoice');
+      if (selectedVoice != VoiceIds.none && autoPlay) {
+        // Update state to show warming status
+        _updateWarmupStatus(EngineWarmupStatus.warming);
+        
+        try {
+          debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Starting warmUp for $selectedVoice (awaited for autoPlay)');
+          
+          // Wait for Flutter to render the new state before starting warmUp
+          // This ensures the UI shows content while warmUp runs
+          final completer = Completer<void>();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Post-frame callback fired, UI should be rendered');
+            completer.complete();
+          });
+          await completer.future;
+          
+          final engineLoadStart = DateTime.now();
+          final engine = await ref.read(ttsRoutingEngineProvider.future);
+          debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Engine loaded in ${DateTime.now().difference(engineLoadStart).inMilliseconds}ms, calling warmUp...');
+          
+          // Yield again before the potentially slow warmUp
+          await Future.delayed(Duration.zero);
+          
+          final warmUpStart = DateTime.now();
+          final success = await engine.warmUp(selectedVoice);
+          final warmUpDuration = DateTime.now().difference(warmUpStart);
+          final totalDuration = DateTime.now().difference(loadingStartTime);
+          debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} WarmUp completed: $success in ${warmUpDuration.inMilliseconds}ms (total since LoadingComplete: ${totalDuration.inMilliseconds}ms)');
+          
+          // Update state to show ready or failed
+          _updateWarmupStatus(
+            success ? EngineWarmupStatus.ready : EngineWarmupStatus.failed,
+            errorMessage: success ? null : 'Voice warmup failed',
+          );
+        } catch (e) {
+          debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Failed to warm up TTS engine: $e');
+          _updateWarmupStatus(EngineWarmupStatus.failed, errorMessage: e.toString());
+          // Continue even if warmUp fails - synthesis will still work (just with jank)
+        }
+      } else if (selectedVoice != VoiceIds.none) {
+        // Not autoPlay - run warmUp in background
+        _updateWarmupStatus(EngineWarmupStatus.warming);
+        unawaited(
+          ref.read(ttsRoutingEngineProvider.future).then((engine) {
+            return engine.warmUp(selectedVoice);
+          }).then((success) {
+            _updateWarmupStatus(
+              success ? EngineWarmupStatus.ready : EngineWarmupStatus.failed,
+              errorMessage: success ? null : 'Voice warmup failed',
+            );
+          }).catchError((e) {
+            debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Failed to warm up TTS engine: $e');
+            _updateWarmupStatus(EngineWarmupStatus.failed, errorMessage: e.toString());
+          }),
+        );
+      } else {
+        // No voice selected - mark as ready (device voice or none)
+        _updateWarmupStatus(EngineWarmupStatus.ready);
+      }
 
       // THEN setup playback controller asynchronously
       // This can take time (cache checks, synthesis setup) but UI is already showing

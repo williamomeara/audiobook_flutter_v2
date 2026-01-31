@@ -93,6 +93,57 @@ class KokoroAdapter implements AiVoiceEngine {
   }
 
   @override
+  Future<bool> warmUp(String voiceId) async {
+    // Check if this voice belongs to this engine
+    if (!VoiceIds.isKokoro(voiceId)) {
+      return false;
+    }
+
+    final warmUpStartTime = DateTime.now();
+    TtsLog.info('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp started for $voiceId');
+
+    try {
+      // Check if voice files are available
+      final readiness = await checkVoiceReady(voiceId);
+      if (!readiness.isReady) {
+        TtsLog.debug('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp: voice not ready');
+        return false;
+      }
+
+      // Initialize engine if needed
+      if (!_coreReadiness.isReady) {
+        final coreDir = _getCoreDir();
+        if (await coreDir.exists()) {
+          TtsLog.debug('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp: initializing engine...');
+          await _initEngine(coreDir.path);
+          TtsLog.debug('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp: engine initialized');
+        } else {
+          TtsLog.debug('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp: core not found');
+          return false;
+        }
+      }
+
+      // Load voice if not already loaded
+      // Kokoro voices are bundled with core - use core path with speaker ID
+      if (!_loadedVoices.containsKey(voiceId)) {
+        final modelPath = _getCoreDir().path;
+        TtsLog.debug('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp: loading voice $voiceId...');
+        await _loadVoice(voiceId, modelPath, 
+          speakerId: VoiceIds.kokoroSpeakerId(voiceId));
+        TtsLog.debug('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp: voice loaded');
+      }
+
+      final totalDuration = DateTime.now().difference(warmUpStartTime);
+      TtsLog.info('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp complete for $voiceId in ${totalDuration.inMilliseconds}ms');
+      return true;
+    } catch (e) {
+      final totalDuration = DateTime.now().difference(warmUpStartTime);
+      TtsLog.error('[KokoroAdapter] ${DateTime.now().toIso8601String()} warmUp failed after ${totalDuration.inMilliseconds}ms: $e');
+      return false;
+    }
+  }
+
+  @override
   Future<CoreReadiness> getCoreReadiness(String voiceId) async {
     try {
       final status = await _nativeApi.getCoreStatus(NativeEngineType.kokoro);
