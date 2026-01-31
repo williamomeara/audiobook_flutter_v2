@@ -8,6 +8,12 @@ A landing page to showcase and promote **Eist** — an AI-powered audiobook read
 
 ---
 
+## Domain
+
+**Purchased:** `eist.app` from Namecheap
+
+---
+
 ## Recommendation: Separate Repository
 
 **Verdict: Create a new repository for the landing page**
@@ -223,8 +229,8 @@ touch index.html css/style.css
 
 ## Next Steps
 
-1. **Decision needed:** Which tech stack? (Astro recommended)
-2. **Decision needed:** Domain name?
+1. ~~**Decision needed:** Which tech stack?~~ → Astro recommended
+2. ~~**Decision needed:** Domain name?~~ → **eist.app** (purchased from Namecheap)
 3. **Assets needed:** App screenshots, icon, mockups
 4. **Content needed:** Feature descriptions, privacy policy
 
