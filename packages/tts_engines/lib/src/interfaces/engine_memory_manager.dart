@@ -35,10 +35,10 @@ class EngineMemoryManager {
   
   /// Platform-aware default for max loaded engines.
   static int _platformDefault() {
-    if (Platform.isIOS) {
-      return 1; // Aggressive on iOS due to memory limits
-    }
-    return 2; // Allow 2 on Android for faster switching
+    // Allow 2 engines on both platforms to avoid race conditions during voice swap.
+    // When switching voices, the old engine may have in-flight synthesis that
+    // needs to complete before unloading. Allowing 2 engines gives a buffer.
+    return 2;
   }
   
   /// Prepare to use an engine.

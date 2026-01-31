@@ -80,7 +80,10 @@ class RoutingEngine implements AiVoiceEngine {
 
   @override
   Future<bool> warmUp(String voiceId) async {
-    final engine = _engineForVoice(voiceId);
+    // Prepare engine (unloads others if needed for memory)
+    // This should happen during warmUp, not during synthesis, to avoid
+    // race conditions where the old engine is unloaded while still in use.
+    final engine = await _prepareEngineForVoice(voiceId);
     if (engine == null) {
       return false;
     }
