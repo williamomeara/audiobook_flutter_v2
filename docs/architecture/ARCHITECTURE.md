@@ -131,30 +131,37 @@ flowchart TB
 
 The app uses **SQLite** (via `sqflite`) as the primary persistence layer for all structured data:
 
-### Database schema (v3)
+### Database schema (v9)
 
 | Table | Purpose |
 |-------|---------|
 | `books` | Book metadata (id, title, author, path, cover, voice, timestamps) |
 | `chapters` | Chapter data (id, bookId, title, order, sourceText, processedText) |
-| `segments` | Text segments for TTS synthesis (id, chapterId, text, order, confidence) |
-| `reading_progress` | Per-book and per-segment playback progress |
-| `cache_metadata` | Audio cache tracking (key, path, size, accessTime, voice) |
+| `segments` | Text segments for TTS synthesis (id, chapterId, text, order, type) |
+| `reading_progress` | Per-book progress and total listening time |
+| `chapter_positions` | Per-chapter resume positions with primary flag |
+| `cache_entries` | Audio cache metadata with compression state tracking |
+| `completed_chapters` | Chapter completion timestamps |
 | `settings` | Key-value settings store (JSON-encoded values) |
+| `downloaded_voices` | Installed voice model metadata |
+| `model_metrics` | Engine performance metrics for auto-tuning |
 
 ### Persistence patterns
 
 - **Library data**: Books, chapters, and segments stored in SQLite with transactional updates
-- **Playback progress**: Saved to SQLite on segment transitions and periodic auto-save
+- **Playback progress**: Saved to SQLite via auto-save timer (30s) and on segment transitions
+- **Position tracking**: `chapter_positions.is_primary` marks "Continue Listening" position
 - **Settings**: Most settings in SQLite via `SettingsDao`; only `dark_mode` uses `SharedPreferences` for instant startup theme loading
-- **Audio cache**: Cache files stored on disk, metadata tracked in SQLite for eviction
+- **Audio cache**: Cache files stored on disk, metadata tracked in SQLite with compression state
 - **Voice downloads**: Manifest files (`.manifest`) track download state on disk
 
 ### Infrastructure services
 
 - `AppDatabase` — singleton database with WAL mode for concurrent reads
 - `SettingsDao` — typed key-value store for app settings
-- `SqliteCacheMetadataStorage` — audio cache metadata with LRU eviction
+- `ChapterPositionDao` — per-chapter position tracking with primary flag
+- `ProgressDao` — book-level progress and listening time
+- `CacheDao` — audio cache metadata with compression state
 - `QuickSettingsService` — SharedPreferences wrapper for startup-critical settings only
 
 ## Detailed docs

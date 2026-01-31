@@ -37,14 +37,14 @@ All app data is stored in SQLite (`eist_audiobook.db`) using WAL mode.
 
 ## Quick Reference
 
-### Playback States
+### Playback States (Sealed Hierarchy)
 ```
-IDLE → LOADING → BUFFERING → PLAYING ⇄ PAUSED → ERROR
+IdleState → LoadingState → ActiveState ⇄ PreviewState
 ```
-
-### Preview Mode
-- **Active Mode**: Full controls, auto-scroll, position saves
-- **Preview Mode**: Mini-player, tap segment to switch
+- **IdleState**: No audio loaded
+- **LoadingState**: Preparing audio content
+- **ActiveState**: Full playback controls, auto-scroll
+- **PreviewState**: Browsing different content, mini-player shows what's playing
 
 ### Sleep Timer States
 ```
