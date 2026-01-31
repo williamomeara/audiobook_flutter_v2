@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:core_domain/core_domain.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../interfaces/ai_voice_engine.dart';
 import '../interfaces/engine_memory_manager.dart';
@@ -81,27 +82,27 @@ class RoutingEngine implements AiVoiceEngine {
   @override
   Future<bool> warmUp(String voiceId) async {
     final startTime = DateTime.now();
-    TtsLog.info('[RoutingEngine] warmUp($voiceId) started at ${startTime.toIso8601String()}');
+    debugPrint('[RoutingEngine] ${startTime.toIso8601String()} warmUp($voiceId) started');
     
     // Prepare engine (unloads others if needed for memory)
     // This should happen during warmUp, not during synthesis, to avoid
     // race conditions where the old engine is unloaded while still in use.
-    TtsLog.info('[RoutingEngine] warmUp: calling _prepareEngineForVoice...');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: calling _prepareEngineForVoice...');
     final engine = await _prepareEngineForVoice(voiceId);
     final prepareTime = DateTime.now().difference(startTime);
-    TtsLog.info('[RoutingEngine] warmUp: _prepareEngineForVoice completed in ${prepareTime.inMilliseconds}ms');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: _prepareEngineForVoice completed in ${prepareTime.inMilliseconds}ms');
     
     if (engine == null) {
-      TtsLog.info('[RoutingEngine] warmUp: no engine for voice, returning false');
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: no engine for voice, returning false');
       return false;
     }
     
-    TtsLog.info('[RoutingEngine] warmUp: calling engine.warmUp...');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: calling engine.warmUp...');
     final warmUpStart = DateTime.now();
     final result = await engine.warmUp(voiceId);
     final warmUpTime = DateTime.now().difference(warmUpStart);
     final totalTime = DateTime.now().difference(startTime);
-    TtsLog.info('[RoutingEngine] warmUp: engine.warmUp completed in ${warmUpTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: engine.warmUp completed in ${warmUpTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
     
     return result;
   }
@@ -390,22 +391,22 @@ class RoutingEngine implements AiVoiceEngine {
   /// Unloads other engines if needed to stay within memory limits.
   Future<AiVoiceEngine?> _prepareEngineForVoice(String voiceId) async {
     final startTime = DateTime.now();
-    TtsLog.debug('[RoutingEngine] _prepareEngineForVoice($voiceId) started');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice($voiceId) started');
     
     final engineType = _engineTypeForVoice(voiceId);
     if (engineType == null) {
-      TtsLog.debug('[RoutingEngine] _prepareEngineForVoice: no engine type for voice');
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice: no engine type for voice');
       return null;
     }
     
     final engine = _engineByType(engineType);
     if (engine == null) {
-      TtsLog.debug('[RoutingEngine] _prepareEngineForVoice: no engine instance for type');
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice: no engine instance for type');
       return null;
     }
     
     // Prepare memory - may unload other engines
-    TtsLog.debug('[RoutingEngine] _prepareEngineForVoice: calling memoryManager.prepareForEngine(${engineType.name})...');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice: calling memoryManager.prepareForEngine(${engineType.name})...');
     final prepareStart = DateTime.now();
     await _memoryManager.prepareForEngine(
       engineType,
@@ -413,28 +414,28 @@ class RoutingEngine implements AiVoiceEngine {
     );
     final prepareTime = DateTime.now().difference(prepareStart);
     final totalTime = DateTime.now().difference(startTime);
-    TtsLog.debug('[RoutingEngine] _prepareEngineForVoice: prepareForEngine completed in ${prepareTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice: prepareForEngine completed in ${prepareTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
     
     return engine;
   }
   
   /// Unload an engine by type to free memory.
   Future<void> _unloadEngine(EngineType engineType) async {
-    TtsLog.info('[RoutingEngine] _unloadEngine(${engineType.name}) started');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _unloadEngine(${engineType.name}) started');
     final startTime = DateTime.now();
     
     final engine = _engineByType(engineType);
     if (engine == null) {
-      TtsLog.info('[RoutingEngine] _unloadEngine: no engine for type, skipping');
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _unloadEngine: no engine for type, skipping');
       return;
     }
     
-    TtsLog.info('[RoutingEngine] _unloadEngine: calling clearAllModels on ${engineType.name}...');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _unloadEngine: calling clearAllModels on ${engineType.name}...');
     final clearStart = DateTime.now();
     await engine.clearAllModels();
     final clearTime = DateTime.now().difference(clearStart);
     final totalTime = DateTime.now().difference(startTime);
-    TtsLog.info('[RoutingEngine] _unloadEngine(${engineType.name}) completed in ${clearTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _unloadEngine(${engineType.name}) completed in ${clearTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
   }
 
   /// Synthesize with caching support (convenience method).
