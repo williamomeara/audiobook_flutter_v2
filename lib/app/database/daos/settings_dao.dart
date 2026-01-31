@@ -274,4 +274,5 @@ class SettingsKeys {
   static const String showBookCoverBackground = 'show_book_cover_background';
   static const String runtimePlaybackConfig = 'runtime_playback_config';
   static const String showImages = 'show_images';
+  static const String wifiOnlyDownloads = 'wifi_only_downloads';
 }

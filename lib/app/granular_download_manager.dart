@@ -233,10 +233,11 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     final key = _getCoreKey(core.id);
     StreamSubscription<DownloadState>? subscription;
     int lastLoggedPercent = -10; // Track last logged % to throttle output
+    final downloadStartTime = DateTime.now();
 
     try {
       // Set downloading status when we actually start (moved from queued)
-      _updateCoreState(core.id, DownloadStatus.downloading, 0.0);
+      _updateCoreState(core.id, DownloadStatus.downloading, 0.0, startTime: downloadStartTime);
 
       if (core.isMultiFile) {
         // Multi-file download (e.g., Piper ONNX + JSON)
@@ -472,6 +473,7 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     double progress, {
     String? error,
     int? downloadedBytes,
+    DateTime? startTime,
   }) {
     final current = state.value;
     if (current == null) return;
@@ -479,6 +481,9 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     final core = _manifestService.getCore(coreId);
     if (core == null) return;
 
+    // Preserve existing startTime if not provided
+    final existingStartTime = current.cores[coreId]?.startTime;
+    
     final newCores = Map<String, CoreDownloadState>.from(current.cores);
     newCores[coreId] = CoreDownloadState(
       coreId: coreId,
@@ -488,6 +493,7 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
       progress: progress,
       sizeBytes: core.totalSize,
       downloadedBytes: downloadedBytes ?? (progress * core.totalSize).toInt(),
+      startTime: startTime ?? existingStartTime,
       error: error,
     );
 

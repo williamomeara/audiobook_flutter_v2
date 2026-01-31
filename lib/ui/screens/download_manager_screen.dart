@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:downloads/downloads.dart';
 
 import '../../app/granular_download_manager.dart';
+import '../../app/settings_controller.dart';
 import '../../app/voice_preview_service.dart';
 import '../theme/app_colors.dart';
 
@@ -50,6 +51,15 @@ class _DownloadContentState extends ConsumerState<_DownloadContent> {
     final readyVoices = state.voices.values
         .where((v) => v.allCoresReady(state.cores))
         .length;
+    
+    // Calculate per-engine storage
+    final engineSizes = <String, int>{};
+    for (final core in state.cores.values) {
+      if (core.isReady) {
+        engineSizes[core.engineType] = 
+            (engineSizes[core.engineType] ?? 0) + core.sizeBytes;
+      }
+    }
 
     return Column(
       children: [
@@ -62,9 +72,9 @@ class _DownloadContentState extends ConsumerState<_DownloadContent> {
           child: Row(
             children: [
               Expanded(
-                child: _StatCard(
-                  label: 'Storage Used',
-                  value: _formatBytes(state.totalInstalledSize),
+                child: _StorageStatCard(
+                  totalBytes: state.totalInstalledSize,
+                  engineSizes: engineSizes,
                   colors: colors,
                 ),
               ),
@@ -78,6 +88,12 @@ class _DownloadContentState extends ConsumerState<_DownloadContent> {
               ),
             ],
           ),
+        ),
+        
+        // WiFi-only toggle
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+          child: _WifiOnlyToggle(colors: colors),
         ),
 
         // Engine Sections
@@ -206,6 +222,104 @@ class _StatCard extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Storage stat card with expandable per-engine breakdown.
+class _StorageStatCard extends StatefulWidget {
+  const _StorageStatCard({
+    required this.totalBytes,
+    required this.engineSizes,
+    required this.colors,
+  });
+
+  final int totalBytes;
+  final Map<String, int> engineSizes;
+  final AppThemeColors colors;
+
+  @override
+  State<_StorageStatCard> createState() => _StorageStatCardState();
+}
+
+class _StorageStatCardState extends State<_StorageStatCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => setState(() => _expanded = !_expanded),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: widget.colors.card,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Storage Used',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: widget.colors.textSecondary,
+                  ),
+                ),
+                if (widget.engineSizes.isNotEmpty)
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16,
+                    color: widget.colors.textSecondary,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _formatBytes(widget.totalBytes),
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: widget.colors.text,
+              ),
+            ),
+            if (_expanded && widget.engineSizes.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              ...widget.engineSizes.entries.map((e) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _capitalizeFirst(e.key),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: widget.colors.textSecondary,
+                      ),
+                    ),
+                    Text(
+                      _formatBytes(e.value),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: widget.colors.text,
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+  
+  String _capitalizeFirst(String s) {
+    if (s.isEmpty) return s;
+    return s[0].toUpperCase() + s.substring(1);
   }
 }
 
@@ -486,7 +600,7 @@ class _CoreTile extends ConsumerWidget {
               ],
             ),
           ),
-          _buildAction(ref, colors),
+          _buildAction(ref, colors, context),
         ],
       ),
     );
@@ -504,7 +618,7 @@ class _CoreTile extends ConsumerWidget {
     }
   }
 
-  Widget _buildAction(WidgetRef ref, AppThemeColors colors) {
+  Widget _buildAction(WidgetRef ref, AppThemeColors colors, BuildContext context) {
     switch (core.status) {
       case DownloadStatus.notDownloaded:
         return _DownloadButton(
@@ -533,15 +647,54 @@ class _CoreTile extends ConsumerWidget {
       case DownloadStatus.extracting:
         return _ExtractingIndicator(colors: colors);
       case DownloadStatus.ready:
-        return Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: Colors.green.withValues(alpha: 0.2),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(Icons.check, size: 16, color: Colors.green.shade600),
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.check, size: 16, color: Colors.green.shade600),
+            ),
+            const SizedBox(width: 8),
+            _DeleteButton(
+              onPressed: () => _confirmDelete(context, ref),
+              colors: colors,
+            ),
+          ],
         );
     }
+  }
+  
+  void _confirmDelete(BuildContext context, WidgetRef ref) {
+    final colors = context.appColors;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: colors.card,
+        title: Text('Delete ${core.displayName}?', style: TextStyle(color: colors.text)),
+        content: Text(
+          'This will remove the downloaded model (${_formatBytes(core.sizeBytes)}). '
+          'Voices using this engine will no longer work until re-downloaded.',
+          style: TextStyle(color: colors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(color: colors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(granularDownloadManagerProvider.notifier).deleteCore(core.coreId);
+            },
+            child: Text('Delete', style: TextStyle(color: Colors.red.shade600)),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -561,8 +714,10 @@ class _VoiceTile extends ConsumerWidget {
     final colors = context.appColors;
     final isReady = voice.allCoresReady(cores);
     final isDownloading = voice.anyDownloading(cores);
-    final currentlyPlaying = ref.watch(voicePreviewProvider);
-    final isPlayingThis = currentlyPlaying == voice.voiceId;
+    final previewState = ref.watch(voicePreviewProvider);
+    final isPlayingThis = previewState.isPlayingVoice(voice.voiceId);
+    final isLoadingThis = previewState.isLoadingVoice(voice.voiceId);
+    final hasError = previewState.isError && previewState.voiceId == voice.voiceId;
     
     // Get the status text from the first required core
     final statusText = _getStatusText(isReady, isDownloading);
@@ -608,22 +763,12 @@ class _VoiceTile extends ConsumerWidget {
           ),
           
           // Preview button
-          IconButton(
-            icon: Icon(
-              isPlayingThis ? Icons.stop : Icons.play_circle_outline,
-              color: isPlayingThis ? colors.primary : colors.textSecondary,
-              size: 22,
-            ),
-            onPressed: () {
-              if (isPlayingThis) {
-                ref.read(voicePreviewProvider.notifier).stop();
-              } else {
-                ref.read(voicePreviewProvider.notifier).playPreview(voice.voiceId);
-              }
-            },
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          _PreviewButton(
+            voiceId: voice.voiceId,
+            isPlaying: isPlayingThis,
+            isLoading: isLoadingThis,
+            hasError: hasError,
+            colors: colors,
           ),
           const SizedBox(width: 8),
           
@@ -853,6 +998,148 @@ class _RetryButton extends StatelessWidget {
           shape: BoxShape.circle,
         ),
         child: Icon(Icons.refresh, size: 16, color: Colors.red.shade600),
+      ),
+    );
+  }
+}
+
+/// Preview button with loading, playing, and error states.
+class _PreviewButton extends ConsumerWidget {
+  const _PreviewButton({
+    required this.voiceId,
+    required this.isPlaying,
+    required this.isLoading,
+    required this.hasError,
+    required this.colors,
+  });
+
+  final String voiceId;
+  final bool isPlaying;
+  final bool isLoading;
+  final bool hasError;
+  final AppThemeColors colors;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (isLoading) {
+      return SizedBox(
+        width: 32,
+        height: 32,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: colors.primary,
+          ),
+        ),
+      );
+    }
+    
+    if (hasError) {
+      return SizedBox(
+        width: 32,
+        height: 32,
+        child: Icon(
+          Icons.error_outline,
+          color: Colors.red.shade400,
+          size: 22,
+        ),
+      );
+    }
+    
+    return IconButton(
+      icon: Icon(
+        isPlaying ? Icons.stop : Icons.play_circle_outline,
+        color: isPlaying ? colors.primary : colors.textSecondary,
+        size: 22,
+      ),
+      onPressed: () {
+        if (isPlaying) {
+          ref.read(voicePreviewProvider.notifier).stop();
+        } else {
+          ref.read(voicePreviewProvider.notifier).playPreview(voiceId);
+        }
+      },
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    );
+  }
+}
+
+/// Delete button for ready cores.
+class _DeleteButton extends StatelessWidget {
+  const _DeleteButton({
+    required this.onPressed,
+    required this.colors,
+  });
+
+  final VoidCallback onPressed;
+  final AppThemeColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: colors.textSecondary.withValues(alpha: 0.15),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Icons.delete_outline, size: 16, color: colors.textSecondary),
+      ),
+    );
+  }
+}
+
+/// WiFi-only download toggle.
+class _WifiOnlyToggle extends ConsumerWidget {
+  const _WifiOnlyToggle({required this.colors});
+
+  final AppThemeColors colors;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final wifiOnly = ref.watch(settingsProvider.select((s) => s.wifiOnlyDownloads));
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.wifi, size: 20, color: colors.textSecondary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'WiFi only',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: colors.text,
+                  ),
+                ),
+                Text(
+                  'Only download voice models on WiFi',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: wifiOnly,
+            onChanged: (v) => ref.read(settingsProvider.notifier).setWifiOnlyDownloads(v),
+          ),
+        ],
       ),
     );
   }

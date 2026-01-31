@@ -10,6 +10,7 @@ class CoreDownloadState {
     this.progress = 0.0,
     required this.sizeBytes,
     this.downloadedBytes = 0,
+    this.startTime,
     this.error,
   });
 
@@ -20,6 +21,7 @@ class CoreDownloadState {
   final double progress;
   final int sizeBytes;
   final int downloadedBytes;
+  final DateTime? startTime;
   final String? error;
 
   bool get isReady => status == DownloadStatus.ready;
@@ -33,6 +35,38 @@ class CoreDownloadState {
   bool get isActive => status == DownloadStatus.downloading || 
                        status == DownloadStatus.extracting ||
                        status == DownloadStatus.queued;
+  
+  /// Calculate download speed in bytes per second.
+  double? get downloadSpeed {
+    if (startTime == null || status != DownloadStatus.downloading) return null;
+    final elapsed = DateTime.now().difference(startTime!).inMilliseconds;
+    if (elapsed <= 0) return null;
+    return (downloadedBytes / elapsed) * 1000;
+  }
+  
+  /// Estimate remaining time in seconds.
+  int? get estimatedSecondsRemaining {
+    final speed = downloadSpeed;
+    if (speed == null || speed <= 0) return null;
+    final remaining = sizeBytes - downloadedBytes;
+    return (remaining / speed).ceil();
+  }
+  
+  /// Format ETA as human-readable string.
+  String? get etaText {
+    final seconds = estimatedSecondsRemaining;
+    if (seconds == null) return null;
+    if (seconds < 60) return '${seconds}s left';
+    if (seconds < 3600) return '${(seconds / 60).ceil()}m left';
+    return '${(seconds / 3600).ceil()}h left';
+  }
+  
+  /// Format download speed as human-readable string.
+  String? get speedText {
+    final speed = downloadSpeed;
+    if (speed == null) return null;
+    return '${_formatBytes(speed.round())}/s';
+  }
 
   /// Human-readable status text for UI display.
   String get statusText {
@@ -43,6 +77,11 @@ class CoreDownloadState {
         return 'Waiting...';
       case DownloadStatus.downloading:
         final percent = (progress * 100).toStringAsFixed(0);
+        final speed = speedText;
+        final eta = etaText;
+        if (speed != null && eta != null) {
+          return '$percent% · $speed · $eta';
+        }
         return '$percent% · ${_formatBytes(downloadedBytes)} / ${_formatBytes(sizeBytes)}';
       case DownloadStatus.extracting:
         return 'Unpacking files...';
@@ -61,6 +100,7 @@ class CoreDownloadState {
     double? progress,
     int? sizeBytes,
     int? downloadedBytes,
+    DateTime? startTime,
     String? error,
   }) {
     return CoreDownloadState(
@@ -71,6 +111,7 @@ class CoreDownloadState {
       progress: progress ?? this.progress,
       sizeBytes: sizeBytes ?? this.sizeBytes,
       downloadedBytes: downloadedBytes ?? this.downloadedBytes,
+      startTime: startTime ?? this.startTime,
       error: error ?? this.error,
     );
   }
