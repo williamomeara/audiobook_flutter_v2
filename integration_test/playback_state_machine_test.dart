@@ -54,11 +54,11 @@ void main() {
           await tester.pumpAndSettle();
 
           // Verify play button appears (switched from pause)
-          expect(find.byIcon(Icons.play), findsWidgets);
+          expect(find.byIcon(Icons.play_arrow), findsWidgets);
         }
 
         // Tap resume
-        await tester.tap(find.byIcon(Icons.play));
+        await tester.tap(find.byIcon(Icons.play_arrow));
         await tester.pumpAndSettle();
 
         // Verify pause button appears again

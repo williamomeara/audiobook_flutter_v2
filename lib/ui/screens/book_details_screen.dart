@@ -81,11 +81,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Invalidate caches when app resumes to ensure
-    // "Continue Listening" button reflects latest playback progress
+    // Invalidate listening progress when app resumes to show
+    // latest playback completion status
     if (state == AppLifecycleState.resumed) {
       ref.invalidate(bookChapterProgressProvider(widget.bookId));
-      ref.invalidate(primaryPositionProvider(widget.bookId));
     }
   }
 
@@ -131,15 +130,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
             error: (_, __) => <int, ChapterProgress?>{},
           );
 
-          // Watch primary position to show "last listened" badge on chapter list
-          final primaryPositionAsync = ref.watch(
-            primaryPositionProvider(book.id),
-          );
-          final primaryPosition = primaryPositionAsync.when(
-            data: (data) => data,
-            loading: () => null,
-            error: (_, __) => null,
-          );
+          // Watch playback state to determine what's currently playing
+          final playbackState = ref.watch(playbackStateProvider);
+          final currentPlayingChapter = playbackState.bookId == widget.bookId
+              ? playbackState.queue.firstOrNull?.chapterIndex
+              : null;
 
           final coverPath = book.coverImagePath;
           final chapters = book.chapters;
@@ -429,40 +424,35 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                             width: double.infinity,
                             child: ElevatedButton.icon(
                               onPressed: () {
-                                // Navigate to playback with primary position if available
-                                final path = '/playback/${widget.bookId}';
-                                if (primaryPosition != null) {
-                                  context.push(
-                                    '$path?chapter=${primaryPosition.chapterIndex}&segment=${primaryPosition.segmentIndex}',
-                                  );
-                                } else {
-                                  context.push(path);
-                                }
+                                // If audio is currently playing THIS book, jump to that position
+                                // Otherwise resume from saved listening position
+                                final chapter = currentPlayingChapter ?? book.progress.chapterIndex;
+                                final segment = currentPlayingChapter != null
+                                    ? playbackState.currentIndex
+                                    : book.progress.segmentIndex;
+                                // startPlayback=true tells PlaybackScreen to start playback
+                                // (not enter preview mode) even if another book is playing
+                                context.push(
+                                  '/playback/${widget.bookId}?chapter=$chapter&segment=$segment&startPlayback=true',
+                                );
                               },
                               // Button icon and text based on book progress state
-                              // If there's an active listening position, always show "Continue Listening"
                               icon: Icon(
-                                primaryPosition != null
-                                    ? Icons.play_circle_fill
-                                    : switch (bookProgressState) {
-                                        BookProgressState.notStarted =>
-                                          Icons.play_circle_outline,
-                                        BookProgressState.inProgress =>
-                                          Icons.play_circle_fill,
-                                        BookProgressState.complete => Icons.replay,
-                                      },
+                                switch (bookProgressState) {
+                                  BookProgressState.notStarted =>
+                                    Icons.play_circle_outline,
+                                  BookProgressState.inProgress =>
+                                    Icons.play_circle_fill,
+                                  BookProgressState.complete => Icons.replay,
+                                },
                               ),
                               label: Text(
-                                // If actively listening (primaryPosition exists), show "Continue Listening"
-                                primaryPosition != null
-                                    ? 'Continue Listening'
-                                    : switch (bookProgressState) {
-                                        BookProgressState.notStarted =>
-                                          'Start Listening',
-                                        BookProgressState.inProgress =>
-                                          'Continue Listening',
-                                        BookProgressState.complete => 'Listen Again',
-                                      },
+                                switch (bookProgressState) {
+                                  BookProgressState.notStarted => 'Start Listening',
+                                  BookProgressState.inProgress =>
+                                    'Continue Listening',
+                                  BookProgressState.complete => 'Listen Again',
+                                },
                                 style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
@@ -617,12 +607,8 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                         ...displayedChapters.map((chapter) {
                           // Get the original index from the full chapters list
                           final index = chapters.indexOf(chapter);
-                          // Use primary position for "current chapter" indicator (badge, highlighting)
-                          // Falls back to book.progress if no primary position is set
-                          final currentChapterIndex =
-                              primaryPosition?.chapterIndex ??
-                              book.progress.chapterIndex;
-                          final isCurrentChapter = index == currentChapterIndex;
+                          // Show "CONTINUE HERE" badge for the chapter that's currently playing
+                          final isCurrentChapter = index == currentPlayingChapter;
 
                           // Get per-segment listening progress for this chapter
                           // This is the single source of truth for chapter completion
@@ -651,15 +637,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
 
                           return GestureDetector(
                             onTap: () {
-                              // Always navigate to PlaybackScreen
-                              // If audio is playing a different chapter, PlaybackScreen
-                              // will enter "preview mode" (showing text with mini player)
-                              // If it's the current chapter with a primary position, use that segment
+                              // Navigate to chapter
+                              // If it's the currently playing chapter, jump to current playback position
                               // Otherwise start at segment 0
-                              final segment =
-                                  (isCurrentChapter && primaryPosition != null)
-                                      ? primaryPosition.segmentIndex
-                                      : 0;
+                              final segment = isCurrentChapter
+                                  ? (playbackState.currentIndex >= 0
+                                      ? playbackState.currentIndex
+                                      : 0)
+                                  : 0;
                               context.push(
                                 '/playback/${widget.bookId}?chapter=$index&segment=$segment',
                               );
@@ -1448,13 +1433,17 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
 
     return segments
         .map(
-          (segment) => AudioTrack(
+          (segment) {
+            return AudioTrack(
             id: IdGenerator.audioTrackId(bookId, chapterIndex, segment.index),
             text: segment.text,
             chapterIndex: chapterIndex,
             segmentIndex: segment.index,
             estimatedDuration: segment.estimatedDuration,
-          ),
+            segmentType: segment.type,
+            metadata: segment.metadata,
+          );
+          },
         )
         .toList();
   }

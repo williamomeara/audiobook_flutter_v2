@@ -42,6 +42,7 @@ class SettingsState {
     this.synthesisMode = SynthesisMode.auto,
     this.showBufferIndicator = true,
     this.compressOnSynthesize = true,
+    this.showImages = true,
   });
 
   /// Whether dark mode is enabled.
@@ -77,6 +78,10 @@ class SettingsState {
   /// Whether to automatically compress audio after synthesis (saves ~90% space).
   final bool compressOnSynthesize;
 
+  /// Whether to show images/figures in the playback view.
+  /// When disabled, figure segments are hidden and image-only chapters are skipped.
+  final bool showImages;
+
   SettingsState copyWith({
     bool? darkMode,
     String? selectedVoice,
@@ -89,6 +94,7 @@ class SettingsState {
     SynthesisMode? synthesisMode,
     bool? showBufferIndicator,
     bool? compressOnSynthesize,
+    bool? showImages,
   }) {
     return SettingsState(
       darkMode: darkMode ?? this.darkMode,
@@ -102,6 +108,7 @@ class SettingsState {
       synthesisMode: synthesisMode ?? this.synthesisMode,
       showBufferIndicator: showBufferIndicator ?? this.showBufferIndicator,
       compressOnSynthesize: compressOnSynthesize ?? this.compressOnSynthesize,
+      showImages: showImages ?? this.showImages,
     );
   }
 }
@@ -159,6 +166,8 @@ class SettingsController extends Notifier<SettingsState> {
           await _settingsDao!.getBool(SettingsKeys.showBufferIndicator) ?? true;
       final compressOnSynthesize =
           await _settingsDao!.getBool(SettingsKeys.compressOnSynthesize) ?? true;
+      final showImages =
+          await _settingsDao!.getBool(SettingsKeys.showImages) ?? true;
 
       state = SettingsState(
         darkMode: darkMode,
@@ -172,6 +181,7 @@ class SettingsController extends Notifier<SettingsState> {
         synthesisMode: _parseSynthesisMode(synthesisModeStr),
         showBufferIndicator: showBufferIndicator,
         compressOnSynthesize: compressOnSynthesize,
+        showImages: showImages,
       );
 
       developer.log(
@@ -286,6 +296,11 @@ class SettingsController extends Notifier<SettingsState> {
   Future<void> setCompressOnSynthesize(bool value) async {
     state = state.copyWith(compressOnSynthesize: value);
     await _settingsDao?.setBool(SettingsKeys.compressOnSynthesize, value);
+  }
+
+  Future<void> setShowImages(bool value) async {
+    state = state.copyWith(showImages: value);
+    await _settingsDao?.setBool(SettingsKeys.showImages, value);
   }
 }
 

@@ -50,6 +50,7 @@ class MigrationConsolidated {
         word_count INTEGER,
         char_count INTEGER,
         estimated_duration_ms INTEGER,
+        is_playable INTEGER DEFAULT 1 NOT NULL,
         UNIQUE(book_id, chapter_index),
         FOREIGN KEY(book_id) REFERENCES books(id) ON DELETE CASCADE
       )
@@ -65,6 +66,8 @@ class MigrationConsolidated {
         text TEXT NOT NULL,
         char_count INTEGER NOT NULL,
         estimated_duration_ms INTEGER NOT NULL,
+        segment_type TEXT DEFAULT 'text',
+        metadata_json TEXT,
         UNIQUE(book_id, chapter_index, segment_index),
         FOREIGN KEY(book_id) REFERENCES books(id) ON DELETE CASCADE
       )

@@ -190,10 +190,10 @@ class BoilerplateRemover {
   /// Detects repeated text appearing at the start of multiple chapters.
   ///
   /// If the same text appears in >50% of chapters, it's likely boilerplate
-  /// that was inserted programmatically (e.g., scanner headers).
+  /// or a repeated header (like book title) that was inserted.
   ///
   /// Returns the repeated prefix if found, null otherwise.
-  static String? detectRepeatedPrefix(List<String> chapterContents) {
+  static String? detectRepeatedPrefix(List<String> chapterContents, {String? bookTitle}) {
     if (chapterContents.length < 3) return null;
 
     final prefixes = <String, int>{};
@@ -202,7 +202,7 @@ class BoilerplateRemover {
       if (lines.isEmpty) continue;
 
       final firstLine = lines.first.trim();
-      if (firstLine.length > 10 && firstLine.length < 200) {
+      if (firstLine.length > 5 && firstLine.length < 300) {
         prefixes[firstLine] = (prefixes[firstLine] ?? 0) + 1;
       }
     }
@@ -221,20 +221,107 @@ class BoilerplateRemover {
     
     // Find longest common prefix among >50% of chapters
     final firstContent = nonEmptyContents.first;
-    for (int prefixLen = 50; prefixLen >= 20; prefixLen -= 10) {
+    for (int prefixLen = 80; prefixLen >= 10; prefixLen -= 5) {
       if (prefixLen > firstContent.length) continue;
       final candidate = firstContent.substring(0, prefixLen);
       
       final matchCount = nonEmptyContents.where((c) => c.startsWith(candidate)).length;
       if (matchCount > nonEmptyContents.length * 0.5) {
-        // Only return if it looks like boilerplate (contains common patterns)
+        // Return if it looks like boilerplate OR matches the book title
         if (_looksLikeBoilerplatePrefix(candidate)) {
+          return candidate;
+        }
+        // NEW: Also remove repeated book title prefix
+        if (bookTitle != null && _isTitlePrefix(candidate, bookTitle)) {
+          return candidate;
+        }
+        // NEW: Check if it's a repeated exact line (even without boilerplate patterns)
+        // If >70% of chapters have the exact same prefix, it's likely redundant
+        if (matchCount > nonEmptyContents.length * 0.7) {
           return candidate;
         }
       }
     }
     
     return null;
+  }
+  
+  /// Check if a prefix is essentially the book title (possibly with chapter marker).
+  static bool _isTitlePrefix(String prefix, String bookTitle) {
+    final lowerPrefix = prefix.toLowerCase().trim();
+    final lowerTitle = bookTitle.toLowerCase().trim();
+    
+    // Direct match
+    if (lowerPrefix == lowerTitle) return true;
+    
+    // Prefix starts with book title
+    if (lowerPrefix.startsWith(lowerTitle)) return true;
+    
+    // Book title starts with prefix
+    if (lowerTitle.startsWith(lowerPrefix)) return true;
+    
+    // Handle partial matches (e.g., "A Conjuring" matches "A Conjuring of Light")
+    final prefixWords = lowerPrefix.split(RegExp(r'\\s+'));
+    final titleWords = lowerTitle.split(RegExp(r'\\s+'));
+    if (prefixWords.length >= 2 && titleWords.length >= 2) {
+      // If the first 2+ words match, it's likely the title
+      final matchingWords = prefixWords.take(titleWords.length).toList();
+      final titlePart = titleWords.take(matchingWords.length).toList();
+      if (matchingWords.length >= 2 && matchingWords.join(' ') == titlePart.join(' ')) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  /// Detect and remove repeated chapter titles from segment content.
+  /// 
+  /// This handles patterns like:
+  /// - "Book Title Chapter 1 Actual content..."
+  /// - "Book Title: A Subtitle Prologue The story begins..."
+  /// 
+  /// Called after initial chapter segmentation to clean up first segments.
+  static String removeRepeatedTitleFromContent(String content, String bookTitle, String chapterTitle) {
+    if (content.isEmpty || bookTitle.isEmpty) return content;
+    
+    var result = content.trim();
+    final lowerContent = result.toLowerCase();
+    final lowerBookTitle = bookTitle.toLowerCase().trim();
+    final lowerChapterTitle = chapterTitle.toLowerCase().trim();
+    
+    // Check if content starts with book title (exact or close match)
+    if (lowerContent.startsWith(lowerBookTitle)) {
+      // Remove the book title
+      result = result.substring(bookTitle.length).trimLeft();
+      
+      // Also remove any separator characters after the title
+      result = result.replaceFirst(RegExp(r'^[:\|,\-–—]\s*'), '');
+    }
+    
+    // Check for "Book Title Chapter X" pattern
+    final titleChapterPattern = RegExp(
+      '^${RegExp.escape(lowerBookTitle)}\\s*(?:chapter|prologue|epilogue|part|section)?\\s*\\d*\\s*',
+      caseSensitive: false,
+    );
+    if (titleChapterPattern.hasMatch(result)) {
+      result = result.replaceFirst(titleChapterPattern, '').trimLeft();
+    }
+    
+    // Check for just the chapter title at the start (if different from content)
+    if (lowerChapterTitle.isNotEmpty && !lowerChapterTitle.startsWith('chapter')) {
+      if (lowerContent.startsWith(lowerChapterTitle) && 
+          lowerContent.length > lowerChapterTitle.length) {
+        // Don't remove if it's meaningful content, only if it looks like a header
+        final afterTitle = content.substring(chapterTitle.length).trimLeft();
+        // Only remove if followed by content (not just more title)
+        if (afterTitle.isNotEmpty && afterTitle[0].toUpperCase() == afterTitle[0]) {
+          result = afterTitle;
+        }
+      }
+    }
+    
+    return result;
   }
   
   /// Check if a prefix looks like boilerplate rather than legitimate content.

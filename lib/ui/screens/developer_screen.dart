@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../app/database/app_database.dart';
 import '../../app/granular_download_manager.dart';
 import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
@@ -34,6 +35,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
   bool _isSynthesizing = false;
   bool _isPlaying = false;
   bool _isReimporting = false;
+  bool _isResettingDatabase = false;
   bool _isBenchmarking = false;
   bool _isGeneratingPreviews = false;
   String? _lastError;
@@ -42,6 +44,7 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
   int? _lastFileSizeBytes;
   Duration _synthesisTime = Duration.zero;
   String? _reimportMessage;
+  String? _resetDatabaseMessage;
   String? _benchmarkResults;
   String? _previewGenerationMessage;
 
@@ -119,6 +122,10 @@ class _DeveloperScreenState extends ConsumerState<DeveloperScreen> {
 
                     // Benchmark Test
                     _buildBenchmarkCard(colors, settings),
+                    const SizedBox(height: 20),
+                    
+                    // Reset Database (danger zone)
+                    _buildResetDatabaseCard(colors),
                     const SizedBox(height: 20),
 
                     // Sample Audio Test
@@ -441,6 +448,72 @@ adb shell "run-as io.eist.app cat ${directory.path}/<voice_id>.wav" > assets/voi
               style: TextStyle(
                 fontSize: 13,
                 color: _reimportMessage!.contains('Error') ? colors.danger : colors.primary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildResetDatabaseCard(AppThemeColors colors) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.danger.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber, color: colors.danger, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Reset Database',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: colors.text,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Delete the database and restart the app. All books, settings, and progress will be lost!',
+            style: TextStyle(
+              fontSize: 13,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _isResettingDatabase ? null : _showResetDatabaseDialog,
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.danger,
+              ),
+              icon: _isResettingDatabase
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_forever),
+              label: Text(_isResettingDatabase ? 'Resetting...' : 'Reset Database'),
+            ),
+          ),
+          if (_resetDatabaseMessage != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _resetDatabaseMessage!,
+              style: TextStyle(
+                fontSize: 13,
+                color: _resetDatabaseMessage!.contains('Error') ? colors.danger : colors.primary,
               ),
             ),
           ],
@@ -903,6 +976,68 @@ adb shell "run-as io.eist.app cat ${directory.path}/<voice_id>.wav" > assets/voi
       });
     } finally {
       setState(() => _isReimporting = false);
+    }
+  }
+  
+  Future<void> _showResetDatabaseDialog() async {
+    final colors = context.appColors;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset Database?'),
+        content: const Text(
+          'This will delete ALL data including:\n\n'
+          '• All imported books\n'
+          '• Reading progress\n'
+          '• Settings\n'
+          '• Audio cache metadata\n\n'
+          'The app will close. You will need to restart it manually.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: colors.danger,
+            ),
+            child: const Text('Reset & Exit'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      await _resetDatabase();
+    }
+  }
+  
+  Future<void> _resetDatabase() async {
+    setState(() {
+      _isResettingDatabase = true;
+      _resetDatabaseMessage = 'Deleting database...';
+    });
+    
+    try {
+      await AppDatabase.deleteDatabase();
+      
+      setState(() {
+        _resetDatabaseMessage = 'Database deleted. Exiting app...';
+      });
+      
+      // Wait a moment for user to see the message
+      await Future.delayed(const Duration(seconds: 1));
+      
+      // Exit the app (user must restart manually)
+      exit(0);
+    } catch (e) {
+      DevLogger.error('[Developer] Failed to reset database: $e');
+      setState(() {
+        _resetDatabaseMessage = 'Error: $e';
+        _isResettingDatabase = false;
+      });
     }
   }
 

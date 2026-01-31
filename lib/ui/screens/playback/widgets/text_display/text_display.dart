@@ -32,6 +32,7 @@ class TextDisplayView extends ConsumerStatefulWidget {
     required this.onAutoScrollDisabled,
     required this.onJumpToCurrent,
     required this.activeSegmentKey,
+    this.isPreviewMode = false,
   });
   
   final String bookId;
@@ -45,6 +46,8 @@ class TextDisplayView extends ConsumerStatefulWidget {
   final VoidCallback onAutoScrollDisabled;
   final VoidCallback onJumpToCurrent;
   final GlobalKey activeSegmentKey;
+  /// When true, user is browsing (not playing) - hide "Jump to Audio" button
+  final bool isPreviewMode;
 
   @override
   ConsumerState<TextDisplayView> createState() => _TextDisplayViewState();
@@ -61,9 +64,13 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
       );
     }
     
-    // Get setting for book cover background
+    // Get setting for book cover background and image display
     final settings = ref.watch(settingsProvider);
     final showCoverBackground = settings.showBookCoverBackground && widget.book.coverImagePath != null;
+    final showImages = settings.showImages;
+    
+    // Determine dark mode from theme
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     
     // Watch segment readiness stream for opacity-based visualization
     final readinessKey = '${widget.bookId}:${widget.chapterIndex}';
@@ -78,6 +85,9 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
       colors: colors,
       activeSegmentKey: widget.activeSegmentKey,
       onSegmentTap: widget.onSegmentTap,
+      isDarkMode: isDarkMode,
+      showImages: showImages,
+      // onSkipSegment: (index) => _handleSkipSegment(index),  // TODO: implement skip
     );
     
     return Stack(
@@ -116,7 +126,8 @@ class _TextDisplayViewState extends ConsumerState<TextDisplayView> {
         ),
         
         // Jump to current button (bottom right) - shown when auto-scroll is disabled
-        if (!widget.autoScrollEnabled)
+        // BUT: Never show in preview mode - user should use mini player instead
+        if (!widget.autoScrollEnabled && !widget.isPreviewMode)
           Positioned(
             bottom: 16,
             right: 16,

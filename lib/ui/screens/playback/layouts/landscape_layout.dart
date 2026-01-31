@@ -36,6 +36,7 @@ class LandscapeLayout extends ConsumerWidget {
     required this.autoScrollEnabled,
     required this.scrollController,
     required this.activeSegmentKey,
+    required this.isPreviewMode,
     required this.sleepTimerMinutes,
     required this.sleepTimeRemainingSeconds,
     required this.onBack,
@@ -67,6 +68,7 @@ class LandscapeLayout extends ConsumerWidget {
   final bool autoScrollEnabled;
   final ScrollController scrollController;
   final GlobalKey activeSegmentKey;
+  final bool isPreviewMode;
   final int? sleepTimerMinutes;
   final int? sleepTimeRemainingSeconds;
 
@@ -136,6 +138,7 @@ class LandscapeLayout extends ConsumerWidget {
                               onAutoScrollDisabled: onAutoScrollDisabled,
                               onJumpToCurrent: onJumpToCurrent,
                               activeSegmentKey: activeSegmentKey,
+                              isPreviewMode: isPreviewMode,
                             ),
                   ),
               ],

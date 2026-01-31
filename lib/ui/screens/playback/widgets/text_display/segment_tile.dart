@@ -3,6 +3,7 @@ import 'package:core_domain/core_domain.dart';
 import 'package:playback/playback.dart';
 
 import '../../../../theme/app_colors.dart';
+import 'figure_block_widget.dart';
 
 /// Model representing the visual state of a segment for text display.
 class SegmentDisplayState {
@@ -89,6 +90,9 @@ InlineSpan buildSynthesizingIndicator(AppThemeColors colors) {
 /// Uses WidgetSpan with GestureDetector for all segments to avoid
 /// TapGestureRecognizer memory leaks.
 /// The [activeSegmentKey] is set on the active segment for scrolling.
+///
+/// For special segment types (figure), uses dedicated widgets.
+/// When [showImages] is false, figure segments are hidden from the display.
 List<InlineSpan> buildSegmentSpans({
   required List<AudioTrack> queue,
   required int currentIndex,
@@ -96,11 +100,20 @@ List<InlineSpan> buildSegmentSpans({
   required AppThemeColors colors,
   required GlobalKey activeSegmentKey,
   required void Function(int) onSegmentTap,
+  required bool isDarkMode,
+  void Function(int)? onSkipSegment,
+  bool showImages = true,
 }) {
   final List<InlineSpan> spans = [];
 
   for (int index = 0; index < queue.length; index++) {
     final item = queue[index];
+    
+    // Skip figure segments if showImages is disabled
+    if (!showImages && item.segmentType == SegmentType.figure) {
+      continue;
+    }
+    
     final isActive = index == currentIndex;
     final isPast = index < currentIndex;
 
@@ -115,6 +128,20 @@ List<InlineSpan> buildSegmentSpans({
       isReady: isReady,
       isSynthesizing: isSynthesizing,
     );
+    
+    // Handle special segment types
+    if (item.segmentType == SegmentType.figure) {
+      spans.add(_buildFigureBlockSpan(
+        item: item,
+        index: index,
+        isActive: isActive,
+        isDarkMode: isDarkMode,
+        onTap: () => onSegmentTap(index),
+        onSkip: onSkipSegment != null ? () => onSkipSegment(index) : null,
+        segmentKey: isActive ? activeSegmentKey : null,
+      ));
+      continue;
+    }
 
     final textStyle = buildSegmentTextStyle(colors: colors, state: state);
 
@@ -138,4 +165,45 @@ List<InlineSpan> buildSegmentSpans({
   }
 
   return spans;
+}
+
+/// Build a figure block span using FigureBlockWidget.
+WidgetSpan _buildFigureBlockSpan({
+  required AudioTrack item,
+  required int index,
+  required bool isActive,
+  required bool isDarkMode,
+  required VoidCallback onTap,
+  VoidCallback? onSkip,
+  GlobalKey? segmentKey,
+}) {
+  // Extract caption from metadata (set by segmenter) or from item text
+  final caption = item.metadata?['altText'] as String? ?? 
+                  item.metadata?['caption'] as String? ?? 
+                  item.text;
+  
+  // Get imagePath from metadata (set by segmenter)
+  final imagePath = item.metadata?['imagePath'] as String?;
+  
+  // Get dimensions from metadata (if available)
+  final width = item.metadata?['width'] as int?;
+  final height = item.metadata?['height'] as int?;
+  
+  return WidgetSpan(
+    alignment: PlaceholderAlignment.middle,
+    child: SizedBox(
+      key: segmentKey,
+      width: double.infinity,
+      child: FigureBlockWidget(
+        caption: caption,
+        imagePath: imagePath,
+        width: width,
+        height: height,
+        isDarkMode: isDarkMode,
+        isActive: isActive,
+        onTap: onTap,
+        onSkip: onSkip,
+      ),
+    ),
+  );
 }

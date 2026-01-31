@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:core_domain/core_domain.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -120,11 +122,40 @@ class LibraryRepository {
   Future<List<Segment>> getSegmentsForChapter(
       String bookId, int chapterIndex) async {
     final rows = await _segmentDao.getSegmentsForChapter(bookId, chapterIndex);
-    return rows.map((row) => Segment(
-      text: row['text'] as String,
-      index: row['segment_index'] as int,
-      estimatedDurationMs: row['estimated_duration_ms'] as int?,
-    )).toList();
+    return rows.map((row) {
+      // Parse segment type from string
+      final typeStr = row['segment_type'] as String? ?? 'text';
+      final type = _parseSegmentType(typeStr);
+      
+      // Parse metadata from JSON
+      final metadataJson = row['metadata_json'] as String?;
+      Map<String, dynamic>? metadata;
+      if (metadataJson != null && metadataJson.isNotEmpty) {
+        try {
+          metadata = jsonDecode(metadataJson) as Map<String, dynamic>;
+        } catch (e) {
+          // Ignore malformed JSON
+        }
+      }
+      
+      return Segment(
+        text: row['text'] as String,
+        index: row['segment_index'] as int,
+        estimatedDurationMs: row['estimated_duration_ms'] as int?,
+        type: type,
+        metadata: metadata,
+      );
+    }).toList();
+  }
+  
+  /// Parse segment type from database string value.
+  SegmentType _parseSegmentType(String value) {
+    switch (value) {
+      case 'figure': return SegmentType.figure;
+      case 'heading': return SegmentType.heading;
+      case 'quote': return SegmentType.quote;
+      default: return SegmentType.text;
+    }
   }
 
   /// Get a single segment's text (optimized for TTS).
@@ -172,6 +203,12 @@ class LibraryRepository {
         final durationMs = segments.fold<int>(
             0, (sum, s) => sum + (s.estimatedDurationMs ?? 0));
 
+        // Determine if chapter is playable (has enough content for TTS)
+        // A chapter is non-playable if it has no segments or very few words
+        // (likely a structural divider like "PART I" or "ACT I")
+        const minPlayableWordCount = 5;
+        final isPlayable = segments.isNotEmpty && wordCount >= minPlayableWordCount;
+
         // Insert chapter metadata
         await txn.insert('chapters', {
           'book_id': book.id,
@@ -181,11 +218,18 @@ class LibraryRepository {
           'word_count': wordCount,
           'char_count': charCount,
           'estimated_duration_ms': durationMs,
+          'is_playable': isPlayable ? 1 : 0,
         });
 
         // Batch insert segments
         final batch = txn.batch();
         for (final segment in segments) {
+          // Encode metadata to JSON if present
+          String? metadataJson;
+          if (segment.metadata != null && segment.metadata!.isNotEmpty) {
+            metadataJson = jsonEncode(segment.metadata);
+          }
+          
           batch.insert('segments', {
             'book_id': book.id,
             'chapter_index': chapterIndex,
@@ -194,6 +238,8 @@ class LibraryRepository {
             'char_count': segment.text.length,
             'estimated_duration_ms':
                 segment.estimatedDurationMs ?? estimateDurationMs(segment.text),
+            'segment_type': segment.type.name,
+            'metadata_json': metadataJson,
           });
         }
         await batch.commit(noResult: true);
@@ -277,5 +323,29 @@ class LibraryRepository {
   /// Add listen time to a book.
   Future<void> addListenTime(String bookId, int durationMs) async {
     await _progressDao.addListenTime(bookId, durationMs);
+  }
+
+  /// Check if a chapter is playable (has audio content).
+  /// Non-playable chapters are structural dividers like "PART I" or "ACT I".
+  Future<bool> isChapterPlayable(String bookId, int chapterIndex) async {
+    return await _chapterDao.isChapterPlayable(bookId, chapterIndex);
+  }
+
+  /// Find the next playable chapter index starting from (but not including) the given index.
+  /// Returns null if no playable chapter exists after the given index.
+  Future<int?> findNextPlayableChapter(String bookId, int fromIndex) async {
+    return await _chapterDao.findNextPlayableChapter(bookId, fromIndex);
+  }
+
+  /// Find the previous playable chapter index starting from (but not including) the given index.
+  /// Returns null if no playable chapter exists before the given index.
+  Future<int?> findPreviousPlayableChapter(String bookId, int fromIndex) async {
+    return await _chapterDao.findPreviousPlayableChapter(bookId, fromIndex);
+  }
+
+  /// Find the first playable chapter for a book.
+  /// Returns null if no playable chapters exist.
+  Future<int?> findFirstPlayableChapter(String bookId) async {
+    return await _chapterDao.findFirstPlayableChapter(bookId);
   }
 }
