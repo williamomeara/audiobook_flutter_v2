@@ -32,7 +32,133 @@ A landing page to showcase and promote **Eist** — an AI-powered audiobook read
 
 ---
 
-## Tech Stack Options
+## Tech Stack: v0.dev + Vercel (Recommended)
+
+**Why v0.dev:**
+- AI generates professional React/Tailwind code from prompts
+- Iterative refinement ("make the hero bigger", "add dark mode")
+- Export directly to Next.js project
+- Deploy to Vercel with one click
+
+---
+
+## Step-by-Step: Build with v0.dev
+
+### Step 1: Generate Landing Page
+
+1. Go to **[v0.dev](https://v0.dev)** and sign in with GitHub
+2. Use this prompt as a starting point:
+
+```
+Create a landing page for Eist, an AI-powered audiobook app.
+
+Design requirements:
+- Dark mode design with slate-900 (#0F172A) background
+- Amber (#F59E0B) accent color for CTAs and highlights
+- Clean, modern typography using Inter font
+
+Sections needed:
+1. Hero: Large headline "Eist. Listen to any book." with subheadline 
+   "AI-powered audiobook reader that transforms any EPUB or PDF into 
+   natural-sounding audio". Two CTA buttons: "Download for Android" and 
+   "Download for iOS". Phone mockup on the right.
+
+2. Features: 4-column grid showing:
+   - AI Text-to-Speech (multiple voice engines)
+   - Read Any Book (EPUB & PDF support)
+   - Playback Controls (speed, sleep timer)
+   - Works Offline (after voice download)
+
+3. How It Works: 3-step process
+   - Import your book
+   - Choose a voice
+   - Start listening
+
+4. Download CTA: Final call to action with app store buttons
+
+5. Footer: Links to Privacy Policy, Terms, and social links
+
+Style: Professional, minimal, tech-forward like Linear or Raycast
+```
+
+3. **Iterate** on the result:
+   - "Make the hero section taller with more padding"
+   - "Add a subtle gradient to the background"
+   - "Make the feature icons amber colored"
+   - "Add an app screenshot mockup"
+
+### Step 2: Export to Code
+
+1. Click **"Code"** button in v0.dev
+2. Choose **"Next.js"** export
+3. Copy the component code or click **"Deploy to Vercel"**
+
+### Step 3: Set Up Repository
+
+```bash
+# Option A: Deploy directly from v0.dev
+# Click "Deploy to Vercel" - it creates a repo and deploys automatically
+
+# Option B: Manual setup
+npx create-next-app@latest eist-landing
+cd eist-landing
+
+# Copy v0-generated components into src/app/page.tsx
+# Install dependencies if needed (e.g., lucide-react for icons)
+npm install lucide-react
+
+# Run locally
+npm run dev
+```
+
+### Step 4: Add Custom Domain
+
+1. Go to **Vercel Dashboard** → Your Project → **Settings** → **Domains**
+2. Add `eist.app`
+3. In **Namecheap**, add DNS records:
+
+| Type | Host | Value |
+|------|------|-------|
+| A | @ | `76.76.21.21` |
+| CNAME | www | `cname.vercel-dns.com` |
+
+4. Wait 5-10 minutes for DNS propagation
+5. Vercel auto-provisions HTTPS
+
+### Step 5: Add Content Pages
+
+Generate additional pages in v0.dev:
+
+**Privacy Policy prompt:**
+```
+Create a privacy policy page for Eist app. Same dark theme (slate-900 
+background, amber accents). Include sections for: data collection, 
+usage, storage, third-party services, user rights. Professional but 
+readable format.
+```
+
+**Terms of Service prompt:**
+```
+Create a terms of service page for Eist app. Same dark theme. 
+Standard app terms covering: usage license, restrictions, disclaimers, 
+liability limitations.
+```
+
+---
+
+## v0.dev Tips
+
+| Tip | Why |
+|-----|-----|
+| Be specific about colors | Prevents AI from using defaults |
+| Reference other sites | "Like Linear's homepage" helps with style |
+| Iterate in small steps | "Change X" is better than regenerating |
+| Use "Code" view often | Check generated code quality |
+| Export early | Don't over-iterate in v0 before testing real code |
+
+---
+
+## Alternative Tech Stack Options
 
 ### Option A: Static HTML/CSS (Simplest)
 ```
@@ -41,7 +167,7 @@ Cons: No components, harder to maintain
 Best for: Quick MVP, < 5 pages
 ```
 
-### Option B: Astro (Recommended)
+### Option B: Astro
 ```
 Pros: Fast builds, modern DX, partial hydration
 Cons: Learning curve if unfamiliar
@@ -298,30 +424,31 @@ If you want edge-optimized performance and already use Cloudflare:
 
 ---
 
-## Action Plan
+## Action Plan (v0.dev Workflow)
 
-### Phase 1: Setup (Day 1)
-- [ ] Create new GitHub repo `eist-landing`
-- [ ] Initialize with Astro or HTML template
-- [ ] Configure deployment to Vercel/Netlify
-- [ ] Set up custom domain (if available)
+### Phase 1: Generate & Iterate (Day 1)
+- [ ] Go to v0.dev and generate landing page with prompt above
+- [ ] Iterate on design (3-5 refinement prompts)
+- [ ] Generate Privacy Policy page
+- [ ] Generate Terms of Service page
 
-### Phase 2: Content (Day 2-3)
-- [ ] Write copy for all sections
-- [ ] Create/gather app screenshots
-- [ ] Design hero mockup
-- [ ] Write privacy policy
-- [ ] Write terms of service
+### Phase 2: Deploy (Day 1-2)
+- [ ] Click "Deploy to Vercel" from v0.dev
+- [ ] Add eist.app domain in Vercel settings
+- [ ] Configure DNS in Namecheap
+- [ ] Verify HTTPS is working
 
-### Phase 3: Build (Day 3-5)
-- [ ] Build home page
-- [ ] Build features page
-- [ ] Add download links
-- [ ] Add privacy/terms pages
-- [ ] Mobile responsive testing
+### Phase 3: Content & Assets (Day 2-3)
+- [ ] Take app screenshots (3-5 screens)
+- [ ] Create phone mockup in Figma (optional)
+- [ ] Add actual App Store / Play Store links
+- [ ] Review and finalize copy
 
-### Phase 4: Polish (Day 5-7)
-- [ ] SEO optimization
+### Phase 4: Polish (Day 3-4)
+- [ ] Test on mobile devices
+- [ ] Check page speed (Lighthouse)
+- [ ] Add meta tags for SEO
+- [ ] Add favicon and Open Graph image
 - [ ] Performance optimization
 - [ ] Cross-browser testing
 - [ ] Analytics setup (Plausible, Fathom, or GA)
