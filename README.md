@@ -1,21 +1,30 @@
-# Audiobook Flutter v2
+# Eist
 
-Flutter audiobook reader with multi-engine AI text-to-speech (TTS), robust model downloads, and background playback.
+**AI-powered audiobook reader** that transforms any EPUB or PDF into natural-sounding audio.
 
-## Features
+> *Eist* (pronounced "esht") is Irish for "listen"
 
-- Import and parse **EPUB** (and PDF support via `pdfrx`).
-- Multi-engine TTS routing:
-  - **Kokoro**, **Piper**, **Supertonic** (plus device TTS fallback).
-- Reliable large downloads with atomic install + progress UI.
-- Playback via `just_audio` + `audio_service`.
+## What is Eist?
 
-## Quickstart
+Eist is a Flutter app that lets you listen to any book. Import an EPUB or PDF, select an AI voice, and Eist reads it aloud with natural-sounding speech. Works offline after downloading voice models.
+
+### Key Features
+
+- 📚 **Read any book** — Import EPUB and PDF files
+- 🎙️ **Multiple AI voices** — Kokoro, Piper, Supertonic engines + device TTS fallback
+- ⚡ **Smart synthesis** — Pre-generates audio ahead of playback
+- 🔇 **Offline capable** — Works without internet after voice download
+- 🎛️ **Playback controls** — Variable speed, sleep timer, background playback
+- 📑 **Chapter navigation** — Jump between chapters, segments, and positions
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
-- Flutter SDK + Dart (see `pubspec.yaml` for minimum Dart SDK)
-- Android Studio (or Xcode on macOS for iOS)
+- Flutter SDK (see `pubspec.yaml` for version)
+- Android Studio or Xcode (macOS)
 
 ### Run
 
@@ -24,57 +33,88 @@ flutter pub get
 flutter run
 ```
 
-## TTS model assets
+### Download Voices
 
-You can download voice models from inside the app:
+1. Open app → **Settings** → **Voice Downloads**
+2. Download one or more voice models (~100-500MB each)
+3. Select your preferred voice and start listening
 
-- Settings → **Voice Downloads**
+---
 
-### Optional: fetch Supertonic assets via script
+## Project Architecture
 
-This repo includes a helper script (useful for pre-loading assets during development):
+```
+lib/                  # Main app code (Riverpod providers, UI, state machines)
+├── app/              # Business logic and state management
+├── ui/               # Screens and widgets
+└── utils/            # Helpers
+
+packages/             # Modular packages
+├── core_domain/      # Domain models and text utilities
+├── downloads/        # Atomic downloads and voice manifests
+├── tts_engines/      # TTS engine abstractions and routing
+├── playback/         # Audio playback orchestration
+└── platform_android_tts/  # Android Kotlin plugin for TTS inference
+```
+
+### Core Technologies
+
+| Layer | Technology |
+|-------|------------|
+| UI Framework | Flutter |
+| State Management | Riverpod |
+| Navigation | Go Router |
+| Audio Playback | just_audio + audio_service |
+| Database | SQLite (drift) with WAL mode |
+| TTS Inference | ONNX Runtime (Android native) |
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Architecture Overview](docs/architecture/README.md) | System design and state machines |
+| [Playback State Machine](docs/architecture/playback_screen_state_machine.md) | Core playback logic |
+| [TTS Synthesis](docs/architecture/tts_synthesis_state_machine.md) | Text-to-speech pipeline |
+| [Audio Pipeline](docs/architecture/audio_synthesis_pipeline_state_machine.md) | Synthesis and caching |
+
+---
+
+## Development
+
+### Common Commands
+
+```bash
+flutter analyze          # Static analysis
+flutter test            # Run tests
+flutter format .        # Format code
+flutter run --release   # Release build
+```
+
+### Pre-loading Voice Assets (optional)
+
+For development, you can pre-fetch voice models:
 
 ```bash
 python3 scripts/fetch_supertonic_assets.py --dest assets/supertonic
 ```
 
-Notes:
+Set `HF_TOKEN` or `HUGGINGFACE_TOKEN` if Hugging Face repo is gated.
 
-- The script **prefers a GitHub release archive** if `SUPERSONIC_RELEASE_URL` is set (or `--supertonic-release-url`).
-- It falls back to per-file downloads from Hugging Face.
-- If the Hugging Face repo is gated you must set `HF_TOKEN` (or `HUGGINGFACE_TOKEN`).
-
-Useful flags:
-
-```bash
-python3 scripts/fetch_supertonic_assets.py --revision main --style f1,m1 --force
-```
-
-## Project structure
-
-- `lib/` — app code (Riverpod providers, UI, parsers)
-- `packages/` — local packages:
-  - `core_domain/` — domain models + text utilities
-  - `downloads/` — atomic downloads + voice manifest
-  - `tts_engines/` — engine interfaces + routing + cache
-  - `playback/` — playback orchestration
-  - `platform_android_tts/` — Android plugin + Kotlin services
-
-## Docs
-
-- High-level architecture: `docs/ARCHITECTURE.md`
-- Module deep dives: `docs/modules/README.md`
-- TTS implementation notes: `docs/TTS_IMPLEMENTATION_COMPLETE.md`
-
-## Common dev commands
-
-```bash
-flutter analyze
-flutter test
-flutter format .
-```
+---
 
 ## Troubleshooting
 
-- **Hugging Face 401 Unauthorized**: export `HF_TOKEN` / `HUGGINGFACE_TOKEN` and retry.
-- **Large downloads**: ensure the device has sufficient free space (several hundred MB for all engines).
+| Issue | Solution |
+|-------|----------|
+| **401 Unauthorized** from HuggingFace | Export `HF_TOKEN` environment variable |
+| **Downloads fail** | Check device has ~500MB+ free space |
+| **Audio not playing** | Ensure voice model is fully downloaded |
+| **App crashes on playback** | Check logcat for ONNX runtime errors |
+
+---
+
+## License
+
+See [LICENSE](LICENSE) file.
