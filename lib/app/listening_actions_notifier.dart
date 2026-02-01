@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'library_controller.dart';
 import 'playback_providers.dart';
 
 /// Notifier for managing listening position.
@@ -114,6 +115,14 @@ class ListeningActionsNotifier extends Notifier<void> {
 
     // Invalidate chapter positions cache (but not primary - we didn't change it)
     ref.invalidate(chapterPositionsProvider(bookId));
+
+    // Also update in-memory Book.progress so UI reflects current position
+    // This updates both in-memory state and reading_progress table
+    ref.read(libraryProvider.notifier).updateProgress(
+          bookId,
+          chapterIndex,
+          segmentIndex,
+        );
   }
 
   /// Get the resume position for a chapter.
