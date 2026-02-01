@@ -31,6 +31,10 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
   Timer? _sleepTimer;
   int? _sleepTimerMinutes;
 
+  /// Mutex to ensure events are processed sequentially
+  /// Prevents race conditions when multiple events arrive concurrently
+  Completer<void>? _eventLock;
+
   /// Callback for scroll-to-segment requests from side effects
   void Function(int segmentIndex)? onScrollToSegment;
 
@@ -81,11 +85,31 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
   }
 
   /// Process an event through the state machine
+  /// Events are queued and processed sequentially to prevent race conditions
   void handleEvent(PlaybackEvent event) {
     _handleEvent(event);
   }
 
-  void _handleEvent(PlaybackEvent event) {
+  Future<void> _handleEvent(PlaybackEvent event) async {
+    // Wait for any in-progress event to complete
+    while (_eventLock != null) {
+      await _eventLock!.future;
+    }
+    
+    // Acquire the lock for this event
+    _eventLock = Completer<void>();
+    
+    try {
+      await _processEvent(event);
+    } finally {
+      // Release the lock
+      final lock = _eventLock;
+      _eventLock = null;
+      lock?.complete();
+    }
+  }
+
+  Future<void> _processEvent(PlaybackEvent event) async {
     final currentState = state;
     
     // Debug logging for ChapterEnded event
@@ -130,9 +154,10 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
       _manageAutoSaveTimer(newState);
     }
 
-    // Execute side effects
+    // Execute side effects sequentially (await each one)
+    // This ensures SavePosition completes before NavigateBack
     for (final effect in effects) {
-      _executeSideEffect(effect);
+      await _executeSideEffect(effect);
     }
   }
 
@@ -414,11 +439,15 @@ class PlaybackViewNotifier extends Notifier<PlaybackViewState> {
           ? (state as ActiveState).warmupStatus 
           : EngineWarmupStatus.notStarted;
       final isAlreadyWarming = currentWarmupStatus == EngineWarmupStatus.warming;
+      final isAlreadyReady = currentWarmupStatus == EngineWarmupStatus.ready;
       
       // Track if warmUp was started and needs to trigger autoPlay when done
       bool needsAutoPlayAfterWarmUp = false;
       
-      if (isAlreadyWarming) {
+      if (isAlreadyReady) {
+        debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} Engine already ready, no warmup needed');
+        // Engine already warmed - proceed directly to autoPlay
+      } else if (isAlreadyWarming) {
         debugPrint('[WarmUp] ${DateTime.now().toIso8601String()} WarmUp already in progress, skipping duplicate call');
         // Don't start another warmUp - the existing one will update status when done
         needsAutoPlayAfterWarmUp = autoPlay;

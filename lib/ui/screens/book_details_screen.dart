@@ -9,6 +9,7 @@ import '../../app/chapter_synthesis_provider.dart';
 import '../../app/database/database.dart';
 import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
+import '../../app/services/playback_position_service.dart';
 import '../../app/settings_controller.dart';
 import '../theme/app_colors.dart';
 
@@ -81,10 +82,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Invalidate listening progress when app resumes to show
-    // latest playback completion status
+    // Invalidate listening progress and resume position when app resumes to show
+    // latest playback completion status and position from background playback
     if (state == AppLifecycleState.resumed) {
       ref.invalidate(bookChapterProgressProvider(widget.bookId));
+      ref.invalidate(resumePositionProvider(widget.bookId));
     }
   }
 
@@ -135,6 +137,18 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
           final currentPlayingChapter = playbackState.bookId == widget.bookId
               ? playbackState.queue.firstOrNull?.chapterIndex
               : null;
+
+          // Watch resume position from database (single source of truth)
+          final resumePositionAsync = ref.watch(resumePositionProvider(book.id));
+          final resumePosition = resumePositionAsync.whenOrNull(data: (d) => d);
+
+          // Watch saved chapter positions for per-chapter resume
+          final chapterPositionsAsync = ref.watch(chapterPositionsProvider(book.id));
+          final chapterPositions = chapterPositionsAsync.when(
+            data: (data) => data,
+            loading: () => <int, ChapterPosition>{},
+            error: (_, __) => <int, ChapterPosition>{},
+          );
 
           final coverPath = book.coverImagePath;
           final chapters = book.chapters;
@@ -401,7 +415,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                             // Use pre-calculated chapter-based progress
                             progress: chapterProgress,
                             chapterCount: book.chapters.length,
-                            currentChapter: book.progress.chapterIndex,
+                            currentChapter: resumePosition?.chapterIndex ?? 0,
                             chapterProgressMap: chapterProgressMap,
                             colors: colors,
                           ),
@@ -425,11 +439,12 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                             child: ElevatedButton.icon(
                               onPressed: () {
                                 // If audio is currently playing THIS book, jump to that position
-                                // Otherwise resume from saved listening position
-                                final chapter = currentPlayingChapter ?? book.progress.chapterIndex;
+                                // Otherwise resume from saved listening position (from DB)
+                                final chapter = currentPlayingChapter ?? 
+                                    (resumePosition?.chapterIndex ?? 0);
                                 final segment = currentPlayingChapter != null
                                     ? playbackState.currentIndex
-                                    : book.progress.segmentIndex;
+                                    : (resumePosition?.segmentIndex ?? 0);
                                 // startPlayback=true tells PlaybackScreen to start playback
                                 // (not enter preview mode) even if another book is playing
                                 context.push(
@@ -446,17 +461,43 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                                   BookProgressState.complete => Icons.replay,
                                 },
                               ),
-                              label: Text(
-                                switch (bookProgressState) {
-                                  BookProgressState.notStarted => 'Start Listening',
-                                  BookProgressState.inProgress =>
-                                    'Continue Listening',
-                                  BookProgressState.complete => 'Listen Again',
-                                },
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              label: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    switch (bookProgressState) {
+                                      BookProgressState.notStarted => 'Start Listening',
+                                      BookProgressState.inProgress =>
+                                        'Continue Listening',
+                                      BookProgressState.complete => 'Listen Again',
+                                    },
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  // Show current playing chapter if this book is playing,
+                                  // otherwise show saved resume position from database
+                                  if (bookProgressState == BookProgressState.inProgress) ...[
+                                    () {
+                                      final displayChapter = currentPlayingChapter ?? 
+                                          resumePosition?.chapterIndex;
+                                      if (displayChapter != null && displayChapter < book.chapters.length) {
+                                        return Text(
+                                          'Chapter ${displayChapter + 1}: ${book.chapters[displayChapter].title}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w400,
+                                            color: colors.primaryForeground.withValues(alpha: 0.8),
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        );
+                                      }
+                                      return const SizedBox.shrink();
+                                    }(),
+                                  ],
+                                ],
                               ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: colors.primary,
@@ -638,13 +679,18 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                           return GestureDetector(
                             onTap: () {
                               // Navigate to chapter
-                              // If it's the currently playing chapter, jump to current playback position
-                              // Otherwise start at segment 0
-                              final segment = isCurrentChapter
-                                  ? (playbackState.currentIndex >= 0
-                                      ? playbackState.currentIndex
-                                      : 0)
-                                  : 0;
+                              // Priority for segment:
+                              // 1. If currently playing this chapter: use current playback position
+                              // 2. If we have a saved position for this chapter: resume there
+                              // 3. Otherwise: start at segment 0
+                              int segment;
+                              if (isCurrentChapter && playbackState.currentIndex >= 0) {
+                                segment = playbackState.currentIndex;
+                              } else if (chapterPositions[index] != null) {
+                                segment = chapterPositions[index]!.segmentIndex;
+                              } else {
+                                segment = 0;
+                              }
                               context.push(
                                 '/playback/${widget.bookId}?chapter=$index&segment=$segment',
                               );

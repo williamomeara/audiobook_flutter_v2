@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'library_controller.dart';
 import 'playback_providers.dart';
+import 'services/playback_position_service.dart';
 
 /// Notifier for managing listening position.
 ///
@@ -101,19 +103,30 @@ class ListeningActionsNotifier extends Notifier<void> {
   }) async {
     final dao = await ref.read(chapterPositionDaoProvider.future);
 
-    // Check if a position already exists for this chapter
-    final existingPosition = await dao.getChapterPosition(bookId, chapterIndex);
+    // Clear any existing primary flag first
+    await dao.clearPrimaryFlag(bookId);
 
-    // Save position, preserving existing primary status or defaulting to false
+    // Save position as the new primary position
+    // This is the "last listened to" position for resume
     await dao.savePosition(
       bookId: bookId,
       chapterIndex: chapterIndex,
       segmentIndex: segmentIndex,
-      isPrimary: existingPosition?.isPrimary ?? false,
+      isPrimary: true,
     );
 
-    // Invalidate chapter positions cache (but not primary - we didn't change it)
+    // Invalidate providers to refresh UI from database
     ref.invalidate(chapterPositionsProvider(bookId));
+    ref.invalidate(resumePositionProvider(bookId));
+    ref.invalidate(primaryPositionProvider(bookId));
+
+    // Also update in-memory Book.progress for library screen display
+    // This updates both in-memory state and reading_progress table
+    ref.read(libraryProvider.notifier).updateProgress(
+          bookId,
+          chapterIndex,
+          segmentIndex,
+        );
   }
 
   /// Get the resume position for a chapter.

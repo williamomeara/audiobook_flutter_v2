@@ -10,6 +10,7 @@ import 'package:playback/playback.dart' hide SegmentReadinessTracker;
 import '../../app/library_controller.dart';
 import '../../app/playback/playback.dart';
 import '../../app/playback_providers.dart';
+import '../../app/services/playback_position_service.dart';
 import '../../app/settings_controller.dart';
 import '../../app/granular_download_manager.dart';
 import '../../utils/app_haptics.dart';
@@ -224,9 +225,21 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     final book = library.books.where((b) => b.id == widget.bookId).firstOrNull;
     if (book == null) return;
 
-    final chapterIndex = (widget.initialChapter ?? book.progress.chapterIndex)
-        .clamp(0, book.chapters.length - 1);
-    final segmentIndex = widget.initialSegment ?? book.progress.segmentIndex;
+    // Get resume position from database (single source of truth)
+    // widget.initialChapter/Segment are passed from navigation (URL params)
+    int chapterIndex;
+    int segmentIndex;
+    
+    if (widget.initialChapter != null) {
+      chapterIndex = widget.initialChapter!.clamp(0, book.chapters.length - 1);
+      segmentIndex = widget.initialSegment ?? 0;
+    } else {
+      // Fallback: read from database
+      final positionService = await ref.read(playbackPositionServiceFutureProvider.future);
+      final resumePosition = await positionService.getResumePosition(widget.bookId);
+      chapterIndex = resumePosition.chapterIndex.clamp(0, book.chapters.length - 1);
+      segmentIndex = resumePosition.segmentIndex;
+    }
 
     final notifier = ref.read(playbackViewProvider.notifier);
     final playbackState = ref.read(playbackStateProvider);
