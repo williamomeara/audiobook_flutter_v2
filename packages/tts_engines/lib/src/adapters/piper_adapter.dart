@@ -106,7 +106,8 @@ class PiperAdapter implements AiVoiceEngine {
         final modelKey = VoiceIds.piperModelKey(voiceId);
         if (modelKey != null) {
           final coreId = _getCoreIdForModelKey(modelKey);
-          final modelPath = '${_coreDir.path}/piper/$coreId/$modelKey.onnx';
+          // Use directory path - iOS expects directory, not file path
+          final modelPath = '${_coreDir.path}/piper/$coreId';
           TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp: loading voice $voiceId...');
           await _loadVoice(voiceId, modelPath);
           TtsLog.debug('[PiperAdapter] ${DateTime.now().toIso8601String()} warmUp: voice loaded');

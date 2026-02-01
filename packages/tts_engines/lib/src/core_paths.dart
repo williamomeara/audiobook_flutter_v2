@@ -19,16 +19,16 @@ import 'dart:io';
 ///       model.onnx
 ///       config.json
 ///   supertonic/
-///     {coreId}/
-///       supertonic/           (Android)
-///         onnx/
-///           text_encoder.onnx
-///           duration_predictor.onnx
-///           vector_estimator.onnx
-///           vocoder.onnx
-///       supertonic_coreml/    (iOS)
-///         TextEncoder.mlmodelc
-///         ...
+///     supertonic_core_v1/
+///       onnx/
+///         text_encoder.onnx
+///         duration_predictor.onnx
+///         vector_estimator.onnx
+///         vocoder.onnx
+///         tts.json
+///         unicode_indexer.json
+///       voice_styles/
+///         *.json
 /// ```
 class CorePaths {
   final Directory baseDir;
@@ -90,27 +90,17 @@ class CorePaths {
   
   // --- Supertonic-specific paths ---
   
-  /// Get the Supertonic core subdirectory name based on platform.
-  String getSupertonicSubdirectory() {
-    return Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
-  }
-  
   /// Get the Supertonic core directory for a specific core ID.
+  /// Both iOS and Android use the same ONNX-based models downloaded from HuggingFace.
   Directory getSupertonicCoreDirectory(String coreId) {
-    final subdir = getSupertonicSubdirectory();
-    return Directory('${baseDir.path}/supertonic/$coreId/$subdir');
+    return Directory('${baseDir.path}/supertonic/$coreId');
   }
   
   /// Get the Supertonic model path.
-  /// On Android, points to the ONNX model file.
-  /// On iOS, points to the CoreML model directory.
+  /// Both iOS and Android now use ONNX models.
   String getSupertonicModelPath(String coreId) {
     final coreDir = getSupertonicCoreDirectory(coreId);
-    if (Platform.isIOS) {
-      return coreDir.path;
-    } else {
-      return '${coreDir.path}/onnx/model.onnx';
-    }
+    return coreDir.path;  // Points to the directory containing ONNX models
   }
   
   // --- Utility methods ---
@@ -134,8 +124,8 @@ class CorePaths {
         // Piper needs voice-specific mapping (handled by VoiceIds)
         return null; // Let adapter handle this
       case 'supertonic':
-        // Supertonic uses platform-specific core
-        return Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
+        // Supertonic uses the same ONNX core on all platforms
+        return 'supertonic_core_v1';
       default:
         return null;
     }

@@ -1,46 +1,49 @@
 import Foundation
-import CoreML
 
 /// Supertonic TTS engine service.
-/// Uses CoreML for 4-stage pipeline synthesis (bundled models).
+/// Uses ONNX Runtime for 4-stage pipeline synthesis (matches official Supertonic SDK).
 class SupertonicTtsService: TtsServiceProtocol {
     let engineType: NativeEngineType = .supertonic
     
-    private var coremlInference = SupertonicCoreMLInference()
+    private var onnxInference = SupertonicOnnxInference()
     private var loadedVoices: [String: VoiceInfo] = [:]
     private let lock = NSLock()
     private let synthesisCounter = SynthesisCounter()
     
-    /// Marker path indicating bundled CoreML models should be used
-    private static let bundledCoreMLMarker = "__BUNDLED_COREML__"
-    
     var isReady: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return coremlInference.isModelLoaded
+        return onnxInference.isModelLoaded
     }
     
     func loadCore(corePath: String, configPath: String?) async throws {
+        // Thread logging: loadCore entry
+        NSLog("[THREAD] SupertonicTtsService.loadCore ENTRY: isMainThread=%@, thread=%@", 
+              Thread.isMainThread ? "YES" : "NO", 
+              Thread.current.description)
         NSLog("[SupertonicTtsService] loadCore called with corePath: %@", corePath)
         
         // Check if already loaded (quick check without heavy work)
         lock.lock()
-        let alreadyLoaded = coremlInference.isModelLoaded
+        let alreadyLoaded = onnxInference.isModelLoaded
         lock.unlock()
         
         if alreadyLoaded {
-            NSLog("[SupertonicTtsService] CoreML models already loaded")
+            NSLog("[SupertonicTtsService] ONNX models already loaded")
             return
         }
         
-        // Load CoreML models on a background thread to avoid blocking UI
-        // CoreML model loading is CPU-intensive and should not run on main thread
-        let inference = self.coremlInference
+        // Load ONNX models on a background thread
+        let inference = self.onnxInference
         let path = corePath
         try await Task.detached(priority: .userInitiated) {
-            NSLog("[SupertonicTtsService] Loading CoreML models from background thread: %@", path)
-            try inference.loadFromBundle(path)
-            NSLog("[SupertonicTtsService] CoreML models loaded successfully")
+            // Thread logging: Inside Task.detached for model loading
+            NSLog("[THREAD] SupertonicTtsService.loadCore Task.detached: isMainThread=%@, thread=%@", 
+                  Thread.isMainThread ? "YES" : "NO", 
+                  Thread.current.description)
+            NSLog("[SupertonicTtsService] Loading ONNX models from background thread: %@", path)
+            try inference.loadFromDirectory(path)
+            NSLog("[SupertonicTtsService] ONNX models loaded successfully")
         }.value
     }
     
@@ -76,12 +79,22 @@ class SupertonicTtsService: TtsServiceProtocol {
             throw TtsError.invalidInput("Text is empty")
         }
         
-        NSLog("[SupertonicTtsService] Synthesizing with CoreML: voiceId=%@, speakerId=%d, text length=%d", voiceId, speakerId ?? 0, text.count)
-        NSLog("[SupertonicTtsService] isModelLoaded=%@", coremlInference.isModelLoaded ? "YES" : "NO")
+        // Thread logging: Entry point (should be background from PlatformIosTtsPlugin)
+        NSLog("[THREAD] SupertonicTtsService.synthesize ENTRY: isMainThread=%@, thread=%@", 
+              Thread.isMainThread ? "YES" : "NO", 
+              Thread.current.description)
         
-        // Run synthesis on background thread to avoid blocking UI
-        let inference = self.coremlInference
-        let (samples, sampleRate, elapsed) = try await Task.detached(priority: .userInitiated) {
+        NSLog("[SupertonicTtsService] Synthesizing with ONNX: voiceId=%@, speakerId=%d, text length=%d", voiceId, speakerId ?? 0, text.count)
+        NSLog("[SupertonicTtsService] isModelLoaded=%@", onnxInference.isModelLoaded ? "YES" : "NO")
+        
+        // Run synthesis on background thread with lower priority to avoid UI contention
+        let inference = self.onnxInference
+        let (samples, sampleRate, elapsed) = try await Task.detached(priority: .utility) {
+            // Thread logging: Inside utility priority Task (should be background)
+            NSLog("[THREAD] SupertonicTtsService ONNX inference: isMainThread=%@, thread=%@", 
+                  Thread.isMainThread ? "YES" : "NO", 
+                  Thread.current.description)
+            
             let startTime = CFAbsoluteTimeGetCurrent()
             let (samples, sampleRate) = try inference.synthesize(
                 text: text,
@@ -92,6 +105,11 @@ class SupertonicTtsService: TtsServiceProtocol {
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             return (samples, sampleRate, elapsed)
         }.value
+        
+        // Thread logging: After Task.detached returns
+        NSLog("[THREAD] SupertonicTtsService after ONNX: isMainThread=%@, thread=%@", 
+              Thread.isMainThread ? "YES" : "NO", 
+              Thread.current.description)
         
         NSLog("[SupertonicTtsService] Synthesis complete: %d samples at %dHz in %.2fs", samples.count, sampleRate, elapsed)
         
@@ -120,7 +138,7 @@ class SupertonicTtsService: TtsServiceProtocol {
         lock.lock()
         defer { lock.unlock() }
         loadedVoices.removeValue(forKey: voiceId)
-        coremlInference.unload()
+        onnxInference.unload()
         NSLog("[SupertonicTtsService] Voice unloaded: %@", voiceId)
     }
     
@@ -131,7 +149,7 @@ class SupertonicTtsService: TtsServiceProtocol {
         lock.lock()
         defer { lock.unlock() }
         loadedVoices.removeAll()
-        coremlInference.unload()
+        onnxInference.unload()
         NSLog("[SupertonicTtsService] All resources unloaded")
     }
 }

@@ -29,23 +29,23 @@ Supports Kokoro, Piper, and Supertonic TTS engines.
     fi
   CMD
   
-  # Note: Supertonic CoreML models are now downloaded at runtime by the app
-  # (reduces app size by ~77MB). See GranularDownloadManager for download logic.
+  # Note: Supertonic ONNX models are downloaded at runtime by the app
+  # Uses same models as Android (unified ONNX-based approach).
   
-  # Preserve module map folder
-  s.preserve_paths = 'SherpaOnnxCApi'
+  # Preserve module map folders
+  s.preserve_paths = 'SherpaOnnxCApi', 'OnnxRuntimeCApi'
   
   # Module map for C API access (bridging headers not supported in frameworks)
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
-    'SWIFT_INCLUDE_PATHS' => '$(PODS_TARGET_SRCROOT)/SherpaOnnxCApi',
-    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/Frameworks/sherpa-onnx.xcframework/ios-arm64/Headers $(PODS_TARGET_SRCROOT)/SherpaOnnxCApi'
+    'SWIFT_INCLUDE_PATHS' => '$(PODS_TARGET_SRCROOT)/SherpaOnnxCApi $(PODS_TARGET_SRCROOT)/OnnxRuntimeCApi',
+    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/Frameworks/sherpa-onnx.xcframework/ios-arm64/Headers $(PODS_TARGET_SRCROOT)/SherpaOnnxCApi $(PODS_TARGET_SRCROOT)/Frameworks/onnxruntime.xcframework/Headers $(PODS_TARGET_SRCROOT)/OnnxRuntimeCApi'
   }
   s.swift_version = '5.0'
   
-  # Frameworks required by ONNX Runtime and CoreML
-  s.frameworks = 'Accelerate', 'CoreML'
+  # Frameworks required by ONNX Runtime
+  s.frameworks = 'Accelerate'
 
   # If your plugin requires a privacy manifest, for example if it uses any
   # required reason APIs, update the PrivacyInfo.xcprivacy file to describe your

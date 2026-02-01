@@ -639,9 +639,16 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
             PlaybackLogger.debug('[PlaybackProvider] Entry registered (compression disabled): $filename');
             return;
           }
-          PlaybackLogger.debug('[PlaybackProvider] Entry registered, triggering compression: $filename');
-          final result = await intelligentCache.compressEntryByFilenameInBackground(filename);
-          PlaybackLogger.info('[PlaybackProvider] Compression result for $filename: $result');
+          PlaybackLogger.debug('[PlaybackProvider] Entry registered, queueing compression: $filename');
+          // Fire off compression asynchronously without awaiting it.
+          // This ensures synthesis can continue immediately without blocking on codec operations.
+          // The compression will run on the native thread via platform channel.
+          unawaited(
+            intelligentCache.compressEntryByFilenameInBackground(filename).then(
+              (result) => PlaybackLogger.info('[PlaybackProvider] Compression result for $filename: $result'),
+              onError: (e) => PlaybackLogger.error('[PlaybackProvider] Compression failed for $filename: $e'),
+            ),
+          );
         },
         // Skip figure segments when images are disabled
         shouldSkipSegmentType: (segmentType) {
@@ -689,6 +696,20 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
           if (previousVoice != VoiceIds.none && previousVoice != next && _controller != null) {
             PlaybackLogger.info('[PlaybackProvider] Voice changed: $previousVoice -> $next');
             _controller!.notifyVoiceChanged();
+            
+            // Reset segment readiness since cache keys include voiceId
+            // Old voice's "ready" segments won't be usable with new voice
+            final currentState = _controller!.state;
+            final bookId = currentState.bookId;
+            final chapterIndex = currentState.currentTrack?.chapterIndex;
+            if (bookId != null && chapterIndex != null) {
+              final readinessKey = '$bookId:$chapterIndex';
+              PlaybackLogger.info('[PlaybackProvider] Resetting segment readiness for: $readinessKey');
+              SegmentReadinessTracker.instance.reset(readinessKey);
+              
+              // Re-check cache with new voice (fire-and-forget)
+              _recheckCacheForVoice(ref, readinessKey, next, currentState.queue);
+            }
             
             // Pre-warm the new voice engine in the background
             // This prevents UI jank when playback starts with the new voice
@@ -795,6 +816,42 @@ class PlaybackControllerNotifier extends AsyncNotifier<PlaybackState> {
         PlaybackLogger.info('[PlaybackProvider] WarmUp completed for $voiceId: $success');
       }).catchError((e) {
         PlaybackLogger.error('[PlaybackProvider] WarmUp failed for $voiceId: $e');
+      }),
+    );
+  }
+  
+  /// Re-check cache for segments with the new voice after voice change.
+  /// Updates readiness tracker to show which segments are already cached
+  /// for the new voice.
+  void _recheckCacheForVoice(
+    Ref ref,
+    String readinessKey,
+    String voiceId,
+    List<AudioTrack> queue,
+  ) {
+    unawaited(
+      ref.read(audioCacheProvider.future).then((cache) async {
+        final playbackRate = ref.read(settingsProvider).defaultPlaybackRate;
+        var cachedCount = 0;
+        
+        for (var i = 0; i < queue.length; i++) {
+          final cacheKey = CacheKeyGenerator.generate(
+            voiceId: voiceId,
+            text: queue[i].text,
+            playbackRate: CacheKeyGenerator.getSynthesisRate(playbackRate),
+          );
+          if (await cache.isReady(cacheKey)) {
+            SegmentReadinessTracker.instance.onSynthesisComplete(readinessKey, i);
+            cachedCount++;
+          }
+        }
+        
+        PlaybackLogger.info(
+          '[PlaybackProvider] Cache re-check for $voiceId: '
+          '$cachedCount/${queue.length} segments already cached',
+        );
+      }).catchError((e) {
+        PlaybackLogger.error('[PlaybackProvider] Cache re-check failed: $e');
       }),
     );
   }

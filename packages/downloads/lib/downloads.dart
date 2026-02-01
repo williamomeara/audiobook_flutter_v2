@@ -10,3 +10,8 @@ export 'src/manifest_service.dart';
 export 'src/granular_download_state.dart';
 export 'src/download_queue.dart';
 export 'src/download_error.dart';
+
+// Validation pipeline
+export 'src/download_validator.dart';
+export 'src/archive_validator.dart';
+export 'src/extraction_error_handler.dart';

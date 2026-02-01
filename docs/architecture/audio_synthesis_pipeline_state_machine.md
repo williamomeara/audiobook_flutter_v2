@@ -67,6 +67,105 @@ stateDiagram-v2
 
 ---
 
+## Segment Readiness Tracker (UI Feedback)
+
+The `SegmentReadinessTracker` provides real-time UI feedback for segment synthesis status.
+
+### State to Opacity Mapping
+
+| State         | Opacity | Visual Effect                    |
+|---------------|---------|----------------------------------|
+| `notQueued`   | 0.3     | Very faded (grey)                |
+| `queued`      | 0.4     | Faded                            |
+| `synthesizing`| 0.6→1.0 | Interpolates based on progress   |
+| `ready`       | 1.0     | Fully visible                    |
+| `error`       | 1.0     | Fully visible (error styling)    |
+
+### Readiness Key Format
+
+```
+"{bookId}:{chapterIndex}"
+```
+
+**Important:** The readiness key does NOT include voiceId. Cache keys DO include voiceId.
+This means when voice changes, readiness must be reset (see Voice Change Handling below).
+
+### Events
+
+| Event                   | From          | To            | Trigger                          |
+|-------------------------|---------------|---------------|----------------------------------|
+| `onSegmentQueued()`     | notQueued     | queued        | BufferScheduler adds to queue    |
+| `onSynthesisStarted()`  | queued        | synthesizing  | SynthesisCoordinator starts      |
+| `onSynthesisProgress()` | synthesizing  | synthesizing  | TTS engine reports progress      |
+| `onSynthesisComplete()` | synthesizing  | ready         | Audio cached successfully        |
+| `onSynthesisError()`    | synthesizing  | error         | Synthesis failed                 |
+| `initializeFromCache()` | any           | ready         | Cache hit on chapter load        |
+| `reset()`               | any           | cleared       | Voice change or chapter change   |
+
+### Implementation
+
+```dart
+// lib/app/playback_providers.dart
+class SegmentReadinessTracker {
+  static final instance = SegmentReadinessTracker._();
+  
+  final Map<String, Map<int, SegmentReadiness>> _readiness = {};
+  
+  // Update on synthesis events
+  void onSynthesisStarted(String key, int index);
+  void onSynthesisComplete(String key, int index);
+  
+  // Reset when voice or chapter changes
+  void reset(String key);
+  
+  // Get current state for UI
+  Map<int, SegmentReadiness> getReadiness(String key);
+}
+```
+
+---
+
+## Voice Change Handling
+
+When user changes voice during playback:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant VoiceListener
+    participant PlaybackController
+    participant SynthesisCoordinator
+    participant ReadinessTracker
+    participant Cache
+    
+    User->>VoiceListener: Select new voice
+    VoiceListener->>PlaybackController: notifyVoiceChanged()
+    PlaybackController->>SynthesisCoordinator: reset()
+    Note over SynthesisCoordinator: Cancel pending synthesis
+    VoiceListener->>ReadinessTracker: reset(key)
+    Note over ReadinessTracker: Clear all readiness state
+    VoiceListener->>Cache: Re-check with new voiceId
+    Note over Cache: Find segments already<br/>cached for new voice
+    ReadinessTracker-->>User: UI updates to show<br/>correct readiness
+```
+
+### Why Reset is Required
+
+Cache keys include voiceId:
+```
+kokoro_af_bella_1.00_a1b2c3d4e5f6.wav
+piper:en_US-lessac_1.00_a1b2c3d4e5f6.wav  // Same text, different voice
+```
+
+When voice changes:
+1. Old voice's segments show as "ready" (opacity 1.0)
+2. But cache lookup uses new voiceId → won't find old entries
+3. **Result:** UI lies about which segments are ready
+
+**Solution:** Reset readiness on voice change, then re-check cache with new voiceId.
+
+---
+
 ## Prefetch Strategy
 
 ### Three-Phase Prefetch

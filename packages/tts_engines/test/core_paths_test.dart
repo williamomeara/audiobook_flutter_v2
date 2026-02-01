@@ -114,30 +114,15 @@ void main() {
     });
 
     group('Supertonic-specific paths', () {
-      test('getSupertonicSubdirectory returns platform-appropriate value', () {
-        final subdir = corePaths.getSupertonicSubdirectory();
-        // On test platform (Linux/macOS/Windows), should return Android value
-        if (Platform.isIOS) {
-          expect(subdir, equals('supertonic_coreml'));
-        } else {
-          expect(subdir, equals('supertonic'));
-        }
-      });
-
       test('getSupertonicCoreDirectory returns correct path', () {
         final dir = corePaths.getSupertonicCoreDirectory('supertonic_core_v1');
-        final expectedSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
-        expect(dir.path, equals('${tempDir.path}/supertonic/supertonic_core_v1/$expectedSubdir'));
+        expect(dir.path, equals('${tempDir.path}/supertonic/supertonic_core_v1'));
       });
 
-      test('getSupertonicModelPath returns platform-appropriate path', () {
+      test('getSupertonicModelPath returns directory path', () {
         final path = corePaths.getSupertonicModelPath('supertonic_core_v1');
-        if (Platform.isIOS) {
-          expect(path, contains('supertonic_coreml'));
-          expect(path, isNot(contains('onnx/model.onnx')));
-        } else {
-          expect(path, contains('onnx/model.onnx'));
-        }
+        // Both platforms now use the same ONNX-based directory
+        expect(path, contains('supertonic/supertonic_core_v1'));
       });
     });
 

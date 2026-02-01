@@ -13,7 +13,7 @@ A robust, cross-platform voice downloads manager supporting three TTS engines (P
 | Aspect | Android | iOS |
 |--------|---------|-----|
 | **Kokoro Model** | `kokoro-int8-multi-lang-v1_0.tar.bz2` (126MB quantized) | `kokoro-multi-lang-v1_0.tar.bz2` (335MB full precision) |
-| **Supertonic Model** | ONNX Runtime (~234MB) | CoreML optimized (~61MB) |
+| **Supertonic Model** | ONNX Runtime (~267MB from Hugging Face) | ONNX Runtime (~267MB from Hugging Face) |
 | **Piper Models** | Same across platforms | Same across platforms |
 | **Background Downloads** | More flexible | Requires background task registration |
 | **Storage Access** | App cache directory | App containers only |

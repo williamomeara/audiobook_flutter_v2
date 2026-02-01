@@ -497,7 +497,7 @@ open ios/Runner.xcworkspace
 - [x] App icons configured
 - [x] TTS engines implemented (Kokoro, Piper, Supertonic)
 - [x] sherpa-onnx integrated
-- [x] CoreML Supertonic implemented
+- [x] ONNX Runtime Supertonic implemented (replaced CoreML)
 - [x] Device testing passed (all engines work)
 
 ### Pending

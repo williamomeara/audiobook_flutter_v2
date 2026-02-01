@@ -9,6 +9,8 @@ import 'package:tar/tar.dart' as tar;
 
 import 'asset_spec.dart';
 import 'download_state.dart';
+import 'download_validator.dart';
+import 'extraction_error_handler.dart';
 
 /// Debug-only logging (stripped in release builds via assert).
 void _debugLog(String message) {
@@ -45,10 +47,16 @@ class AtomicAssetManager {
   AtomicAssetManager({
     required this.baseDir,
     http.Client? httpClient,
-  }) : _httpClient = httpClient ?? http.Client();
+    DownloadValidator? downloadValidator,
+    ExtractionErrorHandler? errorHandler,
+  })  : _httpClient = httpClient ?? http.Client(),
+        _downloadValidator = downloadValidator ?? const DownloadValidator(),
+        _errorHandler = errorHandler ?? const ExtractionErrorHandler();
 
   final Directory baseDir;
   final http.Client _httpClient;
+  final DownloadValidator _downloadValidator;
+  final ExtractionErrorHandler _errorHandler;
 
   /// State per asset key.
   final Map<String, DownloadState> _states = {};
@@ -110,6 +118,31 @@ class AtomicAssetManager {
         expectedSha256: spec.checksum,
       );
 
+      // Phase 1.5: Validate downloaded file before extraction
+      if (isArchive) {
+        _debugLog('[AtomicAssetManager] Validating downloaded archive...');
+        final validationResult = await _downloadValidator.validate(
+          file: tmpDownload,
+          expectedUrl: spec.downloadUrl,
+          expectedSize: spec.sizeBytes,
+          expectedSha256: spec.checksum,
+        );
+
+        if (!validationResult.isValid) {
+          _debugLog('[AtomicAssetManager] Validation failed: ${validationResult.errorMessage}');
+          // Use error handler to get user-friendly message
+          final errorContext = await _errorHandler.handleError(
+            coreId: key,
+            archiveFile: tmpDownload,
+            error: Exception(validationResult.errorMessage),
+            expectedUrl: spec.downloadUrl,
+            expectedSize: spec.sizeBytes,
+          );
+          throw Exception(errorContext.userMessage ?? validationResult.errorMessage);
+        }
+        _debugLog('[AtomicAssetManager] Validation passed');
+      }
+
       // Phase 2: Install (extract for archives, or place file for direct downloads)
       _updateState(key, DownloadState(
         status: DownloadStatus.extracting,
@@ -119,7 +152,20 @@ class AtomicAssetManager {
 
       await tmpDir.create(recursive: true);
       if (isArchive) {
-        await _extractArchive(tmpDownload, tmpDir);
+        try {
+          await _extractArchive(tmpDownload, tmpDir);
+        } on FormatException catch (e) {
+          // Use error handler for better error messages
+          _debugLog('[AtomicAssetManager] Extraction failed with FormatException: $e');
+          final errorContext = await _errorHandler.handleError(
+            coreId: key,
+            archiveFile: tmpDownload,
+            error: e,
+            expectedUrl: spec.downloadUrl,
+            expectedSize: spec.sizeBytes,
+          );
+          throw Exception(errorContext.userMessage ?? e.toString());
+        }
       } else {
         final filename = _installFilenameForUrl(spec.downloadUrl);
         final outFile = File('${tmpDir.path}/$filename');

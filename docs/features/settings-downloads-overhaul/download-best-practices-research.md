@@ -173,14 +173,14 @@ The `GZipDecoder` expects valid gzip bytes. If it receives something else (like 
 
 ### 4.5 How to Verify
 
-Check if GitHub URL is accessible:
+Check if Hugging Face URL is accessible (current Supertonic source):
 ```
-https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_coreml.tar.gz
+https://huggingface.co/Supertone/supertonic/resolve/main/onnx/duration_predictor.onnx
 ```
 
 Test manually in browser or with curl:
 ```bash
-curl -L -I "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_coreml.tar.gz"
+curl -L -I "https://huggingface.co/Supertone/supertonic/resolve/main/onnx/duration_predictor.onnx"
 ```
 
 ---
@@ -265,8 +265,8 @@ dependencies:
 import 'package:background_downloader/background_downloader.dart';
 
 final task = DownloadTask(
-  url: 'https://github.com/.../supertonic_coreml.tar.gz',
-  filename: 'supertonic_coreml.tar.gz',
+  url: 'https://huggingface.co/Supertone/supertonic/resolve/main/onnx/duration_predictor.onnx',
+  filename: 'duration_predictor.onnx',
   baseDirectory: BaseDirectory.applicationSupport,
   directory: 'downloads',
   updates: Updates.statusAndProgress,
@@ -301,12 +301,12 @@ switch (result.status) {
 
 ## 6. Immediate Actions Checklist
 
-- [ ] Verify GitHub release URL is accessible: `https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_coreml.tar.gz`
-- [ ] Add GZip magic byte validation before extraction
-- [ ] Add HTML detection for better error messages
-- [ ] Add file size validation (compare to manifest)
+- [x] Verify Hugging Face URL is accessible: `https://huggingface.co/Supertone/supertonic/resolve/main/onnx/duration_predictor.onnx`
+- [x] Add GZip magic byte validation before extraction
+- [x] Add HTML detection for better error messages
+- [x] Add file size validation (compare to manifest)
 - [ ] Consider adding detailed logging during iOS downloads
-- [ ] Consider migrating to `background_downloader` for robust iOS support
+- [x] Switched to multi-file download from Hugging Face (no archive extraction needed for ONNX files)
 
 ---
 

@@ -43,22 +43,91 @@
     {
       "id": "supertonic_core_v1",
       "engineType": "supertonic",
-      "displayName": "Supertonic TTS Core (Android)",
-      "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_core.tar.gz",
-      "sizeBytes": 245464350,
+      "displayName": "Supertonic TTS Core",
+      "sizeBytes": 267234000,
       "required": true,
-      "extractType": "tar.gz",
-      "platform": "android"
-    },
-    {
-      "id": "supertonic_core_ios_v1",
-      "engineType": "supertonic",
-      "displayName": "Supertonic TTS Core (iOS)",
-      "url": "https://github.com/williamomeara/audiobook_flutter_assets/releases/download/ai-cores-int8-v1/supertonic_coreml.tar.gz",
-      "sizeBytes": 64000000,
-      "required": true,
-      "extractType": "tar.gz",
-      "platform": "ios"
+      "files": [
+        {
+          "filename": "onnx/duration_predictor.onnx",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/onnx/duration_predictor.onnx",
+          "sizeBytes": 1500789
+        },
+        {
+          "filename": "onnx/text_encoder.onnx",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/onnx/text_encoder.onnx",
+          "sizeBytes": 27348373
+        },
+        {
+          "filename": "onnx/vector_estimator.onnx",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/onnx/vector_estimator.onnx",
+          "sizeBytes": 132471364
+        },
+        {
+          "filename": "onnx/vocoder.onnx",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/onnx/vocoder.onnx",
+          "sizeBytes": 101405066
+        },
+        {
+          "filename": "onnx/tts.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/onnx/tts.json",
+          "sizeBytes": 8645
+        },
+        {
+          "filename": "onnx/unicode_indexer.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/onnx/unicode_indexer.json",
+          "sizeBytes": 262134
+        },
+        {
+          "filename": "voice_styles/M1.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/M1.json",
+          "sizeBytes": 421053
+        },
+        {
+          "filename": "voice_styles/M2.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/M2.json",
+          "sizeBytes": 421027
+        },
+        {
+          "filename": "voice_styles/M3.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/M3.json",
+          "sizeBytes": 420483
+        },
+        {
+          "filename": "voice_styles/M4.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/M4.json",
+          "sizeBytes": 420577
+        },
+        {
+          "filename": "voice_styles/M5.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/M5.json",
+          "sizeBytes": 420456
+        },
+        {
+          "filename": "voice_styles/F1.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/F1.json",
+          "sizeBytes": 420622
+        },
+        {
+          "filename": "voice_styles/F2.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/F2.json",
+          "sizeBytes": 420905
+        },
+        {
+          "filename": "voice_styles/F3.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/F3.json",
+          "sizeBytes": 420019
+        },
+        {
+          "filename": "voice_styles/F4.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/F4.json",
+          "sizeBytes": 420646
+        },
+        {
+          "filename": "voice_styles/F5.json",
+          "url": "https://huggingface.co/Supertone/supertonic/resolve/main/voice_styles/F5.json",
+          "sizeBytes": 420080
+        }
+      ]
     }
   ],
   "voices": [

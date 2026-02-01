@@ -16,8 +16,7 @@ import '../tts_log.dart';
 /// Supertonic TTS engine adapter.
 ///
 /// Routes synthesis requests to the native Supertonic service.
-/// - Android: Uses ONNX models (downloaded at runtime)
-/// - iOS: Uses CoreML models (bundled with app)
+/// Both iOS and Android use ONNX Runtime for inference (matches official SDK).
 ///
 /// Supertonic uses speaker embeddings for voice cloning.
 class SupertonicAdapter implements AiVoiceEngine {
@@ -46,7 +45,7 @@ class SupertonicAdapter implements AiVoiceEngine {
   
   /// Completer to serialize _initEngine calls.
   /// This prevents multiple concurrent calls to initEngine, which would
-  /// both wait for the slow CoreML compilation (46+ seconds on iOS).
+  /// both try to load ONNX models simultaneously.
   Completer<void>? _initEngineCompleter;
   
   /// Completer to serialize warmUp calls.
@@ -83,14 +82,9 @@ class SupertonicAdapter implements AiVoiceEngine {
 
   @override
   Future<void> ensureCoreReady(CoreSelector selector) async {
-    // Platform-specific core paths:
-    // Android: ONNX models downloaded to voice_assets
-    // iOS: CoreML models downloaded to voice_assets
-    final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
-    final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
-    
-    // Path structure after extraction: {coreDir}/supertonic/{coreId}/{subdir}/
-    final coreDir = Directory('${_coreDir.path}/supertonic/$coreId/$coreSubdir');
+    // Both iOS and Android use ONNX models downloaded to voice_assets
+    // Path structure: {coreDir}/supertonic/{coreId}/onnx/... and voice_styles/...
+    final coreDir = Directory('${_coreDir.path}/supertonic/supertonic_core_v1');
 
     if (await coreDir.exists()) {
       await _initEngine(coreDir.path);
@@ -129,9 +123,7 @@ class SupertonicAdapter implements AiVoiceEngine {
     try {
       // Check if voice files are downloaded (not whether engine is initialized)
       // warmUp is supposed to INITIALIZE the engine, so we only check file existence
-      final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
-      final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
-      final corePath = '${_coreDir.path}/supertonic/$coreId/$coreSubdir';
+      final corePath = '${_coreDir.path}/supertonic/supertonic_core_v1';
       final coreDir = Directory(corePath);
       
       if (!await coreDir.exists()) {
@@ -150,11 +142,10 @@ class SupertonicAdapter implements AiVoiceEngine {
 
       // Load voice if not already loaded
       if (!_loadedVoices.containsKey(voiceId)) {
-        final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
-        final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+        // For iOS, pass the core directory; for Android, pass the specific model file
         final modelPath = Platform.isIOS 
-            ? '${_coreDir.path}/supertonic/$coreId/$coreSubdir' 
-            : '${_coreDir.path}/supertonic/$coreId/$coreSubdir/onnx/model.onnx';
+            ? corePath 
+            : '$corePath/onnx/model.onnx';
         debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: loading voice $voiceId...');
         await _loadVoice(voiceId, modelPath);
         debugPrint('[SupertonicAdapter] ${DateTime.now().toIso8601String()} warmUp: voice loaded');
@@ -205,9 +196,7 @@ class SupertonicAdapter implements AiVoiceEngine {
     }
 
     // Check if downloaded core exists (both iOS and Android now use downloads)
-    final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
-    final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
-    final coreDir = Directory('${_coreDir.path}/supertonic/$coreId/$coreSubdir');
+    final coreDir = Directory('${_coreDir.path}/supertonic/supertonic_core_v1');
     
     if (!await coreDir.exists()) {
       return VoiceReadiness(
@@ -226,8 +215,8 @@ class SupertonicAdapter implements AiVoiceEngine {
       return VoiceReadiness(
         voiceId: voiceId,
         state: coreReady.state == CoreReadyState.notStarted 
-            ? VoiceReadyState.coreLoading  // CoreML compilation hasn't started yet
-            : VoiceReadyState.coreLoading, // CoreML compilation in progress
+            ? VoiceReadyState.coreLoading  // ONNX model loading hasn't started yet
+            : VoiceReadyState.coreLoading, // ONNX model loading in progress
         coreState: coreReady.state,
         nextActionUserShouldTake: 'Initializing voice engine...',
       );
@@ -290,9 +279,7 @@ class SupertonicAdapter implements AiVoiceEngine {
       // Ensure native engine is initialized
       if (!_coreReadiness.isReady) {
         // Both iOS and Android now use downloaded cores
-        final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
-        final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
-        final corePath = '${_coreDir.path}/supertonic/$coreId/$coreSubdir';
+        final corePath = '${_coreDir.path}/supertonic/supertonic_core_v1';
         final coreDir = Directory(corePath);
         if (await coreDir.exists()) {
           await _initEngine(corePath);
@@ -302,11 +289,10 @@ class SupertonicAdapter implements AiVoiceEngine {
       // Ensure voice is loaded in native layer
       if (!_loadedVoices.containsKey(request.voiceId)) {
         // Model path depends on platform
-        final coreId = Platform.isIOS ? 'supertonic_core_ios_v1' : 'supertonic_core_v1';
-        final coreSubdir = Platform.isIOS ? 'supertonic_coreml' : 'supertonic';
+        final corePath = '${_coreDir.path}/supertonic/supertonic_core_v1';
         final modelPath = Platform.isIOS 
-            ? '${_coreDir.path}/supertonic/$coreId/$coreSubdir' 
-            : '${_coreDir.path}/supertonic/$coreId/$coreSubdir/onnx/model.onnx';
+            ? corePath 
+            : '$corePath/onnx/model.onnx';
         await _loadVoice(request.voiceId, modelPath);
       }
 
@@ -440,7 +426,7 @@ class SupertonicAdapter implements AiVoiceEngine {
   /// 
   /// Uses a Completer to serialize calls - if another call is already in
   /// progress, this waits for it instead of starting a second init.
-  /// This prevents duplicate CoreML compilation (which takes 46+ seconds).
+  /// This prevents duplicate ONNX model loading (which takes 46+ seconds).
   Future<void> _initEngine(String corePath) async {
     // If already ready, skip
     if (_coreReadiness.isReady) {

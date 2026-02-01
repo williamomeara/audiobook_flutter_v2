@@ -153,13 +153,13 @@ SPEC CHECKSUMS:
   path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
   pdfrx: 310e84d01e06fd2af26e16507a0e48c27e99195c
   permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
-  platform_ios_tts: 0ecd16dac10bf41ea87200523d3be3df303a72e3
+  platform_ios_tts: 5eb341b18f3866a3839a556e44e7a1334adf0d00
   SDWebImage: e9c98383c7572d713c1a0d7dd2783b10599b9838
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
   SwiftyGif: 706c60cf65fa2bc5ee0313beece843c8eb8194d4
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
 
-PODFILE CHECKSUM: 045ef80b40aa110c35e8b2c500b1e5c2a1d52e9f
+PODFILE CHECKSUM: 8b583ff36a73f772552eebc2209946c4a98d30e3
 
 COCOAPODS: 1.16.2
