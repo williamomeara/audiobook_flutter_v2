@@ -446,17 +446,34 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                                   BookProgressState.complete => Icons.replay,
                                 },
                               ),
-                              label: Text(
-                                switch (bookProgressState) {
-                                  BookProgressState.notStarted => 'Start Listening',
-                                  BookProgressState.inProgress =>
-                                    'Continue Listening',
-                                  BookProgressState.complete => 'Listen Again',
-                                },
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              label: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    switch (bookProgressState) {
+                                      BookProgressState.notStarted => 'Start Listening',
+                                      BookProgressState.inProgress =>
+                                        'Continue Listening',
+                                      BookProgressState.complete => 'Listen Again',
+                                    },
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (bookProgressState == BookProgressState.inProgress &&
+                                      book.progress.chapterIndex < book.chapters.length)
+                                    Text(
+                                      'Chapter ${book.progress.chapterIndex + 1}: ${book.chapters[book.progress.chapterIndex].title}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w400,
+                                        color: colors.primaryForeground.withValues(alpha: 0.8),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                ],
                               ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: colors.primary,
