@@ -82,10 +82,11 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Invalidate listening progress when app resumes to show
-    // latest playback completion status
+    // Invalidate listening progress and resume position when app resumes to show
+    // latest playback completion status and position from background playback
     if (state == AppLifecycleState.resumed) {
       ref.invalidate(bookChapterProgressProvider(widget.bookId));
+      ref.invalidate(resumePositionProvider(widget.bookId));
     }
   }
 
@@ -467,19 +468,27 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  if (bookProgressState == BookProgressState.inProgress &&
-                                      resumePosition != null &&
-                                      resumePosition.chapterIndex < book.chapters.length)
-                                    Text(
-                                      'Chapter ${resumePosition.chapterIndex + 1}: ${book.chapters[resumePosition.chapterIndex].title}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w400,
-                                        color: colors.primaryForeground.withValues(alpha: 0.8),
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                                  // Show current playing chapter if this book is playing,
+                                  // otherwise show saved resume position from database
+                                  if (bookProgressState == BookProgressState.inProgress) ...[
+                                    () {
+                                      final displayChapter = currentPlayingChapter ?? 
+                                          resumePosition?.chapterIndex;
+                                      if (displayChapter != null && displayChapter < book.chapters.length) {
+                                        return Text(
+                                          'Chapter ${displayChapter + 1}: ${book.chapters[displayChapter].title}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w400,
+                                            color: colors.primaryForeground.withValues(alpha: 0.8),
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        );
+                                      }
+                                      return const SizedBox.shrink();
+                                    }(),
+                                  ],
                                 ],
                               ),
                               style: ElevatedButton.styleFrom(
