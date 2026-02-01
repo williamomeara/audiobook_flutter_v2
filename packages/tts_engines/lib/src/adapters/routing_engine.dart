@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:core_domain/core_domain.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../interfaces/ai_voice_engine.dart';
 import '../interfaces/engine_memory_manager.dart';
@@ -46,6 +47,10 @@ class RoutingEngine implements AiVoiceEngine {
   /// Track active requests for cancellation.
   final Map<String, String> _activeRequests = {};
   
+  /// Lock to serialize _prepareEngineForVoice calls to prevent concurrent model loading.
+  /// Concurrent loading can double memory usage causing OOM crashes on iOS.
+  Completer<void>? _prepareLock;
+  
   /// Cached stream controllers for core readiness (prevents memory leak).
   final Map<String, StreamController<CoreReadiness>> _readinessControllers = {};
   
@@ -76,6 +81,34 @@ class RoutingEngine implements AiVoiceEngine {
         supertonicEngine!.ensureCoreReady(CoreSelector.defaultSupertonic),
       if (kokoroEngine != null) kokoroEngine!.ensureCoreReady(selector),
     ]);
+  }
+
+  @override
+  Future<bool> warmUp(String voiceId) async {
+    final startTime = DateTime.now();
+    debugPrint('[RoutingEngine] ${startTime.toIso8601String()} warmUp($voiceId) started');
+    
+    // Prepare engine (unloads others if needed for memory)
+    // This should happen during warmUp, not during synthesis, to avoid
+    // race conditions where the old engine is unloaded while still in use.
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: calling _prepareEngineForVoice...');
+    final engine = await _prepareEngineForVoice(voiceId);
+    final prepareTime = DateTime.now().difference(startTime);
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: _prepareEngineForVoice completed in ${prepareTime.inMilliseconds}ms');
+    
+    if (engine == null) {
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: no engine for voice, returning false');
+      return false;
+    }
+    
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: calling engine.warmUp...');
+    final warmUpStart = DateTime.now();
+    final result = await engine.warmUp(voiceId);
+    final warmUpTime = DateTime.now().difference(warmUpStart);
+    final totalTime = DateTime.now().difference(startTime);
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} warmUp: engine.warmUp completed in ${warmUpTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
+    
+    return result;
   }
 
   @override
@@ -249,7 +282,13 @@ class RoutingEngine implements AiVoiceEngine {
         );
       }
 
-      return await engine.synthesizeSegment(request);
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} synthesizeSegment: starting native synthesis for $voiceId');
+      final synthStart = DateTime.now();
+      final result = await engine.synthesizeSegment(request);
+      final synthTime = DateTime.now().difference(synthStart);
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} synthesizeSegment: native synthesis completed in ${synthTime.inMilliseconds}ms');
+      
+      return result;
     } finally {
       _activeRequests.remove(request.opId);
     }
@@ -360,29 +399,72 @@ class RoutingEngine implements AiVoiceEngine {
   /// Prepare engine for synthesis with memory management.
   /// 
   /// Unloads other engines if needed to stay within memory limits.
+  /// Serialized with a lock to prevent concurrent model loading which
+  /// can cause OOM crashes on iOS due to doubled memory usage.
   Future<AiVoiceEngine?> _prepareEngineForVoice(String voiceId) async {
-    final engineType = _engineTypeForVoice(voiceId);
-    if (engineType == null) return null;
+    // Wait for any existing preparation to complete first
+    // This prevents concurrent model loading which doubles memory usage
+    while (_prepareLock != null) {
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice($voiceId) waiting for lock...');
+      await _prepareLock!.future;
+    }
     
-    final engine = _engineByType(engineType);
-    if (engine == null) return null;
+    // Acquire lock
+    _prepareLock = Completer<void>();
     
-    // Prepare memory - may unload other engines
-    await _memoryManager.prepareForEngine(
-      engineType,
-      unloadCallback: _unloadEngine,
-    );
-    
-    return engine;
+    try {
+      final startTime = DateTime.now();
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice($voiceId) started');
+      
+      final engineType = _engineTypeForVoice(voiceId);
+      if (engineType == null) {
+        debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice: no engine type for voice');
+        return null;
+      }
+      
+      final engine = _engineByType(engineType);
+      if (engine == null) {
+        debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice: no engine instance for type');
+        return null;
+      }
+      
+      // Prepare memory - may unload other engines
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice: calling memoryManager.prepareForEngine(${engineType.name})...');
+      final prepareStart = DateTime.now();
+      await _memoryManager.prepareForEngine(
+        engineType,
+        unloadCallback: _unloadEngine,
+      );
+      final prepareTime = DateTime.now().difference(prepareStart);
+      final totalTime = DateTime.now().difference(startTime);
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _prepareEngineForVoice: prepareForEngine completed in ${prepareTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
+      
+      return engine;
+    } finally {
+      // Release lock
+      final completer = _prepareLock;
+      _prepareLock = null;
+      completer?.complete();
+    }
   }
   
   /// Unload an engine by type to free memory.
   Future<void> _unloadEngine(EngineType engineType) async {
-    final engine = _engineByType(engineType);
-    if (engine == null) return;
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _unloadEngine(${engineType.name}) started');
+    final startTime = DateTime.now();
     
-    TtsLog.info('RoutingEngine: Unloading ${engineType.name} engine to free memory');
+    final engine = _engineByType(engineType);
+    if (engine == null) {
+      debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _unloadEngine: no engine for type, skipping');
+      return;
+    }
+    
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _unloadEngine: calling clearAllModels on ${engineType.name}...');
+    final clearStart = DateTime.now();
     await engine.clearAllModels();
+    final clearTime = DateTime.now().difference(clearStart);
+    final totalTime = DateTime.now().difference(startTime);
+    debugPrint('[RoutingEngine] ${DateTime.now().toIso8601String()} _unloadEngine(${engineType.name}) completed in ${clearTime.inMilliseconds}ms (total: ${totalTime.inMilliseconds}ms)');
   }
 
   /// Synthesize with caching support (convenience method).

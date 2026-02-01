@@ -182,6 +182,13 @@ class SleepTimerExpired extends PlaybackEvent {
   const SleepTimerExpired();
 }
 
+/// User changed voice (needs warmup with new voice)
+class VoiceChanged extends PlaybackEvent {
+  final String voiceId;
+
+  const VoiceChanged(this.voiceId);
+}
+
 /// App was restored and needs to recover playback state
 class RestorePlayback extends PlaybackEvent {
   final String bookId;

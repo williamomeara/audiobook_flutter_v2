@@ -38,7 +38,17 @@ class TtsNativeApiImpl: TtsNativeApi {
     // MARK: - TtsNativeApi Protocol
     
     func initEngine(request: InitEngineRequest, completion: @escaping (Result<Void, Error>) -> Void) {
-        Task {
+        // Thread logging: Entry point for initEngine
+        NSLog("[THREAD] initEngine ENTRY: isMainThread=%@, thread=%@", 
+              Thread.isMainThread ? "YES" : "NO", 
+              Thread.current.description)
+        
+        Task.detached(priority: .userInitiated) { [self] in
+            // Thread logging: Inside Task.detached
+            NSLog("[THREAD] initEngine Task.detached: isMainThread=%@, thread=%@", 
+                  Thread.isMainThread ? "YES" : "NO", 
+                  Thread.current.description)
+            
             do {
                 let svc = service(for: request.engineType)
                 try await svc.loadCore(corePath: request.corePath, configPath: request.configPath)
@@ -50,7 +60,17 @@ class TtsNativeApiImpl: TtsNativeApi {
     }
     
     func loadVoice(request: LoadVoiceRequest, completion: @escaping (Result<Void, Error>) -> Void) {
-        Task {
+        // Thread logging: Entry point for loadVoice
+        NSLog("[THREAD] loadVoice ENTRY: isMainThread=%@, thread=%@", 
+              Thread.isMainThread ? "YES" : "NO", 
+              Thread.current.description)
+        
+        Task.detached(priority: .userInitiated) { [self] in
+            // Thread logging: Inside Task.detached
+            NSLog("[THREAD] loadVoice Task.detached: isMainThread=%@, thread=%@", 
+                  Thread.isMainThread ? "YES" : "NO", 
+                  Thread.current.description)
+            
             do {
                 let svc = service(for: request.engineType)
                 try await svc.loadVoice(
@@ -67,11 +87,23 @@ class TtsNativeApiImpl: TtsNativeApi {
     }
     
     func synthesize(request: SynthesizeRequest, completion: @escaping (Result<SynthesizeResult, Error>) -> Void) {
+        // Thread logging: Entry point from Pigeon (should be main thread)
+        NSLog("[THREAD] synthesize ENTRY: isMainThread=%@, thread=%@", 
+              Thread.isMainThread ? "YES" : "NO", 
+              Thread.current.description)
+        
         lock.lock()
         activeRequests[request.requestId] = true
         lock.unlock()
         
-        Task {
+        // Use Task.detached to run synthesis off the main thread
+        // This creates an independent task that doesn't inherit the main actor context
+        Task.detached(priority: .userInitiated) { [self] in
+            // Thread logging: Inside Task.detached (should be background)
+            NSLog("[THREAD] synthesize Task.detached: isMainThread=%@, thread=%@", 
+                  Thread.isMainThread ? "YES" : "NO", 
+                  Thread.current.description)
+            
             do {
                 let svc = service(for: request.engineType)
                 
@@ -140,15 +172,21 @@ class TtsNativeApiImpl: TtsNativeApi {
     }
     
     func unloadVoice(engineType: NativeEngineType, voiceId: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        let svc = service(for: engineType)
-        svc.unloadVoice(voiceId: voiceId)
-        completion(.success(()))
+        Task.detached(priority: .userInitiated) { [self] in
+            let svc = service(for: engineType)
+            svc.unloadVoice(voiceId: voiceId)
+            completion(.success(()))
+        }
     }
     
     func unloadEngine(engineType: NativeEngineType, completion: @escaping (Result<Void, Error>) -> Void) {
-        let svc = service(for: engineType)
-        svc.unloadAll()
-        completion(.success(()))
+        // Run in background thread to avoid blocking UI
+        // unloadAll() calls waitUntilIdle which can block for up to 5 seconds
+        Task.detached(priority: .userInitiated) { [self] in
+            let svc = service(for: engineType)
+            svc.unloadAll()
+            completion(.success(()))
+        }
     }
     
     func getMemoryInfo(completion: @escaping (Result<MemoryInfo, Error>) -> Void) {
@@ -173,22 +211,40 @@ class TtsNativeApiImpl: TtsNativeApi {
     }
     
     func getCoreStatus(engineType: NativeEngineType, completion: @escaping (Result<CoreStatus, Error>) -> Void) {
-        let svc = service(for: engineType)
-        let state: NativeCoreState = svc.isReady ? .ready : .notStarted
+        // Thread logging: Entry point from Pigeon
+        NSLog("[THREAD] getCoreStatus ENTRY: isMainThread=%@, thread=%@", 
+              Thread.isMainThread ? "YES" : "NO", 
+              Thread.current.description)
         
-        completion(.success(CoreStatus(
-            engineType: engineType,
-            state: state,
-            errorMessage: nil,
-            downloadProgress: nil
-        )))
+        // IMPORTANT: Run on background thread to avoid blocking main thread
+        // when synthesis is in progress (svc.isReady acquires a lock)
+        Task.detached(priority: .userInitiated) { [self] in
+            let svc = service(for: engineType)
+            let state: NativeCoreState = svc.isReady ? .ready : .notStarted
+            
+            completion(.success(CoreStatus(
+                engineType: engineType,
+                state: state,
+                errorMessage: nil,
+                downloadProgress: nil
+            )))
+        }
     }
     
     func isVoiceReady(engineType: NativeEngineType, voiceId: String, completion: @escaping (Result<Bool, Error>) -> Void) {
-        // For now, just check if the engine is ready
-        // TODO: Implement per-voice tracking
-        let svc = service(for: engineType)
-        completion(.success(svc.isReady))
+        // Thread logging: Entry point from Pigeon
+        NSLog("[THREAD] isVoiceReady ENTRY: isMainThread=%@, thread=%@", 
+              Thread.isMainThread ? "YES" : "NO", 
+              Thread.current.description)
+        
+        // IMPORTANT: Run on background thread to avoid blocking main thread
+        // when synthesis is in progress (svc.isReady acquires a lock)
+        Task.detached(priority: .userInitiated) { [self] in
+            // For now, just check if the engine is ready
+            // TODO: Implement per-voice tracking
+            let svc = service(for: engineType)
+            completion(.success(svc.isReady))
+        }
     }
     
     func dispose(completion: @escaping (Result<Void, Error>) -> Void) {

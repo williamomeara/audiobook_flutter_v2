@@ -5,9 +5,12 @@ import 'dart:isolate';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:tar/tar.dart' as tar;
 
 import 'asset_spec.dart';
 import 'download_state.dart';
+import 'download_validator.dart';
+import 'extraction_error_handler.dart';
 
 /// Debug-only logging (stripped in release builds via assert).
 void _debugLog(String message) {
@@ -44,10 +47,16 @@ class AtomicAssetManager {
   AtomicAssetManager({
     required this.baseDir,
     http.Client? httpClient,
-  }) : _httpClient = httpClient ?? http.Client();
+    DownloadValidator? downloadValidator,
+    ExtractionErrorHandler? errorHandler,
+  })  : _httpClient = httpClient ?? http.Client(),
+        _downloadValidator = downloadValidator ?? const DownloadValidator(),
+        _errorHandler = errorHandler ?? const ExtractionErrorHandler();
 
   final Directory baseDir;
   final http.Client _httpClient;
+  final DownloadValidator _downloadValidator;
+  final ExtractionErrorHandler _errorHandler;
 
   /// State per asset key.
   final Map<String, DownloadState> _states = {};
@@ -109,6 +118,31 @@ class AtomicAssetManager {
         expectedSha256: spec.checksum,
       );
 
+      // Phase 1.5: Validate downloaded file before extraction
+      if (isArchive) {
+        _debugLog('[AtomicAssetManager] Validating downloaded archive...');
+        final validationResult = await _downloadValidator.validate(
+          file: tmpDownload,
+          expectedUrl: spec.downloadUrl,
+          expectedSize: spec.sizeBytes,
+          expectedSha256: spec.checksum,
+        );
+
+        if (!validationResult.isValid) {
+          _debugLog('[AtomicAssetManager] Validation failed: ${validationResult.errorMessage}');
+          // Use error handler to get user-friendly message
+          final errorContext = await _errorHandler.handleError(
+            coreId: key,
+            archiveFile: tmpDownload,
+            error: Exception(validationResult.errorMessage),
+            expectedUrl: spec.downloadUrl,
+            expectedSize: spec.sizeBytes,
+          );
+          throw Exception(errorContext.userMessage ?? validationResult.errorMessage);
+        }
+        _debugLog('[AtomicAssetManager] Validation passed');
+      }
+
       // Phase 2: Install (extract for archives, or place file for direct downloads)
       _updateState(key, DownloadState(
         status: DownloadStatus.extracting,
@@ -118,7 +152,20 @@ class AtomicAssetManager {
 
       await tmpDir.create(recursive: true);
       if (isArchive) {
-        await _extractArchive(tmpDownload, tmpDir);
+        try {
+          await _extractArchive(tmpDownload, tmpDir);
+        } on FormatException catch (e) {
+          // Use error handler for better error messages
+          _debugLog('[AtomicAssetManager] Extraction failed with FormatException: $e');
+          final errorContext = await _errorHandler.handleError(
+            coreId: key,
+            archiveFile: tmpDownload,
+            error: e,
+            expectedUrl: spec.downloadUrl,
+            expectedSize: spec.sizeBytes,
+          );
+          throw Exception(errorContext.userMessage ?? e.toString());
+        }
       } else {
         final filename = _installFilenameForUrl(spec.downloadUrl);
         final outFile = File('${tmpDir.path}/$filename');
@@ -467,6 +514,10 @@ class AtomicAssetManager {
       throw Exception('Download failed: HTTP ${response.statusCode} for $currentUrl (content-type: $contentType) body-snippet: $snippet');
     }
 
+    // Log download start for debugging
+    final contentType = response.headers['content-type'] ?? 'unknown';
+    _debugLog('Download response: HTTP ${response.statusCode}, content-type: $contentType, content-length: ${response.contentLength}');
+
     // Server ignored Range; restart cleanly.
     if (resumeFrom > 0 && response.statusCode == 200) {
       await destFile.delete();
@@ -511,6 +562,9 @@ class AtomicAssetManager {
       await sink.close();
     }
 
+    // Validate downloaded file before proceeding to extraction
+    await _validateDownloadedFile(destFile, url, expectedSize);
+
     if (expectedSha256 != null) {
       final fileHash = await _sha256File(destFile);
       if (fileHash != expectedSha256) {
@@ -518,6 +572,82 @@ class AtomicAssetManager {
         throw Exception('Download checksum mismatch');
       }
     }
+  }
+
+  /// Validate downloaded file to catch server errors (HTML pages, incomplete downloads).
+  Future<void> _validateDownloadedFile(File file, String url, int? expectedSize) async {
+    final actualSize = await file.length();
+    
+    // Check if file is suspiciously small (likely an error page)
+    if (expectedSize != null && actualSize < (expectedSize * 0.5)) {
+      final bytes = await file.readAsBytes();
+      if (_isHtmlContentSync(bytes)) {
+        final preview = _getFilePreviewSync(bytes);
+        await file.delete();
+        throw Exception(
+          'Download returned error page instead of file. '
+          'Expected ~${_formatBytes(expectedSize)}, got ${_formatBytes(actualSize)}. '
+          'Content: $preview'
+        );
+      }
+    }
+    
+    // Quick validation of archive magic bytes
+    final isArchive = _isArchiveUrl(url);
+    if (isArchive && actualSize >= 2) {
+      final headerBytes = <int>[];
+      await for (final chunk in file.openRead(0, 2)) {
+        headerBytes.addAll(chunk);
+        if (headerBytes.length >= 2) break;
+      }
+      
+      if (headerBytes.length >= 2) {
+        final path = url.toLowerCase();
+        
+        // Check for GZip
+        if ((path.contains('.tar.gz') || path.contains('.tgz')) &&
+            (headerBytes[0] != 0x1F || headerBytes[1] != 0x8B)) {
+          // Read more bytes for error message
+          final bytes = await file.readAsBytes();
+          final preview = _getFilePreviewSync(bytes);
+          await file.delete();
+          throw Exception(
+            'Downloaded file is not a valid GZip archive. '
+            'Got bytes [0x${headerBytes[0].toRadixString(16)}, 0x${headerBytes[1].toRadixString(16)}] '
+            'instead of GZip signature [0x1F, 0x8B]. '
+            'Content: $preview'
+          );
+        }
+      }
+    }
+  }
+  
+  /// Sync version of HTML check for use in isolate/after download.
+  static bool _isHtmlContentSync(List<int> bytes) {
+    if (bytes.length < 15) return false;
+    final sampleSize = bytes.length < 500 ? bytes.length : 500;
+    final sample = String.fromCharCodes(bytes.take(sampleSize));
+    final lowerSample = sample.toLowerCase();
+    return lowerSample.contains('<!doctype') ||
+           lowerSample.contains('<html') ||
+           lowerSample.contains('not found') ||
+           lowerSample.contains('rate limit');
+  }
+  
+  /// Sync version of preview for use after download.
+  static String _getFilePreviewSync(List<int> bytes) {
+    if (bytes.isEmpty) return '(empty)';
+    final sampleSize = bytes.length < 100 ? bytes.length : 100;
+    final sample = String.fromCharCodes(bytes.take(sampleSize));
+    final display = sample.length > 80 ? '${sample.substring(0, 80)}...' : sample;
+    return display;
+  }
+  
+  /// Format bytes as human-readable string.
+  static String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   /// Extract archive (tar.gz, tar.bz2, or zip) in background isolate.
@@ -642,19 +772,41 @@ Future<void> _extractArchiveIsolate(_ExtractParams params) async {
   
   final bytes = await archive.readAsBytes();
 
+  // Validate archive format before attempting decompression
+  _validateArchiveBytes(bytes, archive.path);
+
   Archive decoded;
   final lower = archive.path.toLowerCase();
   final lowerNoTmp = lower.endsWith('.tmp') ? lower.substring(0, lower.length - 4) : lower;
   final isBz2 = lowerNoTmp.endsWith('.tar.bz2') || lowerNoTmp.endsWith('.tbz2');
+  final isTarGz = lowerNoTmp.endsWith('.tar.gz') || lowerNoTmp.endsWith('.tgz');
   
-  if (lowerNoTmp.endsWith('.tar.gz') || lowerNoTmp.endsWith('.tgz')) {
-    decoded = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
-  } else if (isBz2) {
-    decoded = TarDecoder().decodeBytes(BZip2Decoder().decodeBytes(bytes));
-  } else if (lowerNoTmp.endsWith('.zip')) {
-    decoded = ZipDecoder().decodeBytes(bytes);
-  } else {
-    throw Exception('Unsupported archive type: ${archive.path}');
+  try {
+    if (isTarGz) {
+      decoded = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
+    } else if (isBz2) {
+      decoded = TarDecoder().decodeBytes(BZip2Decoder().decodeBytes(bytes));
+    } else if (lowerNoTmp.endsWith('.zip')) {
+      decoded = ZipDecoder().decodeBytes(bytes);
+    } else {
+      throw Exception('Unsupported archive type: ${archive.path}');
+    }
+  } on FormatException catch (e) {
+    // The Dart archive package's TarDecoder has issues with PAX extended headers
+    // containing non-UTF-8 filenames (common in macOS/CoreML archives).
+    // Fallback to a lenient tar decoder that handles these cases.
+    if (isTarGz || isBz2) {
+      await _extractWithLenientTar(archive, destDir, isTarGz, isBz2);
+      return;
+    }
+    
+    // Provide better error message for format exceptions
+    final preview = _getFilePreview(bytes);
+    throw Exception(
+      'Archive extraction failed: ${e.message}. '
+      'File size: ${bytes.length} bytes. '
+      'File preview: $preview'
+    );
   }
 
   // For tar.bz2 (sherpa-onnx format), strip the leading directory component
@@ -691,8 +843,171 @@ Future<void> _extractArchiveIsolate(_ExtractParams params) async {
   }
 }
 
+/// Extract tar archive using package:tar which properly handles PAX extended
+/// headers and is more robust than the archive package's TarDecoder.
+Future<void> _extractWithLenientTar(
+  File archiveFile,
+  Directory destDir,
+  bool isTarGz,
+  bool isBz2,
+) async {
+  await destDir.create(recursive: true);
+  
+  // Create appropriate stream based on compression type
+  Stream<List<int>> inputStream = archiveFile.openRead();
+  
+  if (isTarGz) {
+    inputStream = inputStream.transform(gzip.decoder);
+  } else if (isBz2) {
+    // For bzip2, we need to decompress to bytes first since there's no bzip2 stream transformer
+    final bytes = await archiveFile.readAsBytes();
+    final decompressed = BZip2Decoder().decodeBytes(bytes);
+    inputStream = Stream.value(decompressed);
+  }
+  
+  // Use package:tar's TarReader which properly handles PAX headers
+  final reader = tar.TarReader(inputStream);
+  
+  try {
+    while (await reader.moveNext()) {
+      final entry = reader.current;
+      final name = entry.header.name;
+      
+      // Skip empty names
+      if (name.isEmpty) continue;
+      
+      // Create output path
+      final outPath = '${destDir.path}/$name';
+      
+      if (entry.header.typeFlag == tar.TypeFlag.dir || name.endsWith('/')) {
+        // Directory entry
+        await Directory(outPath).create(recursive: true);
+      } else if (entry.header.typeFlag == tar.TypeFlag.reg || 
+                 entry.header.typeFlag == tar.TypeFlag.regA) {
+        // Regular file
+        final outFile = File(outPath);
+        await outFile.parent.create(recursive: true);
+        
+        // Stream contents to file
+        final sink = outFile.openWrite();
+        try {
+          await entry.contents.pipe(sink);
+        } finally {
+          await sink.close();
+        }
+      }
+      // Skip symlinks, hard links, and other special entries for security
+    }
+  } finally {
+    await reader.cancel();
+  }
+}
+
 /// Calculate SHA256 of file in background isolate.
 Future<String> _sha256FileIsolate(String filePath) async {
   final bytes = await File(filePath).readAsBytes();
   return sha256.convert(bytes).toString();
+}
+
+/// Validate archive bytes before decompression to provide better error messages.
+/// Throws an exception if the bytes don't match expected archive format.
+void _validateArchiveBytes(List<int> bytes, String archivePath) {
+  if (bytes.isEmpty) {
+    throw Exception('Downloaded file is empty (0 bytes)');
+  }
+
+  final lower = archivePath.toLowerCase();
+  final lowerNoTmp = lower.endsWith('.tmp') 
+      ? lower.substring(0, lower.length - 4) 
+      : lower;
+
+  // Check for HTML error page (common when GitHub returns 404, rate limit, etc.)
+  if (_isHtmlContent(bytes)) {
+    final preview = _getFilePreview(bytes);
+    throw Exception(
+      'Download failed: Server returned HTML instead of archive file. '
+      'This usually means the file was not found, access was denied, or rate limiting occurred. '
+      'Content preview: $preview'
+    );
+  }
+
+  // Validate GZip magic bytes
+  if (lowerNoTmp.endsWith('.tar.gz') || lowerNoTmp.endsWith('.tgz')) {
+    if (bytes.length < 2 || bytes[0] != 0x1F || bytes[1] != 0x8B) {
+      final preview = _getFilePreview(bytes);
+      throw Exception(
+        'Invalid GZip format. Expected magic bytes [0x1F, 0x8B], '
+        'got [0x${bytes[0].toRadixString(16).padLeft(2, '0')}, 0x${bytes[1].toRadixString(16).padLeft(2, '0')}]. '
+        'File size: ${bytes.length} bytes. '
+        'Content preview: $preview'
+      );
+    }
+  }
+
+  // Validate BZip2 magic bytes
+  if (lowerNoTmp.endsWith('.tar.bz2') || lowerNoTmp.endsWith('.tbz2')) {
+    // BZip2 starts with 'BZ' (0x42, 0x5A)
+    if (bytes.length < 2 || bytes[0] != 0x42 || bytes[1] != 0x5A) {
+      final preview = _getFilePreview(bytes);
+      throw Exception(
+        'Invalid BZip2 format. Expected magic bytes [0x42, 0x5A] ("BZ"), '
+        'got [0x${bytes[0].toRadixString(16).padLeft(2, '0')}, 0x${bytes[1].toRadixString(16).padLeft(2, '0')}]. '
+        'File size: ${bytes.length} bytes. '
+        'Content preview: $preview'
+      );
+    }
+  }
+
+  // Validate ZIP magic bytes
+  if (lowerNoTmp.endsWith('.zip')) {
+    // ZIP starts with 'PK' (0x50, 0x4B)
+    if (bytes.length < 2 || bytes[0] != 0x50 || bytes[1] != 0x4B) {
+      final preview = _getFilePreview(bytes);
+      throw Exception(
+        'Invalid ZIP format. Expected magic bytes [0x50, 0x4B] ("PK"), '
+        'got [0x${bytes[0].toRadixString(16).padLeft(2, '0')}, 0x${bytes[1].toRadixString(16).padLeft(2, '0')}]. '
+        'File size: ${bytes.length} bytes. '
+        'Content preview: $preview'
+      );
+    }
+  }
+}
+
+/// Check if the bytes look like HTML content (common for error pages).
+bool _isHtmlContent(List<int> bytes) {
+  if (bytes.length < 15) return false;
+  
+  // Try to decode first 500 bytes as ASCII (safe for HTML detection)
+  final sampleSize = bytes.length < 500 ? bytes.length : 500;
+  final sample = String.fromCharCodes(bytes.take(sampleSize));
+  final lowerSample = sample.toLowerCase();
+  
+  return lowerSample.contains('<!doctype') ||
+         lowerSample.contains('<html') ||
+         lowerSample.contains('not found') ||
+         lowerSample.contains('rate limit') ||
+         lowerSample.contains('access denied') ||
+         lowerSample.contains('error');
+}
+
+/// Get a human-readable preview of file content for error messages.
+String _getFilePreview(List<int> bytes) {
+  if (bytes.isEmpty) return '(empty file)';
+  
+  // Take first 100 bytes for preview
+  final sampleSize = bytes.length < 100 ? bytes.length : 100;
+  
+  // Try to show as text if it looks like text, otherwise show hex
+  final sample = String.fromCharCodes(bytes.take(sampleSize));
+  final hasControlChars = sample.codeUnits.any((c) => c < 32 && c != 9 && c != 10 && c != 13);
+  
+  if (hasControlChars) {
+    // Show first 20 bytes as hex
+    final hexBytes = bytes.take(20).map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(', ');
+    return 'Binary: [$hexBytes, ...]';
+  } else {
+    // Show as text, truncated
+    final display = sample.length > 80 ? '${sample.substring(0, 80)}...' : sample;
+    return 'Text: "$display"';
+  }
 }

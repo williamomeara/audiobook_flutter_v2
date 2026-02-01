@@ -89,6 +89,9 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
 
     debugPrint('[GranularDownloadManager] Building initial state...');
     
+    // Load previously installed voices from disk
+    final installedVoices = await _loadInstalledVoices();
+    
     // Build core states from manifest
     for (final core in _manifestService.allCores) {
       final isInstalled = await _isCoreInstalled(core.id);
@@ -110,6 +113,25 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
           .map((c) => c.id)
           .toList();
       
+      // Determine voice install status:
+      // - For Piper: if core is ready, voice is ready (no separate install)
+      // - For Supertonic/Kokoro: check if voice was previously installed
+      final usesSharedCore = voice.engineId == 'supertonic' || voice.engineId == 'kokoro';
+      final allCoresReady = resolvedCoreIds.every((id) => cores[id]?.isReady ?? false);
+      
+      VoiceInstallStatus installStatus;
+      if (usesSharedCore) {
+        // Shared core voices need explicit installation
+        if (allCoresReady && installedVoices.contains(voice.id)) {
+          installStatus = VoiceInstallStatus.installed;
+        } else {
+          installStatus = VoiceInstallStatus.notInstalled;
+        }
+      } else {
+        // Piper voices: if core is ready, voice is installed
+        installStatus = allCoresReady ? VoiceInstallStatus.installed : VoiceInstallStatus.notInstalled;
+      }
+      
       voices[voice.id] = VoiceDownloadState(
         voiceId: voice.id,
         displayName: voice.displayName,
@@ -118,6 +140,7 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
         requiredCoreIds: resolvedCoreIds,
         speakerId: voice.speakerId,
         modelKey: voice.modelKey,
+        installStatus: installStatus,
       );
     }
 
@@ -127,6 +150,38 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     _validateSelectedVoiceOnStartup(initialState);
     
     return initialState;
+  }
+  
+  /// Load the set of previously installed voice IDs from disk.
+  Future<Set<String>> _loadInstalledVoices() async {
+    try {
+      final file = File('${_baseDir.path}/.installed_voices');
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        return content.split('\n').where((s) => s.isNotEmpty).toSet();
+      }
+    } catch (e) {
+      debugPrint('[GranularDownloadManager] Failed to load installed voices: $e');
+    }
+    return {};
+  }
+  
+  /// Save the set of installed voice IDs to disk.
+  Future<void> _saveInstalledVoices() async {
+    try {
+      final current = state.value;
+      if (current == null) return;
+      
+      final installed = current.voices.values
+          .where((v) => v.installStatus == VoiceInstallStatus.installed)
+          .map((v) => v.voiceId)
+          .toList();
+      
+      final file = File('${_baseDir.path}/.installed_voices');
+      await file.writeAsString(installed.join('\n'));
+    } catch (e) {
+      debugPrint('[GranularDownloadManager] Failed to save installed voices: $e');
+    }
   }
   
   /// Validates that the selected voice is still available after startup.
@@ -168,6 +223,9 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
   }
 
   /// Download a voice (auto-downloads required cores first).
+  /// For shared-core engines (Supertonic, Kokoro), this also handles
+  /// the individual voice "installation" step to give users the perception
+  /// of downloading individual voices.
   Future<void> downloadVoice(String voiceId) async {
     final voice = _manifestService.getVoice(voiceId);
     if (voice == null) {
@@ -180,6 +238,10 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     // Get required cores
     final requiredCores = _manifestService.getRequiredCores(voiceId);
     final currentState = state.value!;
+    final voiceState = currentState.voices[voiceId];
+    
+    // Check if this is a shared-core engine (Supertonic or Kokoro)
+    final usesSharedCore = voice.engineId == 'supertonic' || voice.engineId == 'kokoro';
 
     // Download missing cores first
     for (final core in requiredCores) {
@@ -187,9 +249,12 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
         await downloadCore(core.id);
       }
     }
+    
+    // For shared-core engines, perform the voice "installation" step
+    if (usesSharedCore && voiceState != null) {
+      await _installSharedCoreVoice(voiceId, voiceState);
+    }
 
-    // For most voices, downloading cores is sufficient
-    // (Kokoro uses speakerId, Piper core IS the voice model)
     debugPrint('[GranularDownloadManager] Voice $voiceId is now ready');
     
     // Auto-select this voice if no voice is currently selected
@@ -198,6 +263,59 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
       await ref.read(settingsProvider.notifier).setSelectedVoice(voiceId);
       debugPrint('[GranularDownloadManager] Auto-selected voice: $voiceId');
     }
+  }
+  
+  /// Install a shared-core voice (Supertonic/Kokoro).
+  /// This provides a brief "installing" phase to give users the perception
+  /// of downloading individual voices, even though the voice is just a
+  /// speaker ID within the already-downloaded core.
+  Future<void> _installSharedCoreVoice(String voiceId, VoiceDownloadState voiceState) async {
+    // Mark as installing
+    _updateVoiceInstallStatus(voiceId, VoiceInstallStatus.installing);
+    
+    // Brief delay to simulate installation (loading voice profile)
+    // This makes the UX feel more intentional and gives visual feedback
+    await Future.delayed(const Duration(milliseconds: 800));
+    
+    // Mark as installed
+    _updateVoiceInstallStatus(voiceId, VoiceInstallStatus.installed);
+    
+    // Persist the installed voices list
+    await _saveInstalledVoices();
+    
+    // Pre-warm the voice engine in the background
+    // This initializes CoreML/ONNX models so first playback doesn't jank
+    _warmUpVoiceInBackground(voiceId);
+    
+    debugPrint('[GranularDownloadManager] Voice $voiceId installed');
+  }
+  
+  /// Pre-warm a voice engine in the background.
+  void _warmUpVoiceInBackground(String voiceId) {
+    unawaited(
+      ref.read(ttsRoutingEngineProvider.future).then((engine) {
+        debugPrint('[GranularDownloadManager] Warming up voice: $voiceId');
+        return engine.warmUp(voiceId);
+      }).then((success) {
+        debugPrint('[GranularDownloadManager] WarmUp completed for $voiceId: $success');
+      }).catchError((e) {
+        debugPrint('[GranularDownloadManager] WarmUp failed for $voiceId: $e');
+      }),
+    );
+  }
+  
+  /// Update the install status of a voice.
+  void _updateVoiceInstallStatus(String voiceId, VoiceInstallStatus status) {
+    final current = state.value;
+    if (current == null) return;
+    
+    final voice = current.voices[voiceId];
+    if (voice == null) return;
+    
+    final newVoices = Map<String, VoiceDownloadState>.from(current.voices);
+    newVoices[voiceId] = voice.copyWith(installStatus: status);
+    
+    state = AsyncData(current.copyWith(voices: newVoices));
   }
 
   /// Download a specific core.
@@ -233,10 +351,11 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     final key = _getCoreKey(core.id);
     StreamSubscription<DownloadState>? subscription;
     int lastLoggedPercent = -10; // Track last logged % to throttle output
+    final downloadStartTime = DateTime.now();
 
     try {
       // Set downloading status when we actually start (moved from queued)
-      _updateCoreState(core.id, DownloadStatus.downloading, 0.0);
+      _updateCoreState(core.id, DownloadStatus.downloading, 0.0, startTime: downloadStartTime);
 
       if (core.isMultiFile) {
         // Multi-file download (e.g., Piper ONNX + JSON)
@@ -258,7 +377,12 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
         // Single file download - subscribe to state updates for progress
         subscription = _assetManager.watchState(key).listen((downloadState) {
           if (downloadState.status == DownloadStatus.downloading) {
-            _updateCoreState(core.id, DownloadStatus.downloading, downloadState.progress);
+            _updateCoreState(
+              core.id, 
+              DownloadStatus.downloading, 
+              downloadState.progress,
+              downloadedBytes: downloadState.downloadedBytes,
+            );
             
             // Log every 10% progress
             final currentPercent = (downloadState.progress * 100).toInt();
@@ -466,6 +590,8 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     DownloadStatus status,
     double progress, {
     String? error,
+    int? downloadedBytes,
+    DateTime? startTime,
   }) {
     final current = state.value;
     if (current == null) return;
@@ -473,6 +599,9 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
     final core = _manifestService.getCore(coreId);
     if (core == null) return;
 
+    // Preserve existing startTime if not provided
+    final existingStartTime = current.cores[coreId]?.startTime;
+    
     final newCores = Map<String, CoreDownloadState>.from(current.cores);
     newCores[coreId] = CoreDownloadState(
       coreId: coreId,
@@ -481,15 +610,17 @@ class GranularDownloadManager extends AsyncNotifier<GranularDownloadState> {
       status: status,
       progress: progress,
       sizeBytes: core.totalSize,
+      downloadedBytes: downloadedBytes ?? (progress * core.totalSize).toInt(),
+      startTime: startTime ?? existingStartTime,
       error: error,
     );
 
     // Determine currentDownload:
-    // - If this item is downloading, it becomes current
+    // - If this item is downloading or extracting, it becomes current
     // - If this item was current but is now done (ready/failed/notDownloaded), clear it
     // - Otherwise keep existing currentDownload
     String? newCurrentDownload;
-    if (status == DownloadStatus.downloading) {
+    if (status == DownloadStatus.downloading || status == DownloadStatus.extracting) {
       newCurrentDownload = coreId;
     } else if (current.currentDownload == coreId &&
         (status == DownloadStatus.ready ||

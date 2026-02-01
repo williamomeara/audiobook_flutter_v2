@@ -32,10 +32,6 @@ target 'Runner' do
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-  
-  # Future: TTS engine dependencies
-  # pod 'onnxruntime-swift', '~> 1.19'
-  # sherpa-onnx will be added when platform_ios_tts is implemented
 end
 
 post_install do |installer|

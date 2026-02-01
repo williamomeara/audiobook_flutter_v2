@@ -11,6 +11,7 @@ import '../../app/library_controller.dart';
 import '../../app/playback/playback.dart';
 import '../../app/playback_providers.dart';
 import '../../app/settings_controller.dart';
+import '../../app/granular_download_manager.dart';
 import '../../utils/app_haptics.dart';
 import '../theme/app_colors.dart';
 import '../widgets/segment_seek_slider.dart';
@@ -398,6 +399,159 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     }
   }
 
+  void _showVoicePicker(BuildContext context) {
+    final colors = context.appColors;
+    final currentVoice = ref.read(settingsProvider).selectedVoice;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.85,
+        expand: false,
+        builder: (context, scrollController) => ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          child: Container(
+            decoration: BoxDecoration(
+              color: colors.card,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Consumer(
+              builder: (context, ref, _) {
+                final downloadState = ref.watch(granularDownloadManagerProvider);
+
+                // Get ready voice IDs
+                final readyVoiceIds = downloadState.maybeWhen(
+                  data: (state) => state.readyVoices.map((v) => v.voiceId).toSet(),
+                  orElse: () => <String>{},
+                );
+
+                // Filter voices by engine to only include downloaded ones
+                final readyKokoroVoices = VoiceIds.kokoroVoices
+                    .where((id) => readyVoiceIds.contains(id))
+                    .toList();
+                final readyPiperVoices = VoiceIds.piperVoices
+                    .where((id) => readyVoiceIds.contains(id))
+                    .toList();
+                final readySupertonicVoices = VoiceIds.supertonicVoices
+                    .where((id) => readyVoiceIds.contains(id))
+                    .toList();
+
+                final hasNoDownloadedVoices = readyKokoroVoices.isEmpty &&
+                    readyPiperVoices.isEmpty &&
+                    readySupertonicVoices.isEmpty;
+
+                return Column(
+                  children: [
+                    // Drag handle
+                    Container(
+                      margin: const EdgeInsets.only(top: 12),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colors.textTertiary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Select Voice',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: colors.text,
+                        ),
+                      ),
+                    ),
+                    if (hasNoDownloadedVoices)
+                      Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.download_outlined, size: 48, color: colors.textTertiary),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No voices downloaded',
+                                style: TextStyle(fontSize: 16, color: colors.textSecondary),
+                              ),
+                              const SizedBox(height: 8),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  context.push('/settings/downloads');
+                                },
+                                child: const Text('Download Voices'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView(
+                          controller: scrollController,
+                          children: [
+                            // Piper voices first (fastest engine)
+                            if (readyPiperVoices.isNotEmpty) ...[
+                              _buildVoiceSection('Piper Voices', readyPiperVoices, currentVoice, colors),
+                            ],
+                            // Supertonic voices second
+                            if (readySupertonicVoices.isNotEmpty) ...[
+                              _buildVoiceSection('Supertonic Voices', readySupertonicVoices, currentVoice, colors),
+                            ],
+                            // Kokoro voices last (highest quality)
+                            if (readyKokoroVoices.isNotEmpty) ...[
+                              _buildVoiceSection('Kokoro Voices', readyKokoroVoices, currentVoice, colors),
+                            ],
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVoiceSection(String title, List<String> voiceIds, String currentVoice, AppThemeColors colors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: colors.textSecondary,
+            ),
+          ),
+        ),
+        for (final voiceId in voiceIds)
+          _VoiceOptionTile(
+            voiceId: voiceId,
+            isSelected: voiceId == currentVoice,
+            onTap: () {
+              ref.read(settingsProvider.notifier).setSelectedVoice(voiceId);
+              // Trigger warmup for the new voice
+              ref.read(playbackViewProvider.notifier).handleVoiceChange(voiceId);
+              Navigator.pop(context);
+            },
+          ),
+      ],
+    );
+  }
+
   void _saveProgressAndPop() {
     final viewState = ref.read(playbackViewProvider);
 
@@ -503,6 +657,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                     onPreviousChapter: _previousChapter,
                     onNextChapter: _nextChapter,
                     onSnapBack: () {},
+                    warmupStatus: viewState.warmupStatus,
+                    onVoiceTap: () => _showVoicePicker(context),
                     errorBannerBuilder: (error) => _buildErrorBanner(colors, error),
                   )
                 : PortraitLayout(
@@ -526,6 +682,8 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
                     onSegmentTap: _onSegmentTap,
                     onAutoScrollDisabled: _onUserScrolled,
                     onJumpToCurrent: _jumpToCurrent,
+                    warmupStatus: viewState.warmupStatus,
+                    onVoiceTap: () => _showVoicePicker(context),
                     playbackControlsBuilder: () => isPreview
                         ? _buildPreviewModeControls(colors, viewState as PreviewState, library)
                         : _buildPlaybackControls(
@@ -596,7 +754,16 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
     }
   }
 
-  /// Build the audio track queue for display
+  /// Build the audio track queue for display.
+  ///
+  /// Design Decision: We have two sources of segment data:
+  /// 1. ActiveState.segments - loaded from SQLite, available immediately on LoadingComplete
+  /// 2. playbackState.queue - populated by PlaybackController.loadChapter(), has audio metadata
+  ///
+  /// During engine warmUp (which can take 2-45 seconds on iOS), loadChapter hasn't run yet,
+  /// so playbackState.queue is empty. We use ActiveState.segments as fallback to show content
+  /// immediately while warmUp runs. Once loadChapter completes, we switch to playbackState.queue
+  /// which has richer metadata (synthesis status, cache status, actual duration).
   List<AudioTrack> _buildQueue(
     PlaybackViewState viewState,
     PlaybackState playbackState,
@@ -617,8 +784,24 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
               ))
           .toList();
     } else {
-      // In active mode, use the actual playback queue
-      return playbackState.queue;
+      // In active mode, prefer the actual playback queue if available
+      // If playback queue is empty (e.g., during engine warmUp), use segments from ActiveState
+      if (playbackState.queue.isNotEmpty) {
+        return playbackState.queue;
+      }
+      
+      // Fallback: build queue from segments during warmUp or before loadChapter completes
+      return segments
+          .map((s) => AudioTrack(
+                id: 'pending_${s.index}',
+                text: s.text,
+                chapterIndex: chapterIndex,
+                segmentIndex: s.index,
+                estimatedDuration: s.estimatedDuration,
+                segmentType: s.type,
+                metadata: s.metadata,
+              ))
+          .toList();
     }
   }
 
@@ -981,6 +1164,39 @@ class _PlaybackScreenState extends ConsumerState<PlaybackScreen>
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Voice option tile for the voice picker sheet.
+class _VoiceOptionTile extends StatelessWidget {
+  const _VoiceOptionTile({
+    required this.voiceId,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String voiceId;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppThemeColors>()!;
+    final displayName = VoiceIds.getDisplayName(voiceId);
+
+    return ListTile(
+      title: Text(
+        displayName,
+        style: TextStyle(
+          color: colors.text,
+          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+        ),
+      ),
+      trailing: isSelected
+          ? Icon(Icons.check_circle, color: colors.primary)
+          : null,
+      onTap: onTap,
     );
   }
 }

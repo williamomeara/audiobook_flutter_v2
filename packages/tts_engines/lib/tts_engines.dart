@@ -25,3 +25,7 @@ export 'src/callbacks/tts_callback_handler.dart';
 export 'src/smart_synthesis/smart_synthesis_manager.dart';
 export 'src/smart_synthesis/supertonic_smart_synthesis.dart';
 export 'src/smart_synthesis/piper_smart_synthesis.dart';
+
+// Progressive warmup for responsive voice switching
+export 'src/warmup/voice_warmup_state.dart';
+export 'src/warmup/voice_warmup_controller.dart';

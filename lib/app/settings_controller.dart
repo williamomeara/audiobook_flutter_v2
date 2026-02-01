@@ -43,6 +43,7 @@ class SettingsState {
     this.showBufferIndicator = true,
     this.compressOnSynthesize = true,
     this.showImages = true,
+    this.wifiOnlyDownloads = false,
   });
 
   /// Whether dark mode is enabled.
@@ -81,6 +82,9 @@ class SettingsState {
   /// Whether to show images/figures in the playback view.
   /// When disabled, figure segments are hidden and image-only chapters are skipped.
   final bool showImages;
+  
+  /// Whether to only download voice models on WiFi (not cellular data).
+  final bool wifiOnlyDownloads;
 
   SettingsState copyWith({
     bool? darkMode,
@@ -95,6 +99,7 @@ class SettingsState {
     bool? showBufferIndicator,
     bool? compressOnSynthesize,
     bool? showImages,
+    bool? wifiOnlyDownloads,
   }) {
     return SettingsState(
       darkMode: darkMode ?? this.darkMode,
@@ -109,6 +114,7 @@ class SettingsState {
       showBufferIndicator: showBufferIndicator ?? this.showBufferIndicator,
       compressOnSynthesize: compressOnSynthesize ?? this.compressOnSynthesize,
       showImages: showImages ?? this.showImages,
+      wifiOnlyDownloads: wifiOnlyDownloads ?? this.wifiOnlyDownloads,
     );
   }
 }
@@ -168,6 +174,8 @@ class SettingsController extends Notifier<SettingsState> {
           await _settingsDao!.getBool(SettingsKeys.compressOnSynthesize) ?? true;
       final showImages =
           await _settingsDao!.getBool(SettingsKeys.showImages) ?? true;
+      final wifiOnlyDownloads =
+          await _settingsDao!.getBool(SettingsKeys.wifiOnlyDownloads) ?? false;
 
       state = SettingsState(
         darkMode: darkMode,
@@ -182,6 +190,7 @@ class SettingsController extends Notifier<SettingsState> {
         showBufferIndicator: showBufferIndicator,
         compressOnSynthesize: compressOnSynthesize,
         showImages: showImages,
+        wifiOnlyDownloads: wifiOnlyDownloads,
       );
 
       developer.log(
@@ -301,6 +310,11 @@ class SettingsController extends Notifier<SettingsState> {
   Future<void> setShowImages(bool value) async {
     state = state.copyWith(showImages: value);
     await _settingsDao?.setBool(SettingsKeys.showImages, value);
+  }
+  
+  Future<void> setWifiOnlyDownloads(bool value) async {
+    state = state.copyWith(wifiOnlyDownloads: value);
+    await _settingsDao?.setBool(SettingsKeys.wifiOnlyDownloads, value);
   }
 }
 

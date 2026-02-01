@@ -73,7 +73,8 @@ class TtsLog {
 
   static void _log(String message) {
     if (kDebugMode) {
-      debugPrint(message);
+      final timestamp = DateTime.now().toIso8601String();
+      debugPrint('$timestamp $message');
     }
   }
 }

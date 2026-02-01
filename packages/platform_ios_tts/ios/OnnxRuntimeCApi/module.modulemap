@@ -1,0 +1,4 @@
+module OnnxRuntimeCApi {
+    header "ort_shim.h"
+    export *
+}

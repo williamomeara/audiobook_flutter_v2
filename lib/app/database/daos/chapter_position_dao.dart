@@ -16,6 +16,9 @@ class ChapterPositionDao {
   /// [chapterIndex] - Which chapter this position is for
   /// [segmentIndex] - The segment position within the chapter
   /// [isPrimary] - Whether this is the main listening position (snap-back target)
+  /// 
+  /// Throws nothing - silently fails if the book doesn't exist (FK violation).
+  /// This handles the edge case where a book is deleted while playback is active.
   Future<void> savePosition({
     required String bookId,
     required int chapterIndex,
@@ -23,17 +26,29 @@ class ChapterPositionDao {
     required bool isPrimary,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    await _db.insert(
-      'chapter_positions',
-      {
-        'book_id': bookId,
-        'chapter_index': chapterIndex,
-        'segment_index': segmentIndex,
-        'is_primary': isPrimary ? 1 : 0,
-        'updated_at': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    try {
+      await _db.insert(
+        'chapter_positions',
+        {
+          'book_id': bookId,
+          'chapter_index': chapterIndex,
+          'segment_index': segmentIndex,
+          'is_primary': isPrimary ? 1 : 0,
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } on DatabaseException catch (e) {
+      // SQLITE_CONSTRAINT_FOREIGNKEY = 787
+      // Silently fail if book was deleted (FK violation)
+      if (e.isNoSuchTableError() || 
+          e.toString().contains('FOREIGN KEY constraint failed') ||
+          e.toString().contains('Code=787')) {
+        // Book was deleted - position save is no longer relevant
+        return;
+      }
+      rethrow;
+    }
   }
 
   /// Get the primary position for a book (the main listening position).

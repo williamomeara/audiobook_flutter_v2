@@ -87,12 +87,16 @@ class _SegmentSeekSliderState extends State<SegmentSeekSlider> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
-    if (widget.totalSegments <= 0) {
+    // Guard against edge cases that would cause Slider assertion failures
+    if (widget.totalSegments <= 1) {
+      // With 0 or 1 segments, slider doesn't make sense
       return const SizedBox.shrink();
     }
 
     final isDragging = _previewIndex >= 0;
-    final displayIndex = isDragging ? _previewIndex : widget.currentIndex;
+    // Clamp displayIndex to valid range
+    final rawIndex = isDragging ? _previewIndex : widget.currentIndex;
+    final displayIndex = rawIndex.clamp(0, widget.totalSegments - 1);
     
     return Column(
       mainAxisSize: MainAxisSize.min,

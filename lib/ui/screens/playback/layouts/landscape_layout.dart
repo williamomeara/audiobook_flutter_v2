@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core_domain/core_domain.dart';
 import 'package:playback/playback.dart';
 
+import '../../../../app/playback/state/playback_view_state.dart';
 import '../../../theme/app_colors.dart';
 import '../../../widgets/segment_seek_slider.dart';
 import '../../../../app/playback_providers.dart';
@@ -53,6 +54,8 @@ class LandscapeLayout extends ConsumerWidget {
     required this.onNextChapter,
     required this.onSnapBack,
     required this.errorBannerBuilder,
+    required this.warmupStatus,
+    required this.onVoiceTap,
   });
 
   final Book book;
@@ -86,6 +89,10 @@ class LandscapeLayout extends ConsumerWidget {
   final VoidCallback onPreviousChapter;
   final VoidCallback onNextChapter;
   final VoidCallback onSnapBack;
+  
+  // Voice selection
+  final EngineWarmupStatus warmupStatus;
+  final VoidCallback onVoiceTap;
 
   // Builder for error banner
   final Widget Function(String error) errorBannerBuilder;
@@ -198,6 +205,8 @@ class LandscapeLayout extends ConsumerWidget {
                 onPreviousChapter: onPreviousChapter,
                 onNextChapter: onNextChapter,
                 onSnapBack: onSnapBack,
+                warmupStatus: warmupStatus,
+                onVoiceTap: onVoiceTap,
               ),
             ),
         ],
@@ -325,6 +334,8 @@ class _LandscapeBottomBar extends ConsumerWidget {
     required this.onPreviousChapter,
     required this.onNextChapter,
     required this.onSnapBack,
+    required this.warmupStatus,
+    required this.onVoiceTap,
   });
 
   final String bookId;
@@ -337,6 +348,8 @@ class _LandscapeBottomBar extends ConsumerWidget {
   final VoidCallback onPreviousChapter;
   final VoidCallback onNextChapter;
   final VoidCallback onSnapBack;
+  final EngineWarmupStatus warmupStatus;
+  final VoidCallback onVoiceTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -440,7 +453,7 @@ class _LandscapeBottomBar extends ConsumerWidget {
                 ),
               ),
 
-            // Next chapter (right side)
+            // Next chapter
             Material(
               color: Colors.transparent,
               child: InkWell(
@@ -458,6 +471,14 @@ class _LandscapeBottomBar extends ConsumerWidget {
                   ),
                 ),
               ),
+            ),
+
+            const SizedBox(width: 4),
+
+            // Voice selection button (right side)
+            VoiceSelectionButton(
+              warmupStatus: warmupStatus,
+              onTap: onVoiceTap,
             ),
           ],
         ),
