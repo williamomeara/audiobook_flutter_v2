@@ -142,6 +142,14 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
           final resumePositionAsync = ref.watch(resumePositionProvider(book.id));
           final resumePosition = resumePositionAsync.whenOrNull(data: (d) => d);
 
+          // Watch saved chapter positions for per-chapter resume
+          final chapterPositionsAsync = ref.watch(chapterPositionsProvider(book.id));
+          final chapterPositions = chapterPositionsAsync.when(
+            data: (data) => data,
+            loading: () => <int, ChapterPosition>{},
+            error: (_, __) => <int, ChapterPosition>{},
+          );
+
           final coverPath = book.coverImagePath;
           final chapters = book.chapters;
 
@@ -671,13 +679,18 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                           return GestureDetector(
                             onTap: () {
                               // Navigate to chapter
-                              // If it's the currently playing chapter, jump to current playback position
-                              // Otherwise start at segment 0
-                              final segment = isCurrentChapter
-                                  ? (playbackState.currentIndex >= 0
-                                      ? playbackState.currentIndex
-                                      : 0)
-                                  : 0;
+                              // Priority for segment:
+                              // 1. If currently playing this chapter: use current playback position
+                              // 2. If we have a saved position for this chapter: resume there
+                              // 3. Otherwise: start at segment 0
+                              int segment;
+                              if (isCurrentChapter && playbackState.currentIndex >= 0) {
+                                segment = playbackState.currentIndex;
+                              } else if (chapterPositions[index] != null) {
+                                segment = chapterPositions[index]!.segmentIndex;
+                              } else {
+                                segment = 0;
+                              }
                               context.push(
                                 '/playback/${widget.bookId}?chapter=$index&segment=$segment',
                               );
