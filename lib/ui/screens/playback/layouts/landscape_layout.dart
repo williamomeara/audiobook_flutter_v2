@@ -453,14 +453,7 @@ class _LandscapeBottomBar extends ConsumerWidget {
                 ),
               ),
 
-            // Voice selection button
-            VoiceSelectionButton(
-              warmupStatus: warmupStatus,
-              onTap: onVoiceTap,
-            ),
-            const SizedBox(width: 4),
-
-            // Next chapter (right side)
+            // Next chapter
             Material(
               color: Colors.transparent,
               child: InkWell(
@@ -478,6 +471,14 @@ class _LandscapeBottomBar extends ConsumerWidget {
                   ),
                 ),
               ),
+            ),
+
+            const SizedBox(width: 4),
+
+            // Voice selection button (right side)
+            VoiceSelectionButton(
+              warmupStatus: warmupStatus,
+              onTap: onVoiceTap,
             ),
           ],
         ),
