@@ -9,6 +9,7 @@ import '../../app/chapter_synthesis_provider.dart';
 import '../../app/database/database.dart';
 import '../../app/library_controller.dart';
 import '../../app/playback_providers.dart';
+import '../../app/services/playback_position_service.dart';
 import '../../app/settings_controller.dart';
 import '../theme/app_colors.dart';
 
@@ -135,6 +136,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
           final currentPlayingChapter = playbackState.bookId == widget.bookId
               ? playbackState.queue.firstOrNull?.chapterIndex
               : null;
+
+          // Watch resume position from database (single source of truth)
+          final resumePositionAsync = ref.watch(resumePositionProvider(book.id));
+          final resumePosition = resumePositionAsync.whenOrNull(data: (d) => d);
 
           final coverPath = book.coverImagePath;
           final chapters = book.chapters;
@@ -401,7 +406,7 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                             // Use pre-calculated chapter-based progress
                             progress: chapterProgress,
                             chapterCount: book.chapters.length,
-                            currentChapter: book.progress.chapterIndex,
+                            currentChapter: resumePosition?.chapterIndex ?? 0,
                             chapterProgressMap: chapterProgressMap,
                             colors: colors,
                           ),
@@ -425,11 +430,12 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                             child: ElevatedButton.icon(
                               onPressed: () {
                                 // If audio is currently playing THIS book, jump to that position
-                                // Otherwise resume from saved listening position
-                                final chapter = currentPlayingChapter ?? book.progress.chapterIndex;
+                                // Otherwise resume from saved listening position (from DB)
+                                final chapter = currentPlayingChapter ?? 
+                                    (resumePosition?.chapterIndex ?? 0);
                                 final segment = currentPlayingChapter != null
                                     ? playbackState.currentIndex
-                                    : book.progress.segmentIndex;
+                                    : (resumePosition?.segmentIndex ?? 0);
                                 // startPlayback=true tells PlaybackScreen to start playback
                                 // (not enter preview mode) even if another book is playing
                                 context.push(
@@ -462,9 +468,10 @@ class _BookDetailsScreenState extends ConsumerState<BookDetailsScreen>
                                     ),
                                   ),
                                   if (bookProgressState == BookProgressState.inProgress &&
-                                      book.progress.chapterIndex < book.chapters.length)
+                                      resumePosition != null &&
+                                      resumePosition.chapterIndex < book.chapters.length)
                                     Text(
-                                      'Chapter ${book.progress.chapterIndex + 1}: ${book.chapters[book.progress.chapterIndex].title}',
+                                      'Chapter ${resumePosition.chapterIndex + 1}: ${book.chapters[resumePosition.chapterIndex].title}',
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w400,
